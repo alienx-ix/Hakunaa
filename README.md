@@ -118,12 +118,17 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   screen instead: the handler opens a plain CrashReportActivity
   (yellow, no Material) with the full error, so a screenshot gives
   the exact exception to fix.
-- **v0.1.6 (2026-11-12):** the crash screen finally appeared and gave
-  the exact error — `NoClassDefFoundError: androidx.appcompat.R$drawable`
-  (AppCompat's drawable manager needs it at startup). Root cause: R8
-  removed the AppCompat R classes. v0.1.7 fixes it (keep all `**.R`
-  / `**.R$*` classes + the whole `androidx.appcompat` package;
-  `androidx/appcompat/R$drawable` verified present in the DEX).
+- **v0.1.7 (2026-11-12):** STILL the same `R$drawable` crash — the
+  "fix" was fake. My check only found the class NAME as a text string
+  in the DEX; dexdump showed 0 AppCompat R classes were actually
+  DEFINED. Root cause found: kotlinc silently produces NO .class files
+  for .java sources (it only uses them for symbol lookup), so the 55
+  aapt2-generated R.java files were never compiled. v0.1.8 fixes it
+  for real: a dedicated javac step (UTF-8) compiles all R.java files
+  into the DEX, and R8's heap was raised to 4 GB (it ran out of memory
+  at 1 GB with the R classes included). Verified with dexdump:
+  18 AppCompat R classes DEFINED, including `R$drawable` (count 1);
+  versionCode 9 / 0.1.8; 16 KB alignment verified.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.
