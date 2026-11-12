@@ -57,8 +57,10 @@ object DocumentDetector {
         }
     }
 
-    /** Detect the four document corners in [bitmap]. Returns null if not found. */
-    private fun detectCorners(bitmap: Bitmap): FloatArray? {
+    /** Detect the four document corners in [bitmap]. Returns null if not found.
+     *  Corners are in full-resolution bitmap coordinates, in the order
+     *  top-left, top-right, bottom-right, bottom-left. */
+    fun detectCorners(bitmap: Bitmap): FloatArray? {
         // Downscale for speed.
         val maxSide = 800
         val scale = min(1f, maxSide.toFloat() / max(bitmap.width, bitmap.height).toFloat())
@@ -220,7 +222,7 @@ object DocumentDetector {
     }
 
     /** Warp the photo so the four corners become a flat rectangle. */
-    private fun warpToRectangle(bitmap: Bitmap, corners: FloatArray): Bitmap? {
+    fun warpToRectangle(bitmap: Bitmap, corners: FloatArray): Bitmap? {
         // Destination: a rectangle sized to the average edge lengths.
         val topW = dist(corners[0], corners[1], corners[2], corners[3])
         val bottomW = dist(corners[4], corners[5], corners[6], corners[7])

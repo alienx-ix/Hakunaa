@@ -353,6 +353,28 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   `-keep class androidx.camera.** { *; }` to
   proguard-rules.pro. Verified in the built APK: PreviewView
   now present (17 class descriptors in the DEX, was 0).
+- **v0.1.30 (2026-11-12): Professional scanner — CamScanner-style
+  full flow.** The user said the app "use pana poor a irku,
+  professional a therila" and sent CamScanner screenshots of the
+  camera, Crop and Enhance screens, asking to refer to a
+  professional scanner app first. Rebuilt the scanner to match:
+  (1) **Camera** — full-screen live preview, top bar (close,
+  flash toggle, HD toggle, menu), Single / Batch mode tabs, big
+  round teal capture button, Import Images / Import Files.
+  (2) **Crop** — the photo with a teal frame and draggable corner
+  handles (white circles, teal ring) + edge pill handles, dimmed
+  area outside the frame, Auto Detect (snaps the frame to the
+  document), rotate Left / Right, Next. (3) **Enhance** —
+  editable document name ("Hakunaa 11-12-2026 19.53" style),
+  filter thumbnails Original / Lighten / Enhance (default) /
+  No Shadow / B&W, rotate Left, green checkmark to save the page.
+  Single mode saves the PDF after one page; Batch mode keeps
+  capturing and saves all pages as one PDF. All filters are pure
+  Kotlin, on-device. Not possible offline (and not built):
+  Extract Text (OCR) and To Word are cloud features in
+  CamScanner; Markup and Sign are later steps. First v0.1.30
+  build failed on `Filter` needing its `ImageEnhancer.` prefix;
+  fixed.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

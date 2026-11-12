@@ -11,4 +11,7 @@
     <color name="hakunaa_text_secondary">#5B6472</color>
     <color name="hakunaa_outline">#D9DEE6</color>
     <color name="hakunaa_success">#137333</color>
+    <!-- Teal accent used by the scanner (CamScanner-style crop frame,
+         capture button ring, selected filter). -->
+    <color name="hakunaa_teal">#00BFA5</color>
 </resources>

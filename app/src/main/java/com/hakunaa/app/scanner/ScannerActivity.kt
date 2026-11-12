@@ -1,19 +1,13 @@
 package com.hakunaa.app.scanner
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.graphics.ColorMatrix
-import android.graphics.ColorMatrixColorFilter
-import android.graphics.Matrix
-import android.graphics.Paint
 import android.net.Uri
 import android.os.Bundle
-import android.widget.Button
-import android.widget.ImageView
-import android.widget.RadioGroup
+import android.view.View
+import android.widget.ImageButton
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -35,30 +29,36 @@ import java.util.concurrent.Executors
 
 /**
  * PDF Scanner — professional document scanner, 100% on-device.
+ * CamScanner-style flow:
  *
- * - Live camera preview inside the app (CameraX PreviewView),
- *   not the system camera app.
- * - Asks for the CAMERA permission properly, with the system
- *   dialog, the way every other app does. Without it the camera
- *   cannot open — that was the v0.1.27 bug: the permission was
- *   in the manifest but never requested at runtime.
- * - Capture: takes a photo, auto-detects the document edges
- *   (pure-Kotlin Sobel edge detection, no OpenCV), corrects the
- *   perspective so the page looks flat and straight, then applies
- *   the chosen filter (Color / Grayscale / B&W).
- * - Page preview: every scanned page shows as a thumbnail.
- * - Multi-page: keep scanning, then save all pages as one PDF.
- * - Also accepts photos from the gallery.
+ * 1. Camera (this screen): full-screen live preview, flash + HD
+ *    toggles, Single / Batch mode, big capture button, Import
+ *    Images / Import Files.
+ * 2. Crop (CropActivity): draggable teal corner handles, Auto
+ *    Detect, rotate Left / Right, Next.
+ * 3. Enhance (EnhanceActivity): filters Original / Lighten /
+ *    Enhance / No Shadow / B&W, rotate, document name, checkmark
+ *    to save the page.
+ * 4. Back here: Single mode saves the PDF after one page; Batch
+ *    mode keeps capturing and saves all pages as one PDF.
+ *
+ * The camera permission is asked properly with the system dialog
+ * when the scanner opens — that was the v0.1.27 bug (permission
+ * was in the manifest but never requested at runtime).
  *
  * No cloud, no account. Files never leave the phone.
  */
 class ScannerActivity : AppCompatActivity() {
 
-    enum class Filter { COLOR, GRAYSCALE, BW }
+    enum class Mode { SINGLE, BATCH }
 
     private val pages = mutableListOf<File>()
+    private var docName: String? = null
+    private var mode = Mode.SINGLE
     private var imageCapture: ImageCapture? = null
     private var cameraExecutor: ExecutorService? = null
+    private var flashOn = false
+    private var hdOn = false
 
     private val requestCameraPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -72,22 +72,54 @@ class ScannerActivity : AppCompatActivity() {
 
     private val pickPhoto =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-            if (uri != null) addPageFromUri(uri)
+            if (uri != null) openCropFromUri(uri)
+        }
+
+    private val cropLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) {
+                val path = result.data?.getStringExtra(CropActivity.EXTRA_CROPPED_PATH)
+                if (path != null) {
+                    val file = File(path)
+                    if (file.exists()) {
+                        pages.add(file)
+                        docName = result.data?.getStringExtra("doc_name") ?: docName
+                        updatePagesLabel()
+                        if (mode == Mode.SINGLE) {
+                            saveAsPdf()
+                        }
+                    }
+                }
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_scanner)
 
-        findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar)
-            .setNavigationOnClickListener { finish() }
-
         cameraExecutor = Executors.newSingleThreadExecutor()
 
-        findViewById<Button>(R.id.btnCapture).setOnClickListener { capturePhoto() }
-        findViewById<Button>(R.id.btnPickPhoto).setOnClickListener { pickPhoto.launch("image/*") }
-        findViewById<Button>(R.id.btnSavePdf).setOnClickListener { saveAsPdf() }
-        findViewById<Button>(R.id.btnClearPages).setOnClickListener { clearPages() }
+        findViewById<ImageButton>(R.id.btnClose).setOnClickListener { finish() }
+        findViewById<ImageButton>(R.id.btnCapture).setOnClickListener { capturePhoto() }
+        findViewById<ImageButton>(R.id.btnFlash).setOnClickListener { toggleFlash() }
+        findViewById<com.google.android.material.button.MaterialButton>(R.id.btnHd)
+            .setOnClickListener { toggleHd() }
+        findViewById<ImageButton>(R.id.btnMenu).setOnClickListener {
+            Toast.makeText(this, "More options coming soon", Toast.LENGTH_SHORT).show()
+        }
+        findViewById<LinearLayout>(R.id.btnAllFeatures).setOnClickListener {
+            Toast.makeText(this, "All Features coming soon", Toast.LENGTH_SHORT).show()
+        }
+        findViewById<LinearLayout>(R.id.btnImportImages).setOnClickListener {
+            pickPhoto.launch("image/*")
+        }
+        findViewById<LinearLayout>(R.id.btnImportFiles).setOnClickListener {
+            pickPhoto.launch("image/*")
+        }
+        findViewById<TextView>(R.id.tvModeSingle).setOnClickListener { setMode(Mode.SINGLE) }
+        findViewById<TextView>(R.id.tvModeBatch).setOnClickListener { setMode(Mode.BATCH) }
+        findViewById<com.google.android.material.button.MaterialButton>(R.id.btnSavePdf)
+            .setOnClickListener { saveAsPdf() }
 
         // Ask for the camera permission the way every app does.
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
@@ -105,6 +137,43 @@ class ScannerActivity : AppCompatActivity() {
         cameraExecutor?.shutdown()
     }
 
+    private fun setMode(newMode: Mode) {
+        mode = newMode
+        val single = findViewById<TextView>(R.id.tvModeSingle)
+        val batch = findViewById<TextView>(R.id.tvModeBatch)
+        if (newMode == Mode.SINGLE) {
+            single.setTextColor(getColor(R.color.hakunaa_teal))
+            single.setTypeface(null, android.graphics.Typeface.BOLD)
+            batch.setTextColor(getColor(android.R.color.white))
+            batch.setTypeface(null, android.graphics.Typeface.NORMAL)
+        } else {
+            batch.setTextColor(getColor(R.color.hakunaa_teal))
+            batch.setTypeface(null, android.graphics.Typeface.BOLD)
+            single.setTextColor(getColor(android.R.color.white))
+            single.setTypeface(null, android.graphics.Typeface.NORMAL)
+        }
+        findViewById<TextView>(R.id.tvStatus).text =
+            if (newMode == Mode.SINGLE) "Single mode — one page, then save"
+            else "Batch mode — keep capturing, save when done"
+    }
+
+    private fun toggleFlash() {
+        flashOn = !flashOn
+        imageCapture?.flashMode =
+            if (flashOn) ImageCapture.FLASH_MODE_ON else ImageCapture.FLASH_MODE_OFF
+        findViewById<ImageButton>(R.id.btnFlash).setImageResource(
+            if (flashOn) R.drawable.ic_flash_on else R.drawable.ic_flash_off
+        )
+    }
+
+    private fun toggleHd() {
+        hdOn = !hdOn
+        // Re-bind the camera with the new capture setting.
+        val btn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnHd)
+        btn.setTextColor(if (hdOn) getColor(R.color.hakunaa_teal) else getColor(android.R.color.white))
+        startCamera()
+    }
+
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
@@ -113,9 +182,15 @@ class ScannerActivity : AppCompatActivity() {
                 val preview = Preview.Builder().build().also {
                     it.setSurfaceProvider(findViewById<PreviewView>(R.id.previewView).surfaceProvider)
                 }
-                imageCapture = ImageCapture.Builder()
+                val captureBuilder = ImageCapture.Builder()
                     .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                    .build()
+                if (hdOn) {
+                    captureBuilder.setTargetResolution(android.util.Size(1920, 1080))
+                }
+                imageCapture = captureBuilder.build().also {
+                    it.flashMode =
+                        if (flashOn) ImageCapture.FLASH_MODE_ON else ImageCapture.FLASH_MODE_OFF
+                }
                 val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
                 cameraProvider.unbindAll()
                 cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture)
@@ -147,162 +222,37 @@ class ScannerActivity : AppCompatActivity() {
                 }
 
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                    processCapturedPhoto(photoFile)
+                    openCrop(photoFile)
                 }
             }
         )
     }
 
-    private fun processCapturedPhoto(photoFile: File) {
-        val status = findViewById<TextView>(R.id.tvStatus)
-        Thread {
-            try {
-                // 1. Detect the document corners and straighten it.
-                val straightened = DocumentDetector.straighten(photoFile)
-                val source = straightened ?: photoFile
-                // 2. Apply the chosen filter.
-                val filtered = File(cacheDir, "scan_filtered_${System.currentTimeMillis()}.jpg")
-                val ok = applyFilter(source, filtered, selectedFilter())
-                if (straightened != null && straightened != photoFile) {
-                    try { straightened.delete() } catch (_: Throwable) { }
-                }
-                try { photoFile.delete() } catch (_: Throwable) { }
-                runOnUiThread {
-                    if (ok) {
-                        pages.add(filtered)
-                        updatePagesLabel()
-                        updatePreview()
-                        status.text = "Page ${pages.size} added — scan another, or save as PDF"
-                    } else {
-                        status.text = "Couldn't process that photo — try again"
-                    }
-                }
-            } catch (_: Throwable) {
-                runOnUiThread { status.text = "Couldn't process that photo — try again" }
-            }
-        }.start()
+    private fun openCrop(photoFile: File) {
+        val intent = Intent(this, CropActivity::class.java)
+        intent.putExtra(CropActivity.EXTRA_PHOTO_PATH, photoFile.absolutePath)
+        cropLauncher.launch(intent)
     }
 
-    private fun selectedFilter(): Filter {
-        return when (findViewById<RadioGroup>(R.id.rgFilter).checkedRadioButtonId) {
-            R.id.rbFilterGrayscale -> Filter.GRAYSCALE
-            R.id.rbFilterBw -> Filter.BW
-            else -> Filter.COLOR
-        }
-    }
-
-    private fun addPageFromUri(uri: Uri) {
+    private fun openCropFromUri(uri: Uri) {
         val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Adding page…"
+        status.text = "Adding photo…"
         Thread {
             try {
                 val input = FileUtils.copyUriToCache(this, uri, "scan_page")
-                val straightened = DocumentDetector.straighten(input)
-                val source = straightened ?: input
-                val filtered = File(cacheDir, "scan_filtered_${System.currentTimeMillis()}.jpg")
-                val ok = applyFilter(source, filtered, selectedFilter())
-                if (straightened != null && straightened != input) {
-                    try { straightened.delete() } catch (_: Throwable) { }
-                }
-                try { input.delete() } catch (_: Throwable) { }
-                runOnUiThread {
-                    if (ok) {
-                        pages.add(filtered)
-                        updatePagesLabel()
-                        updatePreview()
-                        status.text = "Page ${pages.size} added — scan another, or save as PDF"
-                    } else {
-                        status.text = "Couldn't add that photo — try again"
-                    }
-                }
+                runOnUiThread { openCrop(input) }
             } catch (_: Throwable) {
                 runOnUiThread { status.text = "Couldn't add that photo — try again" }
             }
         }.start()
     }
 
-    private fun applyFilter(input: File, output: File, filter: Filter): Boolean {
-        if (filter == Filter.COLOR) {
-            return try {
-                input.copyTo(output, overwrite = true)
-                true
-            } catch (_: Throwable) {
-                false
-            }
-        }
-        return try {
-            val bitmap = BitmapFactory.decodeFile(input.absolutePath) ?: return false
-            val result = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(result)
-            val paint = Paint()
-            when (filter) {
-                Filter.GRAYSCALE -> {
-                    val matrix = ColorMatrix()
-                    matrix.setSaturation(0f)
-                    paint.colorFilter = ColorMatrixColorFilter(matrix)
-                    canvas.drawBitmap(bitmap, 0f, 0f, paint)
-                }
-                Filter.BW -> {
-                    val gray = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
-                    val grayCanvas = Canvas(gray)
-                    val grayPaint = Paint()
-                    val matrix = ColorMatrix()
-                    matrix.setSaturation(0f)
-                    grayPaint.colorFilter = ColorMatrixColorFilter(matrix)
-                    grayCanvas.drawBitmap(bitmap, 0f, 0f, grayPaint)
-                    val pixels = IntArray(gray.width * gray.height)
-                    gray.getPixels(pixels, 0, gray.width, 0, 0, gray.width, gray.height)
-                    for (i in pixels.indices) {
-                        val p = pixels[i]
-                        val lum = (0.299 * ((p shr 16) and 0xFF) +
-                            0.587 * ((p shr 8) and 0xFF) +
-                            0.114 * (p and 0xFF)).toInt()
-                        pixels[i] = if (lum < 160) -0x1000000 else -0x1
-                    }
-                    result.setPixels(pixels, 0, result.width, 0, 0, result.width, result.height)
-                    gray.recycle()
-                }
-                else -> {
-                    canvas.drawBitmap(bitmap, 0f, 0f, paint)
-                }
-            }
-            File(output.absolutePath).outputStream().use { out ->
-                result.compress(Bitmap.CompressFormat.JPEG, 90, out)
-            }
-            bitmap.recycle()
-            result.recycle()
-            true
-        } catch (_: Throwable) {
-            false
-        }
-    }
-
     private fun updatePagesLabel() {
         findViewById<TextView>(R.id.tvPages).text =
-            if (pages.isEmpty()) "No pages yet — point the camera and tap Capture"
+            if (pages.isEmpty()) ""
             else "${pages.size} page(s) scanned"
-    }
-
-    /** Show the latest scanned page as a thumbnail preview. */
-    private fun updatePreview() {
-        val last = pages.lastOrNull() ?: return
-        try {
-            val bitmap = BitmapFactory.decodeFile(last.absolutePath) ?: return
-            findViewById<ImageView>(R.id.ivPreview).setImageBitmap(bitmap)
-            findViewById<TextView>(R.id.tvPreviewLabel).text = "Latest page — ${pages.size} total"
-        } catch (_: Throwable) {
-        }
-    }
-
-    private fun clearPages() {
-        for (page in pages) {
-            try { page.delete() } catch (_: Throwable) { }
-        }
-        pages.clear()
-        updatePagesLabel()
-        findViewById<ImageView>(R.id.ivPreview).setImageDrawable(null)
-        findViewById<TextView>(R.id.tvPreviewLabel).text = ""
-        findViewById<TextView>(R.id.tvStatus).text = "Cleared — start a new scan"
+        findViewById<View>(R.id.btnSavePdf).visibility =
+            if (pages.isNotEmpty() && mode == Mode.BATCH) View.VISIBLE else View.GONE
     }
 
     private fun saveAsPdf() {
@@ -312,14 +262,22 @@ class ScannerActivity : AppCompatActivity() {
         }
         val status = findViewById<TextView>(R.id.tvStatus)
         status.text = "Saving PDF…"
+        val name = (docName ?: "Hakunaa Scan").replace(Regex("[^A-Za-z0-9 _.-]"), "_")
         Thread {
             try {
-                val out = File(cacheDir, "hakunaa_scan_${System.currentTimeMillis()}.pdf")
+                val out = File(cacheDir, "$name.pdf")
                 val ok = PdfTools.imageToPdf(pages, out)
                 val saved = ok && MediaStoreSaver.save(this, out, MediaStoreSaver.Kind.DOCUMENT, out.name) != null
                 runOnUiThread {
-                    status.text = if (saved) "Done — scanned PDF saved to Documents/Hakunaa/${out.name} (${pages.size} page(s))"
-                    else "Save failed — try again"
+                    if (saved) {
+                        status.text = "Done — scanned PDF saved to Documents/Hakunaa/${out.name} (${pages.size} page(s))"
+                        Toast.makeText(this, "PDF saved", Toast.LENGTH_SHORT).show()
+                        pages.clear()
+                        docName = null
+                        updatePagesLabel()
+                    } else {
+                        status.text = "Save failed — try again"
+                    }
                 }
             } catch (_: Throwable) {
                 runOnUiThread { status.text = "Save failed — try again" }
