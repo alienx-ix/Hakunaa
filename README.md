@@ -275,6 +275,16 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   guarantee already in place for Video (`compressBest`, v0.1.18),
   PDF Smart (`compressSmartBest`, v0.1.22) and PDF Lossless
   (size check, v0.1.14).
+- **v0.1.24 (2026-11-12): Best means best — try them all, keep
+  the smallest.** The user tested v0.1.23: Smart Compress worked
+  (3.7 MB → 3.2 MB, 14% smaller) but only 14% — "inu Nallavae
+  panalam, best algorithm pick pani". The flaw: `compressSmartBest`
+  stopped at the FIRST smaller result (100 DPI / 70%) and never
+  tried the stronger settings. Fix: it now tries EVERY level —
+  150 DPI / JPEG 82%, 100 DPI / JPEG 70%, 72 DPI / JPEG 60%,
+  72 DPI / JPEG 50% — and keeps the SMALLEST output. Same change
+  for Image `compressBest` (tries all 5 levels, keeps smallest).
+  Slower (runs each level once) but the smallest file wins.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

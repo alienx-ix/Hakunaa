@@ -127,14 +127,15 @@ object PdfTools {
     }
 
     /**
-     * Best Smart Compress: try the standard settings first (150 DPI,
-     * JPEG 82%); if the result is NOT smaller than the input, the
-     * app automatically escalates to stronger settings (100 DPI /
-     * JPEG 70%, then 72 DPI / JPEG 60%) until the output IS smaller.
-     * A Smart Compress never hands back a bigger file. The user
-     * proved the need: a 3.8 MB PDF came back 4.2 MB (-10%) even
-     * though 8 images were "compressed" — the originals were already
-     * low-quality JPEGs, so re-encoding at 82% grew them.
+     * Best Smart Compress: try EVERY setting level — 150 DPI / JPEG
+     * 82%, 100 DPI / JPEG 70%, 72 DPI / JPEG 60%, 72 DPI / JPEG
+     * 50% — and keep the SMALLEST output, not just the first one
+     * that is smaller. The earlier version stopped at the first
+     * smaller result, so a 3.7 MB PDF came back only 14% smaller
+     * (100 DPI / 70%) when the stronger settings would have shrunk
+     * it much more. Best means best: the app tries them all and
+     * hands back the smallest file. A Smart Compress never hands
+     * back a bigger file.
      * Returns a Pair: (images replaced, settings note). The note is
      * "" if the standard settings won, or names the stronger
      * settings used. Returns (-1, "") on failure, and (0, "already")
@@ -145,21 +146,45 @@ object PdfTools {
         val inputSize = input.length()
         val attempts = listOf(
             Triple(150, 0.82f, ""),
-            Triple(100, 0.70f, " (used 100 DPI, JPEG 70% to get it smaller)"),
-            Triple(72, 0.60f, " (used 72 DPI, JPEG 60% to get it smaller)")
+            Triple(100, 0.70f, " (used 100 DPI, JPEG 70%)"),
+            Triple(72, 0.60f, " (used 72 DPI, JPEG 60%)"),
+            Triple(72, 0.50f, " (used 72 DPI, JPEG 50%)")
         )
+        var bestReplaced = -1
+        var bestNote = ""
+        var bestSize = Long.MAX_VALUE
+        // Try every level and keep the smallest output.
         for ((dpi, quality, note) in attempts) {
-            val replaced = compressSmart(input, output, dpi, quality)
-            if (replaced < 0) return Pair(-1, "")
-            if (!output.exists()) return Pair(-1, "")
-            val outSize = output.length()
-            if (outSize < inputSize) {
-                return Pair(replaced, note)
+            val candidate = File(
+                output.parent,
+                "${output.nameWithoutExtension}_try${dpi}_${(quality * 100).toInt()}.pdf"
+            )
+            val replaced = compressSmart(input, candidate, dpi, quality)
+            if (replaced < 0 || !candidate.exists()) {
+                try { candidate.delete() } catch (_: Throwable) { }
+                continue
             }
-            // Bigger (or equal) — delete it and try harder.
-            try { output.delete() } catch (_: Throwable) { }
+            val size = candidate.length()
+            if (size < inputSize && size < bestSize) {
+                // This is the smallest so far — keep it, drop the old best.
+                try { output.delete() } catch (_: Throwable) { }
+                try { candidate.renameTo(output) } catch (_: Throwable) { }
+                if (output.exists()) {
+                    bestReplaced = replaced
+                    bestNote = note
+                    bestSize = output.length()
+                }
+            } else {
+                try { candidate.delete() } catch (_: Throwable) { }
+            }
         }
-        return Pair(0, "already")
+        return when {
+            bestReplaced < 0 -> {
+                try { output.delete() } catch (_: Throwable) { }
+                Pair(0, "already")
+            }
+            else -> Pair(bestReplaced, bestNote)
+        }
     }
 
     /** Walk a page's XObjects (including nested Form XObjects) and downscale images. Returns the count replaced. */

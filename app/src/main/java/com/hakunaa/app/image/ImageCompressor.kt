@@ -50,12 +50,13 @@ object ImageCompressor {
     }
 
     /**
-     * Best image compression: try JPEG 85% first; if the result is
-     * NOT smaller than the input, automatically escalate to stronger
-     * settings — WebP 85% (25–35% smaller than JPEG), JPEG 70%,
-     * WebP 70%, JPEG 60% — until the output IS smaller. A compress
-     * never hands back a bigger file. The user requires it: in ANY
-     * situation, the output must never be bigger than the original.
+     * Best image compression: try EVERY setting level — JPEG 85%,
+     * WebP 85% (25–35% smaller than JPEG), JPEG 70%, WebP 70%,
+     * JPEG 60% — and keep the SMALLEST output, not just the first
+     * one that is smaller. Best means best: the app tries them all
+     * and hands back the smallest file. A compress never hands back
+     * a bigger file. The user requires it: in ANY situation, the
+     * output must never be bigger than the original.
      * Returns a Triple: (output file, format used, settings note).
      * The note is "" if JPEG 85% won, or names the stronger setting
      * used. Returns null if even the strongest settings could not
@@ -67,28 +68,38 @@ object ImageCompressor {
         val inputSize = input.length()
         val attempts = listOf(
             Triple(85, Format.JPEG, ""),
-            Triple(85, Format.WEBP, " (used WebP to get it smaller)"),
-            Triple(70, Format.JPEG, " (used JPEG 70% to get it smaller)"),
-            Triple(70, Format.WEBP, " (used WebP 70% to get it smaller)"),
-            Triple(60, Format.JPEG, " (used JPEG 60% to get it smaller)")
+            Triple(85, Format.WEBP, " (used WebP)"),
+            Triple(70, Format.JPEG, " (used JPEG 70%)"),
+            Triple(70, Format.WEBP, " (used WebP 70%)"),
+            Triple(60, Format.JPEG, " (used JPEG 60%)")
         )
+        var bestFile: File? = null
+        var bestFormat = Format.JPEG
+        var bestNote = ""
+        var bestSize = Long.MAX_VALUE
+        // Try every level and keep the smallest output.
         for ((quality, format, note) in attempts) {
-            val out = File(
+            val candidate = File(
                 outputBase.parent,
-                "${outputBase.nameWithoutExtension}.${format.extension}"
+                "${outputBase.nameWithoutExtension}_try${quality}_${format.extension}.${format.extension}"
             )
-            val ok = compress(input, out, quality, format)
-            if (!ok) {
-                try { out.delete() } catch (_: Throwable) { }
+            val ok = compress(input, candidate, quality, format)
+            if (!ok || !candidate.exists()) {
+                try { candidate.delete() } catch (_: Throwable) { }
                 continue
             }
-            if (!out.exists()) continue
-            if (out.length() < inputSize) {
-                return Triple(out, format, note)
+            val size = candidate.length()
+            if (size < inputSize && size < bestSize) {
+                // Smallest so far — keep it, drop the old best.
+                try { bestFile?.delete() } catch (_: Throwable) { }
+                bestFile = candidate
+                bestFormat = format
+                bestNote = note
+                bestSize = size
+            } else {
+                try { candidate.delete() } catch (_: Throwable) { }
             }
-            // Bigger (or equal) — delete it and try harder.
-            try { out.delete() } catch (_: Throwable) { }
         }
-        return null
+        return if (bestFile != null) Triple(bestFile, bestFormat, bestNote) else null
     }
 }
