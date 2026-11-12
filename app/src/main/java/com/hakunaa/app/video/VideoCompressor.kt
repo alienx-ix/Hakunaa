@@ -31,7 +31,8 @@ object VideoCompressor {
         outputPath: String,
         crf: Int,
         codec: Codec = Codec.H264,
-        preset: String = Presets.VIDEO_PRESET
+        preset: String = Presets.VIDEO_PRESET,
+        hasAudio: Boolean = true
     ): String {
         val videoCodec = codec.ffmpegName
         // H.265 needs a pixel-format + tag that plays on most phones.
@@ -41,13 +42,14 @@ object VideoCompressor {
             Codec.AV1 -> " -pix_fmt yuv420p -cpu-used 4"
             else -> " -pix_fmt yuv420p"
         }
-        // Map video always; audio only if the input has an audio
-        // stream (the "?" makes the audio mapping optional). Many
-        // phone videos — screen recordings, muted clips — have no
-        // audio track, and forcing "-c:a aac" with no audio stream
-        // made FFmpeg fail outright ("Failed: FFmpeg failed").
-        return "-i \"$inputPath\" -map 0:v:0 -map 0:a:0? -c:v $videoCodec -crf $crf -preset $preset$extra " +
-            "-c:a aac -b:a ${Presets.AUDIO_BITRATE} \"$outputPath\""
+        // Standard, proven order (same as the reference app): input,
+        // video codec, preset, CRF, pixel format, then audio ONLY if
+        // the input actually has an audio stream. Forcing "-c:a aac"
+        // on a video with no audio made FFmpeg fail, and the "-map
+        // 0:a:0?" workaround broke option parsing ("Unrecognized
+        // option 'preset'"). Audio is probed up front instead.
+        val audio = if (hasAudio) " -c:a aac -b:a ${Presets.AUDIO_BITRATE}" else ""
+        return "-i \"$inputPath\" -c:v $videoCodec -preset $preset -crf $crf$extra$audio \"$outputPath\""
     }
 
     // Is the native video engine loadable on this phone?
@@ -92,13 +94,21 @@ object VideoCompressor {
         onProgress: (Int) -> Unit,
         onDone: (Boolean, String) -> Unit
     ) {
-        // Probe duration first, so the progress bar has a denominator.
+        // Probe duration first, so the progress bar has a denominator,
+        // and check whether the input has an audio stream (audio is
+        // only encoded when present — forcing AAC on a silent video
+        // makes FFmpeg fail).
         var durationMs: Long = 0
+        var hasAudio = true
         try {
             val info = com.arthenica.ffmpegkit.FFprobeKit.getMediaInformation(inputPath)
             durationMs = info.mediaInformation?.duration?.toDoubleOrNull()?.times(1000)?.toLong() ?: 0L
+            hasAudio = info.mediaInformation?.streams?.any { stream ->
+                stream.type?.equals("audio", ignoreCase = true) == true
+            } ?: true
         } catch (_: Exception) {
             durationMs = 0
+            hasAudio = true
         }
         // FFmpegKit 6.0 has no disableStatisticsCallback(); stop progress
         // with a flag instead — the callback returns early once finished.
@@ -112,7 +122,7 @@ object VideoCompressor {
                 onProgress(percent)
             }
         }
-        val session = FFmpegKit.executeAsync(buildCommand(inputPath, outputPath, crf, codec)) { s ->
+        val session = FFmpegKit.executeAsync(buildCommand(inputPath, outputPath, crf, codec, Presets.VIDEO_PRESET, hasAudio)) { s ->
             finished = true
             val ok = ReturnCode.isSuccess(s.returnCode)
             // On failure, show the real FFmpeg error (last lines of the

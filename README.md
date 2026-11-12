@@ -118,14 +118,12 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   screen instead: the handler opens a plain CrashReportActivity
   (yellow, no Material) with the full error, so a screenshot gives
   the exact exception to fix.
-- **v0.1.10 (2026-11-12):** fixes both tools the user tested.
-  Video: FFmpeg failed on videos with no audio track (the command
-  forced AAC); audio is now optional (`-map 0:a:0?`), and a failure
-  now shows the real FFmpeg error instead of the generic message.
-  PDF Smart: only downscaled images bigger than the page, so a PDF
-  whose images were stored as big PNGs came back "0% smaller"; it
-  now also re-encodes large lossless images as JPEG 82%, and reports
-  how many images it compressed (or says the PDF is text-only).
+- **v0.1.11 (2026-11-12):** fixes the video "Unrecognized option
+  'preset'" error. The `-map 0:a:0?` workaround broke FFmpeg's
+  option parsing; it is removed. The command is now the standard
+  proven form (`-i input -c:v codec -preset fast -crf N -pix_fmt
+  yuv420p [-c:a aac]`), and audio is probed with FFprobe and only
+  encoded when the input actually has an audio stream.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.
