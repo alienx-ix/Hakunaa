@@ -60,12 +60,32 @@ Image: JPEG 85% is visually lossless for photos. WebP is
 - **Compiled — 2026-11-12.** The full app builds to a signed debug APK
   here in this workspace (manual aapt2 + kotlinc + d8 pipeline, because
   Gradle's daemon is blocked by the runtime's Java TCP restriction).
-  APK verified: `com.hakunaa.app` v0.1.0, 34 MB, signed (v2+v3),
-  2 DEX files, FFmpeg native libs for arm64-v8a + armeabi-v7a, all
-  4 activities present.
-- **Android support:** lowest Android 7.0 (API 24 — FFmpegKit needs it),
-  targets Android 16 (API 36, the newest stable; Android 17/18 are not
-  released yet). AGP 8.6.1, Kotlin 1.9.24.
+  APK verified: `com.hakunaa.app` v0.1.0, signed (v2+v3),
+  2 DEX files, all 4 activities present.
+- **Crash report 2026-11-12:** the first APK installed but crashed on the
+  user's Android 15 phone. Fixes in this build:
+  - **16 KB page size:** video engine switched from retired upstream
+    FFmpegKit 6.0-2 (4 KB-aligned) to the maintained fork
+    `dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.9` — verified
+    16 KB-aligned (PT_LOAD `0x4000`) for arm64-v8a and x86_64. This is
+    the Google Play requirement for apps targeting API 35+ (Nov 2025).
+    Same `com.arthenica.ffmpegkit` API, drop-in. Ships 64-bit ABIs only
+    (arm64-v8a + x86_64); PDF and Image tools are pure Kotlin/Java and
+    still work on every phone.
+  - **Packaging:** native `.so` files stored uncompressed (was DEFLATED),
+    `extractNativeLibs="false"`, library manifests merged (the
+    `androidx.startup` provider was missing before).
+  - **Crash-proofing:** video engine load is checked up front and every
+    tool shows a message instead of crashing; a global safety net
+    reopens the home screen once if anything unexpected ever escapes.
+  - **Scoped storage:** all outputs now go through MediaStore
+    (Movies/Pictures/Documents/Hakunaa). Direct file writes to public
+    folders fail on Android 10+; temp files live in the app cache.
+  - **Temp logo:** blue rounded-square "H" adaptive icon (all densities)
+    + 512 px Play icon.
+- **Android support:** lowest Android 7.0 (API 24), targets Android 16
+  (API 36, the newest stable; Android 17/18 are not released yet).
+  AGP 8.6.1, Kotlin 1.9.24.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

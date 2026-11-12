@@ -2,7 +2,6 @@ package com.hakunaa.app.pdf
 
 import android.net.Uri
 import android.os.Bundle
-import android.os.Environment
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
@@ -10,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import com.hakunaa.app.R
 import com.hakunaa.app.core.FileUtils
+import com.hakunaa.app.core.MediaStoreSaver
 import java.io.File
 
 class PdfToolsActivity : AppCompatActivity() {
@@ -30,13 +30,17 @@ class PdfToolsActivity : AppCompatActivity() {
             val status = findViewById<TextView>(R.id.tvStatus)
             status.text = "Creating PDF from image…"
             Thread {
-                val input = FileUtils.copyUriToCache(this, uri, "image_to_pdf")
-                val outDir = hakunaaDocumentsDir()
-                val out = File(outDir, "hakunaa_image_${System.currentTimeMillis()}.pdf")
-                val ok = PdfTools.imageToPdf(input, out)
-                runOnUiThread {
-                    status.text = if (ok) "Done — saved to Documents/Hakunaa/${out.name}"
-                    else "Failed — try another image"
+                try {
+                    val input = FileUtils.copyUriToCache(this, uri, "image_to_pdf")
+                    val outDir = hakunaaCacheDir()
+                    val out = File(outDir, "hakunaa_image_${System.currentTimeMillis()}.pdf")
+                    val ok = PdfTools.imageToPdf(input, out) && publishPdf(out)
+                    runOnUiThread {
+                        status.text = if (ok) "Done — saved to Documents/Hakunaa/${out.name}"
+                        else "Failed — try another image"
+                    }
+                } catch (_: Throwable) {
+                    runOnUiThread { status.text = "Failed — try another image" }
                 }
             }.start()
         }
@@ -53,11 +57,13 @@ class PdfToolsActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnImageToPdf).setOnClickListener { pickImageForPdf.launch("image/*") }
     }
 
-    private fun hakunaaDocumentsDir(): File =
-        File(
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
-            "Hakunaa"
-        ).apply { mkdirs() }
+    // PDF work writes to a temp folder in the app cache; finished files
+    // are published to Documents/Hakunaa via MediaStore (scoped storage).
+    private fun hakunaaCacheDir(): File =
+        File(cacheDir, "pdf").apply { mkdirs() }
+
+    private fun publishPdf(file: File): Boolean =
+        MediaStoreSaver.save(this, file, MediaStoreSaver.Kind.DOCUMENT, file.name) != null
 
     private fun firstPickedPdf(): File? {
         val uri = pickedUris.firstOrNull() ?: run {
@@ -75,14 +81,18 @@ class PdfToolsActivity : AppCompatActivity() {
         val status = findViewById<TextView>(R.id.tvStatus)
         status.text = "Merging ${pickedUris.size} PDFs…"
         Thread {
-            val inputs = pickedUris.mapIndexed { index, uri ->
-                FileUtils.copyUriToCache(this, uri, "merge_$index.pdf")
-            }
-            val out = File(hakunaaDocumentsDir(), "hakunaa_merged_${System.currentTimeMillis()}.pdf")
-            val ok = PdfTools.merge(inputs, out)
-            runOnUiThread {
-                status.text = if (ok) "Done — saved to Documents/Hakunaa/${out.name}"
-                else "Merge failed — check the files and try again"
+            try {
+                val inputs = pickedUris.mapIndexed { index, uri ->
+                    FileUtils.copyUriToCache(this, uri, "merge_$index.pdf")
+                }
+                val out = File(hakunaaCacheDir(), "hakunaa_merged_${System.currentTimeMillis()}.pdf")
+                val ok = PdfTools.merge(inputs, out) && publishPdf(out)
+                runOnUiThread {
+                    status.text = if (ok) "Done — saved to Documents/Hakunaa/${out.name}"
+                    else "Merge failed — check the files and try again"
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Merge failed — check the files and try again" }
             }
         }.start()
     }
@@ -92,11 +102,16 @@ class PdfToolsActivity : AppCompatActivity() {
         val status = findViewById<TextView>(R.id.tvStatus)
         status.text = "Splitting PDF…"
         Thread {
-            val outDir = File(hakunaaDocumentsDir(), "split_${System.currentTimeMillis()}").apply { mkdirs() }
-            val created = PdfTools.split(input, outDir)
-            runOnUiThread {
-                status.text = if (created.isNotEmpty()) "Done — ${created.size} pages saved to Documents/Hakunaa/${outDir.name}"
-                else "Split failed — check the file and try again"
+            try {
+                val outDir = File(hakunaaCacheDir(), "split_${System.currentTimeMillis()}").apply { mkdirs() }
+                val created = PdfTools.split(input, outDir)
+                val published = created.count { publishPdf(it) }
+                runOnUiThread {
+                    status.text = if (published > 0) "Done — $published pages saved to Documents/Hakunaa"
+                    else "Split failed — check the file and try again"
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Split failed — check the file and try again" }
             }
         }.start()
     }
@@ -106,17 +121,21 @@ class PdfToolsActivity : AppCompatActivity() {
         val status = findViewById<TextView>(R.id.tvStatus)
         status.text = "Compressing PDF (lossless)…"
         Thread {
-            val before = input.length()
-            val out = File(hakunaaDocumentsDir(), "hakunaa_compressed_${System.currentTimeMillis()}.pdf")
-            val ok = PdfTools.compressLossless(input, out)
-            runOnUiThread {
-                if (ok) {
-                    val after = out.length()
-                    status.text = "Done — ${FileUtils.formatSize(before)} → ${FileUtils.formatSize(after)} " +
-                        "(${FileUtils.savedPercent(before, after)}), saved to Documents/Hakunaa/${out.name}"
-                } else {
-                    status.text = "Compress failed — check the file and try again"
+            try {
+                val before = input.length()
+                val out = File(hakunaaCacheDir(), "hakunaa_compressed_${System.currentTimeMillis()}.pdf")
+                val ok = PdfTools.compressLossless(input, out) && publishPdf(out)
+                runOnUiThread {
+                    if (ok) {
+                        val after = out.length()
+                        status.text = "Done — ${FileUtils.formatSize(before)} → ${FileUtils.formatSize(after)} " +
+                            "(${FileUtils.savedPercent(before, after)}), saved to Documents/Hakunaa/${out.name}"
+                    } else {
+                        status.text = "Compress failed — check the file and try again"
+                    }
                 }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Compress failed — check the file and try again" }
             }
         }.start()
     }
@@ -126,17 +145,21 @@ class PdfToolsActivity : AppCompatActivity() {
         val status = findViewById<TextView>(R.id.tvStatus)
         status.text = "Compressing PDF (smart — 150 DPI, JPEG 82%)…"
         Thread {
-            val before = input.length()
-            val out = File(hakunaaDocumentsDir(), "hakunaa_smart_${System.currentTimeMillis()}.pdf")
-            val ok = PdfTools.compressSmart(input, out)
-            runOnUiThread {
-                if (ok) {
-                    val after = out.length()
-                    status.text = "Done — ${FileUtils.formatSize(before)} → ${FileUtils.formatSize(after)} " +
-                        "(${FileUtils.savedPercent(before, after)}), saved to Documents/Hakunaa/${out.name}"
-                } else {
-                    status.text = "Compress failed — check the file and try again"
+            try {
+                val before = input.length()
+                val out = File(hakunaaCacheDir(), "hakunaa_smart_${System.currentTimeMillis()}.pdf")
+                val ok = PdfTools.compressSmart(input, out) && publishPdf(out)
+                runOnUiThread {
+                    if (ok) {
+                        val after = out.length()
+                        status.text = "Done — ${FileUtils.formatSize(before)} → ${FileUtils.formatSize(after)} " +
+                            "(${FileUtils.savedPercent(before, after)}), saved to Documents/Hakunaa/${out.name}"
+                    } else {
+                        status.text = "Compress failed — check the file and try again"
+                    }
                 }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Compress failed — check the file and try again" }
             }
         }.start()
     }

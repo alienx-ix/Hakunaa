@@ -1,0 +1,10 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Temp logo: white H on brand blue. Replace with the final mark later. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,28 h14 v20 h20 V28 h14 v52 H64 V60 H44 v20 H30 Z" />
+</vector>

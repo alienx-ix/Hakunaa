@@ -30,7 +30,7 @@ object PdfTools {
             merger.destinationFileName = output.absolutePath
             merger.mergeDocuments(null)
             true
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             false
         }
     }
@@ -52,7 +52,7 @@ object PdfTools {
                     index++
                 }
             }
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             return emptyList()
         }
         return created
@@ -70,7 +70,7 @@ object PdfTools {
                 doc.save(output)
             }
             true
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             false
         }
     }
@@ -99,7 +99,7 @@ object PdfTools {
                 doc.save(output)
             }
             true
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             false
         }
     }
@@ -117,7 +117,7 @@ object PdfTools {
         for (name in names) {
             val xObject = try {
                 resources.getXObject(name)
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
                 continue
             } ?: continue
             when (xObject) {
@@ -154,7 +154,7 @@ object PdfTools {
             val result = JPEGFactory.createFromImage(doc, scaled, quality)
             if (scaled !== bitmap) scaled.recycle()
             result
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             null
         }
     }
@@ -183,7 +183,7 @@ object PdfTools {
                 doc.save(output)
             }
             true
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             false
         }
     }

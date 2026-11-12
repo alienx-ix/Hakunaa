@@ -44,7 +44,7 @@ object ImageCompressor {
             }
             bitmap.recycle()
             true
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             false
         }
     }

@@ -2,7 +2,6 @@ package com.hakunaa.app.video
 
 import android.net.Uri
 import android.os.Bundle
-import android.os.Environment
 import android.view.View
 import android.widget.Button
 import android.widget.RadioGroup
@@ -13,6 +12,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.hakunaa.app.R
 import com.hakunaa.app.core.FileUtils
+import com.hakunaa.app.core.MediaStoreSaver
 import java.io.File
 
 class VideoCompressActivity : AppCompatActivity() {
@@ -54,6 +54,25 @@ class VideoCompressActivity : AppCompatActivity() {
         }
         val status = findViewById<TextView>(R.id.tvStatus)
         val result = findViewById<TextView>(R.id.tvResult)
+        // Never crash on a phone where the native engine cannot load.
+        if (!VideoCompressor.isEngineAvailable()) {
+            status.text = "Video engine couldn't start on this phone. " +
+                "Please restart the app and try again."
+            return
+        }
+        try {
+            startCompressUnsafe(uri, status, result)
+        } catch (t: Throwable) {
+            findViewById<LinearProgressIndicator>(R.id.progress).visibility = View.GONE
+            status.text = "Failed: ${t.message ?: "couldn't start compression"}"
+        }
+    }
+
+    private fun startCompressUnsafe(
+        uri: android.net.Uri,
+        status: TextView,
+        result: TextView
+    ) {
         val progress = findViewById<LinearProgressIndicator>(R.id.progress)
         val codec = when (findViewById<RadioGroup>(R.id.rgCodec).checkedRadioButtonId) {
             R.id.rbH265 -> VideoCompressor.Codec.H265
@@ -66,11 +85,10 @@ class VideoCompressActivity : AppCompatActivity() {
         status.text = "Compressing… CRF $selectedCrf, ${codec.name}, original resolution kept"
         result.text = ""
 
-        val outDir = File(
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES),
-            "Hakunaa"
-        ).apply { mkdirs() }
-        val out = File(outDir, "hakunaa_crf${selectedCrf}_${System.currentTimeMillis()}.mp4")
+        // FFmpeg writes to a temp file in the app cache; the finished
+        // file is then published to Movies/Hakunaa via MediaStore
+        // (scoped storage — direct writes to Movies fail on Android 10+).
+        val out = File(cacheDir, "hakunaa_crf${selectedCrf}_${System.currentTimeMillis()}.mp4")
         val inputFile = FileUtils.copyUriToCache(this, uri, "input_${System.currentTimeMillis()}.mp4")
 
         VideoCompressor.compress(
@@ -81,7 +99,11 @@ class VideoCompressActivity : AppCompatActivity() {
                     progress.visibility = View.GONE
                     if (ok) {
                         val after = out.length()
-                        status.text = "Done — saved to Movies/Hakunaa"
+                        val saved = MediaStoreSaver.save(
+                            this, out, MediaStoreSaver.Kind.VIDEO, out.name
+                        )
+                        status.text = if (saved != null) "Done — saved to Movies/Hakunaa"
+                        else "Done, but couldn't save to Movies — please try again"
                         result.text = "${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(after)} " +
                             "(${FileUtils.savedPercent(inputSize, after)})"
                     } else {

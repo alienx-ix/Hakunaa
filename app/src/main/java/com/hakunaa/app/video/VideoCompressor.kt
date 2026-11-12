@@ -45,7 +45,41 @@ object VideoCompressor {
             "-c:a aac -b:a ${Presets.AUDIO_BITRATE} \"$outputPath\""
     }
 
+    // Is the native video engine loadable on this phone?
+    // On some Android 15 devices the FFmpeg native libs cannot load
+    // (e.g. 16 KB page size). Check once, up front, so a failed load
+    // becomes a message instead of a crash.
+    private var engineChecked = false
+    private var engineOk = false
+
+    fun isEngineAvailable(): Boolean {
+        if (engineChecked) return engineOk
+        engineChecked = true
+        engineOk = try {
+            System.loadLibrary("ffmpegkit")
+            true
+        } catch (_: Throwable) {
+            false
+        }
+        return engineOk
+    }
+
     fun compress(
+        inputPath: String,
+        outputPath: String,
+        crf: Int,
+        codec: Codec = Codec.H264,
+        onProgress: (Int) -> Unit,
+        onDone: (Boolean, String) -> Unit
+    ) {
+        try {
+            compressUnsafe(inputPath, outputPath, crf, codec, onProgress, onDone)
+        } catch (t: Throwable) {
+            onDone(false, t.message ?: "Video engine failed to start")
+        }
+    }
+
+    private fun compressUnsafe(
         inputPath: String,
         outputPath: String,
         crf: Int,
@@ -86,6 +120,12 @@ object VideoCompressor {
         private set
 
     fun cancel() {
-        if (currentSessionId != 0L) FFmpegKit.cancel(currentSessionId)
+        if (currentSessionId != 0L) {
+            try {
+                FFmpegKit.cancel(currentSessionId)
+            } catch (_: Throwable) {
+                // Engine already gone — nothing to cancel.
+            }
+        }
     }
 }
