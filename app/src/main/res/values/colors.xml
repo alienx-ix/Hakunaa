@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Professional, restrained palette. No gradients, no purple AI look.
+         Primary is a deep trustworthy blue; surfaces stay white / light grey. -->
+    <color name="hakunaa_primary">#0B57D0</color>
+    <color name="hakunaa_primary_dark">#0842A0</color>
+    <color name="hakunaa_on_primary">#FFFFFF</color>
+    <color name="hakunaa_surface">#FFFFFF</color>
+    <color name="hakunaa_background">#F6F7F9</color>
+    <color name="hakunaa_text">#111827</color>
+    <color name="hakunaa_text_secondary">#5B6472</color>
+    <color name="hakunaa_outline">#D9DEE6</color>
+    <color name="hakunaa_success">#137333</color>
+</resources>

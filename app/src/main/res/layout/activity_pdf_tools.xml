@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/hakunaa_background"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/card_pdf_title"
+            android:textColor="@color/hakunaa_text"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Merge, split, compress and image to PDF — all on-device."
+            android:textColor="@color/hakunaa_text_secondary" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnPickPdfs"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/pick_pdfs" />
+
+        <TextView
+            android:id="@+id/tvFiles"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/ready"
+            android:textColor="@color/hakunaa_text_secondary" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnMerge"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/merge_pdfs" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnSplit"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Split PDF — one file per page" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCompressPdf"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Compress PDF — lossless" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnImageToPdf"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Image to PDF" />
+
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/ready"
+            android:textColor="@color/hakunaa_text_secondary" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="Split and Compress use the first selected PDF. Smart lossy Compress (image downscale to 150 DPI) lands next."
+            android:textColor="@color/hakunaa_text_secondary" />
+    </LinearLayout>
+</ScrollView>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Hakunaa" parent="Theme.Material3.Light.NoActionBar">
+        <item name="colorPrimary">@color/hakunaa_primary</item>
+        <item name="colorPrimaryDark">@color/hakunaa_primary_dark</item>
+        <item name="colorOnPrimary">@color/hakunaa_on_primary</item>
+        <item name="android:windowBackground">@color/hakunaa_background</item>
+        <item name="colorSurface">@color/hakunaa_surface</item>
+        <item name="android:textColorPrimary">@color/hakunaa_text</item>
+        <item name="android:textColorSecondary">@color/hakunaa_text_secondary</item>
+    </style>
+</resources>

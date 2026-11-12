@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Hakunaa</string>
+    <string name="home_title">Compress without losing quality</string>
+    <string name="home_subtitle">PDF, image and video — 100% on your phone. Files never leave your device.</string>
+    <string name="card_pdf_title">PDF Tools</string>
+    <string name="card_pdf_subtitle">Merge, split, compress, image to PDF</string>
+    <string name="card_image_title">Image Compress</string>
+    <string name="card_image_subtitle">JPEG, WebP and AVIF — smaller, same look</string>
+    <string name="card_video_title">Video Compress</string>
+    <string name="card_video_subtitle">H.264 / H.265, keeps 1080p, CRF quality</string>
+    <string name="privacy_note">100% on-device. No account, no upload, no server.</string>
+    <string name="pick_video">Pick a video</string>
+    <string name="pick_image">Pick an image</string>
+    <string name="pick_pdfs">Pick PDFs to merge</string>
+    <string name="compress">Compress</string>
+    <string name="merge_pdfs">Merge PDFs</string>
+    <string name="quality_label">Quality — lower CRF = higher quality / bigger file</string>
+    <string name="ready">Ready</string>
+    <string name="pick_first_video">Pick a video first</string>
+    <string name="pick_first_image">Pick an image first</string>
+    <string name="pick_first_pdfs">Pick at least 2 PDFs first</string>
+</resources>
