@@ -3,13 +3,14 @@ package com.hakunaa.app.pdf
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDDocumentInformation
 import com.tom_roush.pdfbox.pdmodel.PDPage
+import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
 import com.tom_roush.pdfbox.pdmodel.PDResources
 import com.tom_roush.pdfbox.pdmodel.graphics.form.PDFormXObject
 import com.tom_roush.pdfbox.pdmodel.graphics.image.JPEGFactory
 import com.tom_roush.pdfbox.pdmodel.graphics.image.LosslessFactory
 import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
-import com.tom_roush.pdfbox.util.PDFMergerUtility
+import com.tom_roush.pdfbox.multipdf.PDFMergerUtility
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import java.io.File
@@ -163,7 +164,7 @@ object PdfTools {
         return try {
             val bitmap = BitmapFactory.decodeFile(imageFile.absolutePath) ?: return false
             PDDocument().use { doc ->
-                val page = PDPage(PDPage.PAGE_SIZE_A4)
+                val page = PDPage(PDRectangle.A4)
                 doc.addPage(page)
                 val image = LosslessFactory.createFromImage(doc, bitmap)
                 PDPageContentStream(doc, page).use { content ->

@@ -5,14 +5,19 @@ plugins {
 
 android {
     namespace = "com.hakunaa.app"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         // Do not change applicationId after a Play Store release.
         // It identifies the app on the device and in the store.
         applicationId = "com.hakunaa.app"
+        // Lowest supported: Android 7.0 (API 24). FFmpegKit needs API 24,
+        // so older phones cannot run the video engine. API 24+ covers
+        // effectively every Android phone in use today.
         minSdk = 24
-        targetSdk = 34
+        // Latest: targets Android 16 (API 36), the newest stable Android.
+        // Runs on newer Android versions too when they release.
+        targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
     }

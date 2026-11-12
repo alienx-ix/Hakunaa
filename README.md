@@ -57,12 +57,19 @@ Image: JPEG 85% is visually lossless for photos. WebP is
 
 ## Status — honest
 
-- Code is written and reviewed in files. It has **not** been compiled
-  in this workspace — there is no Java / Android SDK / Gradle here —
-  and no control has been clicked live yet.
-- **Do not call this finished.** Next step, in Android Studio:
-  open this folder, let Gradle sync (FFmpegKit `6.0-2` downloads),
-  run on a phone, and live-check every control below.
+- **Compiled — 2026-11-12.** The full app builds to a signed debug APK
+  here in this workspace (manual aapt2 + kotlinc + d8 pipeline, because
+  Gradle's daemon is blocked by the runtime's Java TCP restriction).
+  APK verified: `com.hakunaa.app` v0.1.0, 34 MB, signed (v2+v3),
+  2 DEX files, FFmpeg native libs for arm64-v8a + armeabi-v7a, all
+  4 activities present.
+- **Android support:** lowest Android 7.0 (API 24 — FFmpegKit needs it),
+  targets Android 16 (API 36, the newest stable; Android 17/18 are not
+  released yet). AGP 8.6.1, Kotlin 1.9.24.
+- **Not yet live-tested on a phone.** No control has been clicked live
+  yet. Next step: install the APK on a real phone and live-check every
+  control below, then compare a real video output against the reference.
+- **Do not call this finished** until the live phone checks pass.
 
 ## Control inventory (live check pending)
 

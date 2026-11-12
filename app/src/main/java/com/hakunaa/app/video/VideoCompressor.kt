@@ -61,7 +61,11 @@ object VideoCompressor {
         } catch (_: Exception) {
             durationMs = 0
         }
+        // FFmpegKit 6.0 has no disableStatisticsCallback(); stop progress
+        // with a flag instead — the callback returns early once finished.
+        var finished = false
         FFmpegKitConfig.enableStatisticsCallback { statistics: Statistics ->
+            if (finished) return@enableStatisticsCallback
             val time = statistics.time
             if (durationMs > 0 && time > 0) {
                 val percent = ((time.toDouble() / durationMs.toDouble()) * 100.0)
@@ -70,7 +74,7 @@ object VideoCompressor {
             }
         }
         val session = FFmpegKit.executeAsync(buildCommand(inputPath, outputPath, crf, codec)) { s ->
-            FFmpegKitConfig.disableStatisticsCallback()
+            finished = true
             val ok = ReturnCode.isSuccess(s.returnCode)
             onDone(ok, if (ok) outputPath else (s.failStackTrace ?: "FFmpeg failed"))
         }
