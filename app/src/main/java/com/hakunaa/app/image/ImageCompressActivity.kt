@@ -83,6 +83,9 @@ class ImageCompressActivity : AppCompatActivity() {
         findViewById<LinearLayout>(R.id.toolTargetSize).setOnClickListener {
             openTool(ImageToolActivity.MODE_TARGET_SIZE)
         }
+        findViewById<LinearLayout>(R.id.toolCollage).setOnClickListener {
+            startActivity(Intent(this, CollageActivity::class.java))
+        }
     }
 
     private fun updateFileLabel() {

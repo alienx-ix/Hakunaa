@@ -21,7 +21,7 @@ class VideoCompressActivity : AppCompatActivity() {
     private var inputSize: Long = -1
     private var selectedCrf = 28
 
-    private enum class Mode { COMPRESS, CONVERT, MP3 }
+    private enum class Mode { COMPRESS, CONVERT, MP3, ROTATE }
     private var mode = Mode.COMPRESS
 
     private val pickVideo =
@@ -54,6 +54,7 @@ class VideoCompressActivity : AppCompatActivity() {
             mode = when (id) {
                 R.id.rbModeConvert -> Mode.CONVERT
                 R.id.rbModeMp3 -> Mode.MP3
+                R.id.rbModeRotate -> Mode.ROTATE
                 else -> Mode.COMPRESS
             }
             updateModeUi()
@@ -101,25 +102,36 @@ class VideoCompressActivity : AppCompatActivity() {
         val compressOptions = findViewById<com.google.android.material.card.MaterialCardView>(R.id.cardCompressOptions)
         val formatOptions = findViewById<com.google.android.material.card.MaterialCardView>(R.id.cardFormatOptions)
         val resolutionOptions = findViewById<com.google.android.material.card.MaterialCardView>(R.id.cardResolutionOptions)
+        val rotateOptions = findViewById<com.google.android.material.card.MaterialCardView>(R.id.cardRotateOptions)
         val actionButton = findViewById<Button>(R.id.btnCompress)
         when (mode) {
             Mode.COMPRESS -> {
                 compressOptions.visibility = View.VISIBLE
                 formatOptions.visibility = View.GONE
                 resolutionOptions.visibility = View.VISIBLE
+                rotateOptions.visibility = View.GONE
                 actionButton.text = getString(R.string.compress)
             }
             Mode.CONVERT -> {
                 compressOptions.visibility = View.GONE
                 formatOptions.visibility = View.VISIBLE
                 resolutionOptions.visibility = View.VISIBLE
+                rotateOptions.visibility = View.GONE
                 actionButton.text = "Convert"
             }
             Mode.MP3 -> {
                 compressOptions.visibility = View.GONE
                 formatOptions.visibility = View.GONE
                 resolutionOptions.visibility = View.GONE
+                rotateOptions.visibility = View.GONE
                 actionButton.text = "Extract MP3"
+            }
+            Mode.ROTATE -> {
+                compressOptions.visibility = View.GONE
+                formatOptions.visibility = View.GONE
+                resolutionOptions.visibility = View.GONE
+                rotateOptions.visibility = View.VISIBLE
+                actionButton.text = "Rotate"
             }
         }
     }
@@ -149,6 +161,16 @@ class VideoCompressActivity : AppCompatActivity() {
         }
     }
 
+    private fun selectedRotateMode(): VideoCompressor.RotateMode {
+        return when (findViewById<RadioGroup>(R.id.rgRotate).checkedRadioButtonId) {
+            R.id.rbRotCcw -> VideoCompressor.RotateMode.CCW90
+            R.id.rbRot180 -> VideoCompressor.RotateMode.ROT180
+            R.id.rbRotFlipH -> VideoCompressor.RotateMode.FLIP_H
+            R.id.rbRotFlipV -> VideoCompressor.RotateMode.FLIP_V
+            else -> VideoCompressor.RotateMode.CW90
+        }
+    }
+
     private fun startAction() {
         val uri = inputUri ?: run {
             Toast.makeText(this, getString(R.string.pick_first_video), Toast.LENGTH_SHORT).show()
@@ -167,6 +189,7 @@ class VideoCompressActivity : AppCompatActivity() {
                 Mode.COMPRESS -> startCompress(uri, status, result)
                 Mode.CONVERT -> startConvert(uri, status, result)
                 Mode.MP3 -> startMp3(uri, status, result)
+                Mode.ROTATE -> startRotate(uri, status, result)
             }
         } catch (t: Throwable) {
             findViewById<LinearProgressIndicator>(R.id.progress).visibility = View.GONE
@@ -280,6 +303,40 @@ class VideoCompressActivity : AppCompatActivity() {
                         status.text = if (saved != null) "Done — saved to Music/Hakunaa"
                         else "Done, but couldn't save — please try again"
                         result.text = "Audio extracted: ${FileUtils.formatSize(after)} MP3"
+                    } else {
+                        status.text = "Failed: $message"
+                    }
+                }
+            }
+        )
+    }
+
+    private fun startRotate(uri: Uri, status: TextView, result: TextView) {
+        val progress = findViewById<LinearProgressIndicator>(R.id.progress)
+        val rotateMode = selectedRotateMode()
+
+        progress.visibility = View.VISIBLE
+        progress.progress = 0
+        status.text = "Rotating video… ${rotateMode.label}"
+        result.text = ""
+
+        val out = File(cacheDir, "hakunaa_rotated_${System.currentTimeMillis()}.mp4")
+        val inputFile = FileUtils.copyUriToCache(this, uri, "input_${System.currentTimeMillis()}.mp4")
+
+        VideoCompressor.rotate(
+            inputFile.absolutePath, out.absolutePath, rotateMode,
+            onProgress = { percent -> runOnUiThread { progress.progress = percent } },
+            onDone = { ok, message ->
+                runOnUiThread {
+                    progress.visibility = View.GONE
+                    if (ok) {
+                        val after = out.length()
+                        val saved = MediaStoreSaver.save(
+                            this, out, MediaStoreSaver.Kind.VIDEO, out.name
+                        )
+                        status.text = if (saved != null) "Done — saved to Movies/Hakunaa"
+                        else "Done, but couldn't save to Movies — please try again"
+                        result.text = "Rotated ${rotateMode.label}: ${FileUtils.formatSize(after)}"
                     } else {
                         status.text = "Failed: $message"
                     }

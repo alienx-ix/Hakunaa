@@ -453,6 +453,16 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   which would have crashed Edit on open; fixed to use the
   toolbar navigation. All other view casts in the new image
   activities were checked and match their layouts.
+- **v0.1.35 (2026-11-12): Video Rotate + Collage Maker.** The user
+  picked these two from the ideas list. (1) **Video Rotate**: a
+  new Rotate mode in the Video screen — 90° Clockwise, 90°
+  Counter-clockwise, 180°, Flip Horizontal (mirror), Flip
+  Vertical. FFmpeg transpose/hflip/vflip filter, re-encoded
+  libx264 CRF 28, audio copied untouched. (2) **Collage Maker**:
+  new tool in the Image Tools hub — pick 2–4 photos, choose a
+  layout (Grid 2x2, Side by side, Stacked, Row of 3, Column of
+  3), each photo centre-cropped to fill its cell, saved as one
+  image to Pictures/Hakunaa. Pure Kotlin Bitmap, no library.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

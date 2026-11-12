@@ -54,6 +54,42 @@ object VideoCompressor {
         MKV("mkv", "libx264", "aac", "video/x-matroska", "MKV")
     }
 
+    /** Rotate / flip a video. The filter is applied to the video
+     *  stream; the audio stream is copied untouched. */
+    enum class RotateMode(val filter: String, val label: String) {
+        CW90("transpose=1", "90° Clockwise"),
+        CCW90("transpose=2", "90° Counter-clockwise"),
+        ROT180("transpose=1,transpose=1", "180°"),
+        FLIP_H("hflip", "Flip Horizontal"),
+        FLIP_V("vflip", "Flip Vertical")
+    }
+
+    /**
+     * Build the Rotate command: re-encode with libx264 at CRF 28
+     * (same quality as Compress), apply the rotate/flip filter,
+     * copy the audio stream as-is.
+     */
+    fun buildRotateCommand(
+        inputPath: String,
+        outputPath: String,
+        mode: RotateMode,
+        crf: Int = 28,
+        hasAudio: Boolean = true
+    ): Array<String> {
+        val args = mutableListOf<String>()
+        args += "-i"; args += inputPath
+        args += "-c:v"; args += "libx264"
+        args += "-crf"; args += crf.toString()
+        args += "-pix_fmt"; args += "yuv420p"
+        args += "-vf"; args += mode.filter
+        if (hasAudio) {
+            args += "-c:a"; args += "aac"
+            args += "-b:a"; args += Presets.AUDIO_BITRATE
+        }
+        args += outputPath
+        return args.toTypedArray()
+    }
+
     /**
      * Build the Compress command as an argument ARRAY (argv), not a
      * single String. FFmpegKit's String-command parser splits on
@@ -358,6 +394,23 @@ object VideoCompressor {
         try {
             executeCommand(
                 buildMp3Command(inputPath, outputPath),
+                onProgress, onDone
+            )
+        } catch (t: Throwable) {
+            onDone(false, t.message ?: "Video engine failed to start")
+        }
+    }
+
+    fun rotate(
+        inputPath: String,
+        outputPath: String,
+        mode: RotateMode,
+        onProgress: (Int) -> Unit,
+        onDone: (Boolean, String) -> Unit
+    ) {
+        try {
+            executeCommand(
+                buildRotateCommand(inputPath, outputPath, mode),
                 onProgress, onDone
             )
         } catch (t: Throwable) {

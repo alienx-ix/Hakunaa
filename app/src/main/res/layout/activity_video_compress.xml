@@ -112,6 +112,12 @@
                             android:layout_height="wrap_content"
                             android:layout_marginStart="16dp"
                             android:text="Video to MP3" />
+                        <RadioButton
+                            android:id="@+id/rbModeRotate"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="16dp"
+                            android:text="Rotate" />
                     </RadioGroup>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -268,6 +274,66 @@
                             android:layout_height="wrap_content"
                             android:layout_marginStart="16dp"
                             android:text="MKV" />
+                    </RadioGroup>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Rotate options -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardRotateOptions"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:visibility="gone"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="ROTATE"
+                        android:textColor="@color/hakunaa_text_secondary"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+
+                    <RadioGroup
+                        android:id="@+id/rgRotate"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp">
+
+                        <RadioButton
+                            android:id="@+id/rbRotCw"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:checked="true"
+                            android:text="90° Clockwise" />
+                        <RadioButton
+                            android:id="@+id/rbRotCcw"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="90° Counter-clockwise" />
+                        <RadioButton
+                            android:id="@+id/rbRot180"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="180°" />
+                        <RadioButton
+                            android:id="@+id/rbRotFlipH"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Flip Horizontal (mirror)" />
+                        <RadioButton
+                            android:id="@+id/rbRotFlipV"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Flip Vertical" />
                     </RadioGroup>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
