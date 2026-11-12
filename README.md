@@ -147,6 +147,21 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   without losing quality. Try Smart Compress for a smaller file."
   A "compress" will never hand the user a larger file again.
   Includes the v0.1.13 video fix and version label.
+- **v0.1.15 (2026-11-12):** the REAL video root cause. The user tested
+  v0.1.14 and got a new, specific error: "Unknown encoder 'libx264'".
+  Inspection of the engine proved the non-GPL `ffmpeg-kit-full`
+  package contains NO libx264 and NO libx265 (GPL encoders) — only
+  libaom-av1 was present. So H.264/H.265 could never work with it.
+  Fix: switched to `ffmpeg-kit-full-gpl:8.1.9` (maintained fork),
+  verified to contain libx264, libx265 and libaom-av1, all 16 KB
+  aligned, arm64-v8a + x86_64. APK grew 51 MB → 56 MB (more
+  encoders). GPL-3.0 applies; the repo is public, so the source
+  requirement is already met. Also updated resolve.py + artifacts.txt
+  (re-running resolve.py is required after changing the dependency —
+  build.py reads artifacts.txt, and a stale one makes the build look
+  for the deleted old AAR). The user asked for a full rework with
+  full time: video, PDF (v0.1.14 fix) and Image (pure Android Bitmap,
+  no FFmpeg) were all reviewed; video was the only broken engine.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

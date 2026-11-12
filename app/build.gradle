@@ -18,8 +18,8 @@ android {
         // Latest: targets Android 16 (API 36), the newest stable Android.
         // Runs on newer Android versions too when they release.
         targetSdk = 36
-        versionCode = 15
-        versionName = "0.1.14"
+        versionCode = 16
+        versionName = "0.1.15"
     }
 
     buildTypes {
@@ -59,7 +59,11 @@ dependencies {
     // Same com.arthenica.ffmpegkit API — drop-in replacement.
     // Ships arm64-v8a + x86_64 only (no 32-bit); PDF and Image tools
     // are pure Kotlin/Java and still work on every phone.
-    implementation("dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.9")
+    // MUST be full-GPL, not full: the non-GPL 'full' package has NO
+    // libx264/libx265 (GPL encoders) — H.264 failed on-device with
+    // "Unknown encoder 'libx264'". full-gpl has x264/x265/aom.
+    // GPL-3.0 applies; the repo is public, so source stays available.
+    implementation("dev.ffmpegkit-maintained:ffmpeg-kit-full-gpl:8.1.9")
 
     // PDF: Apache PDFBox on Android (merge, split, image to PDF).
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
