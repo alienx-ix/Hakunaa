@@ -118,15 +118,12 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   screen instead: the handler opens a plain CrashReportActivity
   (yellow, no Material) with the full error, so a screenshot gives
   the exact exception to fix.
-- **v0.1.5 (2026-11-12):** still only a black screen — the crash
-  handler never fired, so it is not a Java crash the handler can
-  catch. Found a REAL defect by inspection: all 10 FFmpeg .so files
-  were NOT 16 KB-aligned in the APK (build used zipalign 4-byte
-  only), which Android 15 (16 KB page size) requires for apps with
-  extractNativeLibs=false — the system cannot mmap them from the APK.
-  v0.1.6 fixes it (zipalign -P 16, verified "Verification succesful",
-  all 10 .so OK) and removes the last unneeded startup component
-  (androidx.startup provider).
+- **v0.1.6 (2026-11-12):** the crash screen finally appeared and gave
+  the exact error — `NoClassDefFoundError: androidx.appcompat.R$drawable`
+  (AppCompat's drawable manager needs it at startup). Root cause: R8
+  removed the AppCompat R classes. v0.1.7 fixes it (keep all `**.R`
+  / `**.R$*` classes + the whole `androidx.appcompat` package;
+  `androidx/appcompat/R$drawable` verified present in the DEX).
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.
