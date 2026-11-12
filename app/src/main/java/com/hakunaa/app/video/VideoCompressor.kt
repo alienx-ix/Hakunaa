@@ -75,16 +75,14 @@ object VideoCompressor {
         val args = mutableListOf<String>()
         args += "-i"; args += inputPath
         args += "-c:v"; args += codec.ffmpegName
-        // "-preset" is BACK (v0.1.16). It was removed in v0.1.13 because it
-        // failed with "Unrecognized option 'preset'" — but that failure was
-        // a symptom, not the cause: the old non-GPL engine had NO libx264,
-        // so there was no encoder to accept the option. Now that the GPL
-        // engine (v0.1.15) has libx264, "-preset fast" works — proven by
-        // the reference Video Converter app, which uses -crf + -preset +
-        // libx264 with the same GPL FFmpegKit. "fast" matches the
-        // reference app's Compress mode and is faster than libx264's
-        // default "medium" at the same CRF quality.
-        args += "-preset"; args += preset
+        // No "-preset" option. The reference app uses "-preset fast",
+        // but "fast" trades compression efficiency for speed — on an
+        // already-compressed video it produced a BIGGER file (11.7 MB
+        // → 12.0 MB). libx264's default preset "medium" compresses
+        // better (smaller files) at the same CRF, so we leave the
+        // preset out and let libx264 use its default. The user asked
+        // for the BEST compression, not the fastest — so efficiency
+        // wins over speed here.
         args += "-crf"; args += crf.toString()
         args += "-pix_fmt"; args += "yuv420p"
         // Resolution: only scale when the user picked one. ORIGINAL
@@ -129,7 +127,9 @@ object VideoCompressor {
         args += "-i"; args += inputPath
         args += "-c:v"; args += format.videoCodec
         if (format.videoCodec == "libx264") {
-            args += "-preset"; args += preset
+            // No "-preset": libx264's default "medium" compresses better
+            // than "fast" (see buildCommand — "fast" made an already
+            // compressed video bigger). Best compression wins over speed.
             args += "-crf"; args += crf.toString()
             args += "-pix_fmt"; args += "yuv420p"
         } else {
@@ -214,6 +214,85 @@ object VideoCompressor {
                 buildCommand(inputPath, outputPath, crf, codec, Presets.VIDEO_PRESET, true, resolution),
                 onProgress, onDone
             )
+        } catch (t: Throwable) {
+            onDone(false, t.message ?: "Video engine failed to start")
+        }
+    }
+
+    /**
+     * Best compression: try the user's settings first; if the result
+     * is NOT smaller than the input, automatically escalate to
+     * stronger settings until the output IS smaller. The user asked
+     * for the best compression — so the app finds it instead of
+     * handing back a bigger file or giving up. Attempts, in order:
+     * (user CRF, user resolution) → (CRF 33) → (CRF 38) →
+     * (CRF 33, 720p) → (CRF 38, 720p). Stops at the first attempt
+     * that is actually smaller. On success, `onDone` receives
+     * (true, note) where note is "" if the user's own settings won,
+     * or " (used CRF 33, 720p…)" naming the stronger settings that
+     * were needed. On failure, (false, reason).
+     */
+    fun compressBest(
+        inputPath: String,
+        outputPath: String,
+        inputSize: Long,
+        crf: Int,
+        codec: Codec = Codec.H264,
+        resolution: Resolution = Resolution.ORIGINAL,
+        onProgress: (Int) -> Unit,
+        onDone: (Boolean, String) -> Unit
+    ) {
+        // Escalation ladder: each step compresses harder than the last.
+        val attempts = mutableListOf<Pair<Int, Resolution>>()
+        attempts += crf to resolution
+        if (crf < 33) attempts += 33 to resolution
+        if (crf < 38) attempts += 38 to resolution
+        if (resolution == Resolution.ORIGINAL) {
+            attempts += 33 to Resolution.P720
+            attempts += 38 to Resolution.P720
+        }
+        // De-duplicate (e.g. user already picked CRF 33).
+        val uniqueAttempts = attempts.distinct()
+        runBestAttempt(inputPath, outputPath, inputSize, codec, uniqueAttempts, 0, onProgress, onDone)
+    }
+
+    private fun runBestAttempt(
+        inputPath: String,
+        outputPath: String,
+        inputSize: Long,
+        codec: Codec,
+        attempts: List<Pair<Int, Resolution>>,
+        index: Int,
+        onProgress: (Int) -> Unit,
+        onDone: (Boolean, String) -> Unit
+    ) {
+        if (index >= attempts.size) {
+            onDone(false, "This video is already as small as it gets — even the strongest settings couldn't shrink it")
+            return
+        }
+        val (crf, resolution) = attempts[index]
+        try {
+            executeCommand(
+                buildCommand(inputPath, outputPath, crf, codec, Presets.VIDEO_PRESET, true, resolution),
+                onProgress
+            ) { ok, message ->
+                if (!ok) {
+                    onDone(false, message)
+                    return@executeCommand
+                }
+                // On success, executeCommand passes the output path back.
+                val outFile = java.io.File(message)
+                val outSize = if (outFile.exists()) outFile.length() else Long.MAX_VALUE
+                if (outSize < inputSize) {
+                    // This attempt actually made it smaller — keep it.
+                    val note = if (index == 0) "" else " (used CRF $crf, ${resolution.label} to get it smaller)"
+                    onDone(true, note)
+                } else {
+                    // Bigger (or equal) — delete it and try harder.
+                    try { outFile.delete() } catch (_: Throwable) { }
+                    runBestAttempt(inputPath, outputPath, inputSize, codec, attempts, index + 1, onProgress, onDone)
+                }
+            }
         } catch (t: Throwable) {
             onDone(false, t.message ?: "Video engine failed to start")
         }

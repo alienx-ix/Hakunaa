@@ -154,10 +154,14 @@ class VideoCompressActivity : AppCompatActivity() {
         val out = File(cacheDir, "hakunaa_crf${selectedCrf}_${System.currentTimeMillis()}.mp4")
         val inputFile = FileUtils.copyUriToCache(this, uri, "input_${System.currentTimeMillis()}.mp4")
 
-        VideoCompressor.compressWithResolution(
-            inputFile.absolutePath, out.absolutePath, selectedCrf, codec, resolution,
+        // Best compression: the app tries the user's settings first,
+        // and if the result isn't smaller it automatically escalates
+        // to stronger settings (higher CRF, then 720p) until the
+        // output IS smaller. It never hands back a bigger file.
+        VideoCompressor.compressBest(
+            inputFile.absolutePath, out.absolutePath, inputSize, selectedCrf, codec, resolution,
             onProgress = { percent -> runOnUiThread { progress.progress = percent } },
-            onDone = { ok, message ->
+            onDone = { ok, note ->
                 runOnUiThread {
                     progress.visibility = View.GONE
                     if (ok) {
@@ -165,12 +169,12 @@ class VideoCompressActivity : AppCompatActivity() {
                         val saved = MediaStoreSaver.save(
                             this, out, MediaStoreSaver.Kind.VIDEO, out.name
                         )
-                        status.text = if (saved != null) "Done — saved to Movies/Hakunaa"
+                        status.text = if (saved != null) "Done — saved to Movies/Hakunaa$note"
                         else "Done, but couldn't save to Movies — please try again"
                         result.text = "${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(after)} " +
                             "(${FileUtils.savedPercent(inputSize, after)})"
                     } else {
-                        status.text = "Failed: $message"
+                        status.text = "Failed: $note"
                     }
                 }
             }

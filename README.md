@@ -201,6 +201,21 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   and jadx/apktool were used for the reference-app analysis; REA's
   binary providers (Ghidra/Hopper/IDA) do not analyse APK archives
   directly, so jadx + apktool + strings + dexdump did the work.
+- **v0.1.18 (2026-11-12): Best compression.** The user tested
+  v0.1.17 on the same 11.7 MB video and got 12.0 MB — BIGGER.
+  Cause: `-preset fast` (restored in v0.1.16 to match the reference
+  app) trades compression efficiency for speed, and on an already
+  compressed video it made the file bigger. Fix: `-preset` is
+  REMOVED from Compress and Convert, so libx264 uses its default
+  "medium" preset, which compresses better (smaller files) at the
+  same CRF. And Compress now uses `compressBest`: it tries the
+  user's settings first, and if the result is NOT smaller than the
+  input it automatically escalates — CRF 33, CRF 38, then 720p at
+  CRF 33/38 — until the output IS smaller, and reports which
+  stronger settings were used. A Compress never hands back a
+  bigger file. (The user rejected a "don't save, try something
+  else" message — they want the app to find the best result
+  itself.)
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.
