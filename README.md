@@ -186,6 +186,21 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   engine (GPL, libx264) and those settings (CRF 24 default, FAST
   preset, AAC 128k). Note: this analysis was for learning the
   technique, not copying code.
+- **v0.1.17 (2026-11-12):** brings the reference app's missing
+  features into Hakunaa (user: "bring the same things into our
+  app"). The Video screen now has a mode selector: Compress
+  (CRF/codec, as before), Convert (MP4/WebM/MOV/MKV — WebM uses
+  VP9 + Opus, the rest H.264 + AAC), and Video to MP3 (libmp3lame
+  192k, saved to Music/Hakunaa). Resolution selection added to
+  Compress and Convert: Original (no scale filter, best quality),
+  1080p, 720p. All encoders verified present in the APK:
+  libx264, libx265, libaom-av1, libvpx-vp9, libopus, libmp3lame.
+  MediaStoreSaver gained an AUDIO kind (Music/Hakunaa, audio/mpeg)
+  and an optional MIME override so WebM/MOV/MKV are saved with
+  their real MIME type. REA (morluto/rea) was installed (v6.7.0)
+  and jadx/apktool were used for the reference-app analysis; REA's
+  binary providers (Ghidra/Hopper/IDA) do not analyse APK archives
+  directly, so jadx + apktool + strings + dexdump did the work.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

@@ -4,6 +4,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.widget.Button
+import android.widget.LinearLayout
 import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
@@ -19,6 +20,9 @@ class VideoCompressActivity : AppCompatActivity() {
     private var inputUri: Uri? = null
     private var inputSize: Long = -1
     private var selectedCrf = 28
+
+    private enum class Mode { COMPRESS, CONVERT, MP3 }
+    private var mode = Mode.COMPRESS
 
     private val pickVideo =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -43,11 +47,73 @@ class VideoCompressActivity : AppCompatActivity() {
                 else -> 28
             }
         }
+        findViewById<RadioGroup>(R.id.rgMode).setOnCheckedChangeListener { _, id ->
+            mode = when (id) {
+                R.id.rbModeConvert -> Mode.CONVERT
+                R.id.rbModeMp3 -> Mode.MP3
+                else -> Mode.COMPRESS
+            }
+            updateModeUi()
+        }
         findViewById<Button>(R.id.btnPickVideo).setOnClickListener { pickVideo.launch("video/*") }
-        findViewById<Button>(R.id.btnCompress).setOnClickListener { startCompress() }
+        findViewById<Button>(R.id.btnCompress).setOnClickListener { startAction() }
+        updateModeUi()
     }
 
-    private fun startCompress() {
+    /** Show only the option groups that apply to the selected mode. */
+    private fun updateModeUi() {
+        val compressOptions = findViewById<LinearLayout>(R.id.llCompressOptions)
+        val formatOptions = findViewById<LinearLayout>(R.id.llFormatOptions)
+        val resolutionOptions = findViewById<LinearLayout>(R.id.llResolutionOptions)
+        val actionButton = findViewById<Button>(R.id.btnCompress)
+        when (mode) {
+            Mode.COMPRESS -> {
+                compressOptions.visibility = View.VISIBLE
+                formatOptions.visibility = View.GONE
+                resolutionOptions.visibility = View.VISIBLE
+                actionButton.text = getString(R.string.compress)
+            }
+            Mode.CONVERT -> {
+                compressOptions.visibility = View.GONE
+                formatOptions.visibility = View.VISIBLE
+                resolutionOptions.visibility = View.VISIBLE
+                actionButton.text = "Convert"
+            }
+            Mode.MP3 -> {
+                compressOptions.visibility = View.GONE
+                formatOptions.visibility = View.GONE
+                resolutionOptions.visibility = View.GONE
+                actionButton.text = "Extract MP3"
+            }
+        }
+    }
+
+    private fun selectedResolution(): VideoCompressor.Resolution {
+        return when (findViewById<RadioGroup>(R.id.rgResolution).checkedRadioButtonId) {
+            R.id.rbRes720 -> VideoCompressor.Resolution.P720
+            R.id.rbRes1080 -> VideoCompressor.Resolution.P1080
+            else -> VideoCompressor.Resolution.ORIGINAL
+        }
+    }
+
+    private fun selectedFormat(): VideoCompressor.OutputFormat {
+        return when (findViewById<RadioGroup>(R.id.rgFormat).checkedRadioButtonId) {
+            R.id.rbFmtWebm -> VideoCompressor.OutputFormat.WEBM
+            R.id.rbFmtMov -> VideoCompressor.OutputFormat.MOV
+            R.id.rbFmtMkv -> VideoCompressor.OutputFormat.MKV
+            else -> VideoCompressor.OutputFormat.MP4
+        }
+    }
+
+    private fun selectedCodec(): VideoCompressor.Codec {
+        return when (findViewById<RadioGroup>(R.id.rgCodec).checkedRadioButtonId) {
+            R.id.rbH265 -> VideoCompressor.Codec.H265
+            R.id.rbAV1 -> VideoCompressor.Codec.AV1
+            else -> VideoCompressor.Codec.H264
+        }
+    }
+
+    private fun startAction() {
         val uri = inputUri ?: run {
             Toast.makeText(this, getString(R.string.pick_first_video), Toast.LENGTH_SHORT).show()
             return
@@ -61,28 +127,25 @@ class VideoCompressActivity : AppCompatActivity() {
             return
         }
         try {
-            startCompressUnsafe(uri, status, result)
+            when (mode) {
+                Mode.COMPRESS -> startCompress(uri, status, result)
+                Mode.CONVERT -> startConvert(uri, status, result)
+                Mode.MP3 -> startMp3(uri, status, result)
+            }
         } catch (t: Throwable) {
             findViewById<LinearProgressIndicator>(R.id.progress).visibility = View.GONE
-            status.text = "Failed: ${t.message ?: "couldn't start compression"}"
+            status.text = "Failed: ${t.message ?: "couldn't start"}"
         }
     }
 
-    private fun startCompressUnsafe(
-        uri: android.net.Uri,
-        status: TextView,
-        result: TextView
-    ) {
+    private fun startCompress(uri: Uri, status: TextView, result: TextView) {
         val progress = findViewById<LinearProgressIndicator>(R.id.progress)
-        val codec = when (findViewById<RadioGroup>(R.id.rgCodec).checkedRadioButtonId) {
-            R.id.rbH265 -> VideoCompressor.Codec.H265
-            R.id.rbAV1 -> VideoCompressor.Codec.AV1
-            else -> VideoCompressor.Codec.H264
-        }
+        val codec = selectedCodec()
+        val resolution = selectedResolution()
 
         progress.visibility = View.VISIBLE
         progress.progress = 0
-        status.text = "Compressing… CRF $selectedCrf, ${codec.name}, original resolution kept"
+        status.text = "Compressing… CRF $selectedCrf, ${codec.name}, ${resolution.label} resolution"
         result.text = ""
 
         // FFmpeg writes to a temp file in the app cache; the finished
@@ -91,8 +154,8 @@ class VideoCompressActivity : AppCompatActivity() {
         val out = File(cacheDir, "hakunaa_crf${selectedCrf}_${System.currentTimeMillis()}.mp4")
         val inputFile = FileUtils.copyUriToCache(this, uri, "input_${System.currentTimeMillis()}.mp4")
 
-        VideoCompressor.compress(
-            inputFile.absolutePath, out.absolutePath, selectedCrf, codec,
+        VideoCompressor.compressWithResolution(
+            inputFile.absolutePath, out.absolutePath, selectedCrf, codec, resolution,
             onProgress = { percent -> runOnUiThread { progress.progress = percent } },
             onDone = { ok, message ->
                 runOnUiThread {
@@ -106,6 +169,77 @@ class VideoCompressActivity : AppCompatActivity() {
                         else "Done, but couldn't save to Movies — please try again"
                         result.text = "${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(after)} " +
                             "(${FileUtils.savedPercent(inputSize, after)})"
+                    } else {
+                        status.text = "Failed: $message"
+                    }
+                }
+            }
+        )
+    }
+
+    private fun startConvert(uri: Uri, status: TextView, result: TextView) {
+        val progress = findViewById<LinearProgressIndicator>(R.id.progress)
+        val format = selectedFormat()
+        val resolution = selectedResolution()
+
+        progress.visibility = View.VISIBLE
+        progress.progress = 0
+        status.text = "Converting to ${format.label}… ${resolution.label} resolution"
+        result.text = ""
+
+        val out = File(cacheDir, "hakunaa_convert_${System.currentTimeMillis()}.${format.extension}")
+        val inputFile = FileUtils.copyUriToCache(this, uri, "input_${System.currentTimeMillis()}.mp4")
+
+        VideoCompressor.convert(
+            inputFile.absolutePath, out.absolutePath, format, 28, resolution,
+            onProgress = { percent -> runOnUiThread { progress.progress = percent } },
+            onDone = { ok, message ->
+                runOnUiThread {
+                    progress.visibility = View.GONE
+                    if (ok) {
+                        val after = out.length()
+                        val saved = MediaStoreSaver.save(
+                            this, out, MediaStoreSaver.Kind.VIDEO, out.name, format.mime
+                        )
+                        status.text = if (saved != null) "Done — saved to Movies/Hakunaa"
+                        else "Done, but couldn't save to Movies — please try again"
+                        result.text = "${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(after)} " +
+                            "(${format.label} format)"
+                    } else {
+                        status.text = "Failed: $message"
+                    }
+                }
+            }
+        )
+    }
+
+    private fun startMp3(uri: Uri, status: TextView, result: TextView) {
+        val progress = findViewById<LinearProgressIndicator>(R.id.progress)
+
+        progress.visibility = View.VISIBLE
+        progress.progress = 0
+        status.text = "Extracting MP3 audio…"
+        result.text = ""
+
+        val out = File(cacheDir, "hakunaa_audio_${System.currentTimeMillis()}.mp3")
+        val inputFile = FileUtils.copyUriToCache(this, uri, "input_${System.currentTimeMillis()}.mp4")
+
+        VideoCompressor.extractMp3(
+            inputFile.absolutePath, out.absolutePath,
+            onProgress = { percent -> runOnUiThread { progress.progress = percent } },
+            onDone = { ok, message ->
+                runOnUiThread {
+                    progress.visibility = View.GONE
+                    if (ok) {
+                        val after = out.length()
+                        // MP3 is audio — save it to Music/Hakunaa so it
+                        // shows up in music players, not in Movies.
+                        val saved = MediaStoreSaver.save(
+                            this, out, MediaStoreSaver.Kind.AUDIO, out.name
+                        )
+                        status.text = if (saved != null) "Done — saved to Music/Hakunaa"
+                        else "Done, but couldn't save — please try again"
+                        result.text = "Audio extracted: ${FileUtils.formatSize(after)} MP3"
                     } else {
                         status.text = "Failed: $message"
                     }

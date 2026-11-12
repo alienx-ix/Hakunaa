@@ -24,6 +24,10 @@ object MediaStoreSaver {
         VIDEO("Movies/Hakunaa", "video/mp4"),
         IMAGE("Pictures/Hakunaa", "image/jpeg"),
         DOCUMENT("Documents/Hakunaa", "application/pdf"),
+        // Extracted audio (MP3): Music folder, audio/mpeg mime.
+        // Never use the PDF mime for an .mp3 — MediaStore can reject
+        // the mismatch and the file silently never appears.
+        AUDIO("Music/Hakunaa", "audio/mpeg"),
         // Crash reports: plain text in Downloads, the most visible
         // place in the Files app. Never use the PDF mime for a .txt
         // file — MediaStore can reject the mismatch and the file
@@ -31,27 +35,30 @@ object MediaStoreSaver {
         LOG("Download/Hakunaa", "text/plain")
     }
 
-    /** Save [file] as [displayName] in the shared [Kind] folder. Null on failure. */
-    fun save(context: Context, file: File, kind: Kind, displayName: String): Uri? {
+    /** Save [file] as [displayName] in the shared [Kind] folder. Null on failure.
+     *  [mimeOverride] replaces the Kind's default MIME when the file's real
+     *  type differs (e.g. a WebM video saved through the VIDEO kind). */
+    fun save(context: Context, file: File, kind: Kind, displayName: String, mimeOverride: String? = null): Uri? {
         return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) saveViaMediaStore(context, file, kind, displayName)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) saveViaMediaStore(context, file, kind, displayName, mimeOverride)
             else saveViaFile(file, kind, displayName)
         } catch (_: Throwable) {
             null
         }
     }
 
-    private fun saveViaMediaStore(context: Context, file: File, kind: Kind, displayName: String): Uri? {
+    private fun saveViaMediaStore(context: Context, file: File, kind: Kind, displayName: String, mimeOverride: String? = null): Uri? {
         val resolver = context.contentResolver
         val collection = when (kind) {
             Kind.VIDEO -> MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
             Kind.IMAGE -> MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            Kind.AUDIO -> MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
             Kind.LOG -> MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
             Kind.DOCUMENT -> MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         }
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
-            put(MediaStore.MediaColumns.MIME_TYPE, kind.mime)
+            put(MediaStore.MediaColumns.MIME_TYPE, mimeOverride ?: kind.mime)
             put(MediaStore.MediaColumns.RELATIVE_PATH, kind.folder)
             put(MediaStore.MediaColumns.IS_PENDING, 1)
         }
@@ -73,6 +80,7 @@ object MediaStoreSaver {
         val base = when (kind) {
             Kind.VIDEO -> Environment.DIRECTORY_MOVIES
             Kind.IMAGE -> Environment.DIRECTORY_PICTURES
+            Kind.AUDIO -> Environment.DIRECTORY_MUSIC
             Kind.LOG -> Environment.DIRECTORY_DOWNLOADS
             Kind.DOCUMENT -> Environment.DIRECTORY_DOCUMENTS
         }

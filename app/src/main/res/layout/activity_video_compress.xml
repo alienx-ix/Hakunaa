@@ -37,6 +37,47 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="20dp"
+            android:text="What to do"
+            android:textColor="@color/hakunaa_text"
+            android:textStyle="bold" />
+
+        <RadioGroup
+            android:id="@+id/rgMode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/rbModeCompress"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                android:text="Compress" />
+            <RadioButton
+                android:id="@+id/rbModeConvert"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:text="Convert" />
+            <RadioButton
+                android:id="@+id/rbModeMp3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:text="Video to MP3" />
+        </RadioGroup>
+
+        <LinearLayout
+            android:id="@+id/llCompressOptions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
             android:text="@string/quality_label"
             android:textColor="@color/hakunaa_text"
             android:textStyle="bold" />
@@ -108,6 +149,98 @@
                 android:layout_marginStart="16dp"
                 android:text="AV1 (smallest, very slow)" />
         </RadioGroup>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/llFormatOptions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="Convert to"
+            android:textColor="@color/hakunaa_text"
+            android:textStyle="bold" />
+
+        <RadioGroup
+            android:id="@+id/rgFormat"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/rbFmtMp4"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                android:text="MP4" />
+            <RadioButton
+                android:id="@+id/rbFmtWebm"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:text="WebM" />
+            <RadioButton
+                android:id="@+id/rbFmtMov"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:text="MOV" />
+            <RadioButton
+                android:id="@+id/rbFmtMkv"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:text="MKV" />
+        </RadioGroup>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/llResolutionOptions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Resolution"
+            android:textColor="@color/hakunaa_text"
+            android:textStyle="bold" />
+
+        <RadioGroup
+            android:id="@+id/rgResolution"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/rbResOriginal"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                android:text="Original (best quality)" />
+            <RadioButton
+                android:id="@+id/rbRes1080"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:text="1080p" />
+            <RadioButton
+                android:id="@+id/rbRes720"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:text="720p" />
+        </RadioGroup>
+        </LinearLayout>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnCompress"
