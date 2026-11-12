@@ -101,6 +101,12 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="16dp"
                 android:text="H.265 (smaller, slower)" />
+            <RadioButton
+                android:id="@+id/rbAV1"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:text="AV1 (smallest, very slow)" />
         </RadioGroup>
 
         <com.google.android.material.button.MaterialButton

@@ -29,7 +29,8 @@ The reference app's label had this backwards.
 
 Presets: High 23, Balanced 28, Small 33, Smallest 38, User Default 24.
 Default: Balanced 28. Codec options: H.264 (default, fast, plays
-everywhere) and H.265 (about 50% smaller, slower).
+everywhere), H.265 (about 50% smaller, slower) and AV1 (20–30% smaller
+than H.265, very slow).
 
 PDF: 90% of a PDF's size is images. Lossless (metadata / duplicate
 removal) is 20–30% smaller at 100% quality. Smart lossy

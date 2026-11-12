@@ -19,7 +19,11 @@ import com.hakunaa.app.core.Presets
 object VideoCompressor {
     enum class Codec(val ffmpegName: String, val fileSuffix: String) {
         H264("libx264", "h264"),
-        H265("libx265", "h265")
+        H265("libx265", "h265"),
+        // AV1 (libaom-av1): 20–30% smaller than H.265 at the same quality,
+        // but very slow on phones. Offered as an option, never the default.
+        // AV1 CRF runs 0–63; the same preset CRF values are reused here.
+        AV1("libaom-av1", "av1")
     }
 
     fun buildCommand(
@@ -31,7 +35,12 @@ object VideoCompressor {
     ): String {
         val videoCodec = codec.ffmpegName
         // H.265 needs a pixel-format + tag that plays on most phones.
-        val extra = if (codec == Codec.H265) " -pix_fmt yuv420p -tag:v hvc1" else " -pix_fmt yuv420p"
+        // AV1 is encoded with cpu-used 4 (faster, still good quality).
+        val extra = when (codec) {
+            Codec.H265 -> " -pix_fmt yuv420p -tag:v hvc1"
+            Codec.AV1 -> " -pix_fmt yuv420p -cpu-used 4"
+            else -> " -pix_fmt yuv420p"
+        }
         return "-i \"$inputPath\" -c:v $videoCodec -crf $crf -preset $preset$extra " +
             "-c:a aac -b:a ${Presets.AUDIO_BITRATE} \"$outputPath\""
     }

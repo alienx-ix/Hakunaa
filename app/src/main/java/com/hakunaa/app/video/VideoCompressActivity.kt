@@ -55,10 +55,10 @@ class VideoCompressActivity : AppCompatActivity() {
         val status = findViewById<TextView>(R.id.tvStatus)
         val result = findViewById<TextView>(R.id.tvResult)
         val progress = findViewById<LinearProgressIndicator>(R.id.progress)
-        val codec = if (findViewById<RadioGroup>(R.id.rgCodec).checkedRadioButtonId == R.id.rbH265) {
-            VideoCompressor.Codec.H265
-        } else {
-            VideoCompressor.Codec.H264
+        val codec = when (findViewById<RadioGroup>(R.id.rgCodec).checkedRadioButtonId) {
+            R.id.rbH265 -> VideoCompressor.Codec.H265
+            R.id.rbAV1 -> VideoCompressor.Codec.AV1
+            else -> VideoCompressor.Codec.H264
         }
 
         progress.visibility = View.VISIBLE
