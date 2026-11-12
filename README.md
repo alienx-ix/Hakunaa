@@ -94,6 +94,21 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   fallback, and a new `CrashInitProvider` installs the crash handler
   before any other startup component runs. Version bumped to 0.1.1
   (versionCode 2) so the new APK is unmistakable.
+- **Freeze (v0.1.2, 2026-11-12):** even a plain Activity with no
+  AppCompat/Material and no layout inflation froze on a black screen.
+  Proves the freeze is NOT in the UI code — it is the build. The
+  unshrunk DEX was ~16 MB (every class from every library), so
+  first-launch DEX verification takes far too long and the app sits
+  on a black screen. User instructed: use Android Studio. Android
+  Studio Panda 4 Patch 1 was installed (~/android-studio) with Gradle
+  8.7, but Gradle cannot run on this machine — the runtime blocks
+  Java TCP, which Gradle's client-daemon communication needs
+  ("Could not receive a message from the daemon"), even with
+  --no-daemon. So the best WORKING build is the manual pipeline plus
+  R8 shrinking (the same shrinker Android Studio uses). v0.1.3:
+  R8 tree-shakes the DEX from 16 MB to ~9 MB (Material views kept —
+  R8 first removed MaterialCardView because it is only referenced
+  from layout XML, which would have crashed the home screen).
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.
