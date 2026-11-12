@@ -23,7 +23,12 @@ object MediaStoreSaver {
     enum class Kind(val folder: String, val mime: String) {
         VIDEO("Movies/Hakunaa", "video/mp4"),
         IMAGE("Pictures/Hakunaa", "image/jpeg"),
-        DOCUMENT("Documents/Hakunaa", "application/pdf")
+        DOCUMENT("Documents/Hakunaa", "application/pdf"),
+        // Crash reports: plain text in Downloads, the most visible
+        // place in the Files app. Never use the PDF mime for a .txt
+        // file — MediaStore can reject the mismatch and the file
+        // silently never appears.
+        LOG("Download/Hakunaa", "text/plain")
     }
 
     /** Save [file] as [displayName] in the shared [Kind] folder. Null on failure. */
@@ -41,6 +46,7 @@ object MediaStoreSaver {
         val collection = when (kind) {
             Kind.VIDEO -> MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
             Kind.IMAGE -> MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            Kind.LOG -> MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
             Kind.DOCUMENT -> MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         }
         val values = ContentValues().apply {
@@ -67,6 +73,7 @@ object MediaStoreSaver {
         val base = when (kind) {
             Kind.VIDEO -> Environment.DIRECTORY_MOVIES
             Kind.IMAGE -> Environment.DIRECTORY_PICTURES
+            Kind.LOG -> Environment.DIRECTORY_DOWNLOADS
             Kind.DOCUMENT -> Environment.DIRECTORY_DOCUMENTS
         }
         val dir = File(

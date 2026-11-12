@@ -86,6 +86,14 @@ Image: JPEG 85% is visually lossless for photos. WebP is
 - **Android support:** lowest Android 7.0 (API 24), targets Android 16
   (API 36, the newest stable; Android 17/18 are not released yet).
   AGP 8.6.1, Kotlin 1.9.24.
+- **Crash log (v0.1.1, 2026-11-12):** the app still crashed on the user's
+  phone and the first crash report never appeared. Fixes: the report is
+  now plain text (`text/plain` — the earlier build saved a `.txt` file
+  as `application/pdf` and MediaStore silently dropped it), it goes to
+  Download/Hakunaa (most visible in the Files app) with a Documents
+  fallback, and a new `CrashInitProvider` installs the crash handler
+  before any other startup component runs. Version bumped to 0.1.1
+  (versionCode 2) so the new APK is unmistakable.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

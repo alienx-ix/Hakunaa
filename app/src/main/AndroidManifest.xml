@@ -25,5 +25,12 @@
         <activity android:name=".pdf.PdfToolsActivity" android:exported="false" />
         <activity android:name=".image.ImageCompressActivity" android:exported="false" />
         <activity android:name=".video.VideoCompressActivity" android:exported="false" />
+        <!-- Installs the crash handler before anything else starts,
+             so even an early startup crash leaves a report. -->
+        <provider
+            android:name=".core.CrashInitProvider"
+            android:authorities="${applicationId}.crashinit"
+            android:exported="false"
+            android:initOrder="100" />
     </application>
 </manifest>
