@@ -342,6 +342,17 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   Also fixes the user's question: "ella apps um install pana
   odanae permissions ketu vangum but nee edhum kekela" — yes,
   Hakunaa now asks for the camera permission like other apps.
+- **v0.1.29 (2026-11-12): Scanner crash FIXED.** The user
+  opened the scanner and the app crashed immediately:
+  `ClassNotFoundException: androidx.camera.view.PreviewView`
+  (activity_scanner line #44). Root cause: R8 removed
+  PreviewView from the DEX — it is referenced from the layout
+  XML, and R8 cannot see XML references, so it decided the
+  class was unused (the same failure mode as MaterialCardView
+  earlier, which already had a keep rule). Fix: added
+  `-keep class androidx.camera.** { *; }` to
+  proguard-rules.pro. Verified in the built APK: PreviewView
+  now present (17 class descriptors in the DEX, was 0).
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.
