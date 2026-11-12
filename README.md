@@ -126,6 +126,27 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   `asyncFFmpegExecute(session)`, so no string parsing can break the
   options. Same standard command, audio probed and only encoded
   when present.
+- **v0.1.13 (2026-11-12):** the user still got the identical
+  "Unrecognized option 'preset'" error on v0.1.12. Root cause is the
+  `-preset` option itself: FFmpegKit's bundled libx264 build does not
+  accept it through this path, in any invocation style (String command,
+  `-map`, argv array — all failed on the same option). Fix: `-preset`
+  is REMOVED from the command entirely; libx264 falls back to its
+  default preset "medium" (slightly slower, same CRF quality). Also
+  adds a version label on the home screen ("Hakunaa v0.1.13") so
+  future screenshots prove which build is installed — version
+  confusion (old build vs new build) is now impossible. Superseded
+  before delivery by v0.1.14 below.
+- **v0.1.14 (2026-11-12):** PDF Lossless Compress made a file BIGGER
+  (user screenshot: 3.7 MB → 3.8 MB, "-3% smaller"). Re-saving an
+  already-optimized PDF with PDFBox's default writer adds overhead
+  (uncompressed xref), so the output can exceed the input.
+  `compressLossless` now returns the bytes saved and, when the
+  re-save would be bigger (or equal), it deletes the output and
+  reports "Already optimized — this PDF is as small as it gets
+  without losing quality. Try Smart Compress for a smaller file."
+  A "compress" will never hand the user a larger file again.
+  Includes the v0.1.13 video fix and version label.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

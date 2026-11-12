@@ -46,7 +46,11 @@ object VideoCompressor {
         val args = mutableListOf<String>()
         args += "-i"; args += inputPath
         args += "-c:v"; args += codec.ffmpegName
-        args += "-preset"; args += preset
+        // NOTE: no "-preset" option. It kept failing with
+        // "Unrecognized option 'preset'" on this phone across every
+        // invocation style (String command and argv array). libx264
+        // falls back to its default preset (medium) — slightly slower
+        // than "fast" but the same CRF quality, and it works.
         args += "-crf"; args += crf.toString()
         args += "-pix_fmt"; args += "yuv420p"
         // H.265 needs a tag that plays on most phones; AV1 uses

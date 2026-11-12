@@ -60,18 +60,31 @@ object PdfTools {
 
     /**
      * Lossless Compress: strip metadata and save with full compression.
-     * 20–30% smaller, quality 100% the same. Returns true on success.
+     * 20–30% smaller on typical PDFs, quality 100% the same.
+     * Returns the bytes saved (input size minus output size), 0 if the
+     * PDF is already as small as it gets (in that case NO output file
+     * is left behind — an earlier build saved a BIGGER file, 3.7 MB
+     * → 3.8 MB, because re-saving an already-optimized PDF with
+     * PDFBox's default writer can add overhead), or -1 on failure.
      * Smart lossy compression (image downscale to 150 DPI) is separate.
      */
-    fun compressLossless(input: File, output: File): Boolean {
+    fun compressLossless(input: File, output: File): Long {
         return try {
             PDDocument.load(input).use { doc ->
                 doc.documentInformation = com.tom_roush.pdfbox.pdmodel.PDDocumentInformation()
                 doc.save(output)
             }
-            true
+            val saved = input.length() - output.length()
+            if (saved <= 0) {
+                // Already optimized (or re-save overhead made it bigger):
+                // never hand the user a larger "compressed" file.
+                try { output.delete() } catch (_: Throwable) { }
+                0L
+            } else {
+                saved
+            }
         } catch (_: Throwable) {
-            false
+            -1L
         }
     }
 

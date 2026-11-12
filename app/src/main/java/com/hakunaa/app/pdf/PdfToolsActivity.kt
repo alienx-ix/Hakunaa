@@ -124,14 +124,21 @@ class PdfToolsActivity : AppCompatActivity() {
             try {
                 val before = input.length()
                 val out = File(hakunaaCacheDir(), "hakunaa_compressed_${System.currentTimeMillis()}.pdf")
-                val ok = PdfTools.compressLossless(input, out) && publishPdf(out)
+                val savedBytes = PdfTools.compressLossless(input, out)
                 runOnUiThread {
-                    if (ok) {
-                        val after = out.length()
-                        status.text = "Done — ${FileUtils.formatSize(before)} → ${FileUtils.formatSize(after)} " +
-                            "(${FileUtils.savedPercent(before, after)}), saved to Documents/Hakunaa/${out.name}"
-                    } else {
-                        status.text = "Compress failed — check the file and try again"
+                    when {
+                        savedBytes > 0 && publishPdf(out) -> {
+                            val after = out.length()
+                            status.text = "Done — ${FileUtils.formatSize(before)} → ${FileUtils.formatSize(after)} " +
+                                "(${FileUtils.savedPercent(before, after)}), saved to Documents/Hakunaa/${out.name}"
+                        }
+                        savedBytes == 0L -> {
+                            status.text = "Already optimized — this PDF is as small as it gets " +
+                                "without losing quality. Try Smart Compress for a smaller file."
+                        }
+                        else -> {
+                            status.text = "Compress failed — check the file and try again"
+                        }
                     }
                 }
             } catch (_: Throwable) {
