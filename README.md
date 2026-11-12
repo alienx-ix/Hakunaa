@@ -419,6 +419,28 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   or shadows near the edge do not pull the frame off. Crop
   screen keeps both auto (Auto Detect) and manual (draggable
   corners), like professional scanners.
+- **v0.1.33 (2026-11-12): Professional image tools (Puma Photo
+  Resize & Compress style).** The user sent screenshots of Puma
+  and asked for all professional tools in photo compress. The
+  Image Compress screen is now a full tools hub: **Quick squish**
+  (one tap — best compression, tries every level, keeps the
+  smallest, never bigger), **Resize** (resolution presets:
+  Keep, 240x534 … 3072x6828, Custom), **Compress** (quality
+  95/90/80/70/60/50/Custom 85, then a resolution step — keep
+  original or pick a size), **Fit** (aspect ratios 1:1, 4:5,
+  9:16, 16:9, 3:2), **Edit image** (Brightness / Contrast /
+  Saturation sliders + Rotate, live preview), **Crop** (reuses
+  the scanner's CropView — drag corners, rotate, save),
+  **Convert** (PNG / JPG / WebP), **Fit to social media**
+  (Instagram post/feed/story, Facebook, TikTok presets),
+  **Resize to KB, MB** (target file size 50 KB – 5 MB, binary
+  search on JPEG quality). New code: ImageToolActivity (one flow
+  activity, image header + radio list + Back/Next), ImageCrop
+  Activity, ImageEditActivity; ImageCompressor gained
+  compressToTargetSize, resizeTo, fitToAspect, adjust, crop,
+  rotate. Object erase: user asked if it is easy — simple
+  brush-and-fill is doable, Magic Eraser quality needs a 200 MB+
+  AI model (not feasible at the current app size); not built yet.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

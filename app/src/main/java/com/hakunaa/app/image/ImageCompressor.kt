@@ -2,6 +2,12 @@ package com.hakunaa.app.image
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.Matrix
+import android.graphics.Paint
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 
@@ -158,5 +164,181 @@ object ImageCompressor {
             }
         }
         return if (bestFile != null) Triple(bestFile, bestFormat, bestNote) else null
+    }
+
+    /**
+     * Resize to a target file size (Puma's "Resize to KB, MB"):
+     * binary-search the JPEG quality until the output is at or
+     * under [targetBytes]. If even quality 10 is still too big,
+     * the smallest attempt is returned. Returns the output file,
+     * or null on failure.
+     */
+    fun compressToTargetSize(input: File, output: File, targetBytes: Long): File? {
+        return try {
+            val bitmap = BitmapFactory.decodeFile(input.absolutePath) ?: return null
+            var low = 10
+            var high = 95
+            var bestBytes: ByteArray? = null
+            // Binary search: fewer tries, same result.
+            while (low <= high) {
+                val mid = (low + high) / 2
+                val bytes = ByteArrayOutputStream().use { stream ->
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, mid, stream)
+                    stream.toByteArray()
+                }
+                if (bytes.size <= targetBytes) {
+                    bestBytes = bytes
+                    low = mid + 1
+                } else {
+                    high = mid - 1
+                }
+            }
+            // If nothing fit, use the lowest quality tried.
+            val result = bestBytes ?: ByteArrayOutputStream().use { stream ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 10, stream)
+                stream.toByteArray()
+            }
+            bitmap.recycle()
+            FileOutputStream(output).use { it.write(result) }
+            output
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /**
+     * Resize to exact dimensions (width x height), keeping the
+     * aspect ratio of the target by scaling to fit. Returns true
+     * on success. Output is JPEG 90%.
+     */
+    fun resizeTo(input: File, output: File, targetW: Int, targetH: Int): Boolean {
+        return try {
+            val bitmap = BitmapFactory.decodeFile(input.absolutePath) ?: return false
+            val scaled = Bitmap.createScaledBitmap(bitmap, targetW, targetH, true)
+            FileOutputStream(output).use { out ->
+                scaled.compress(Bitmap.CompressFormat.JPEG, 90, out)
+            }
+            bitmap.recycle()
+            scaled.recycle()
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * Fit to an aspect ratio (Puma's "Fit" / "Fit to social media"):
+     * centre-crops the image to [aspectW]:[aspectH] (e.g. 1:1 for
+     * Instagram, 9:16 for a story, 4:5 for a feed post). Returns
+     * true on success. Output is JPEG 90%.
+     */
+    fun fitToAspect(input: File, output: File, aspectW: Int, aspectH: Int): Boolean {
+        return try {
+            val bitmap = BitmapFactory.decodeFile(input.absolutePath) ?: return false
+            val targetRatio = aspectW.toFloat() / aspectH
+            val ratio = bitmap.width.toFloat() / bitmap.height
+            val (cropW, cropH) = if (ratio > targetRatio) {
+                // Too wide — cut the sides.
+                val w = (bitmap.height * targetRatio).toInt()
+                Pair(w, bitmap.height)
+            } else {
+                // Too tall — cut top and bottom.
+                val h = (bitmap.width / targetRatio).toInt()
+                Pair(bitmap.width, h)
+            }
+            val x = (bitmap.width - cropW) / 2
+            val y = (bitmap.height - cropH) / 2
+            val cropped = Bitmap.createBitmap(bitmap, x, y, cropW, cropH)
+            FileOutputStream(output).use { out ->
+                cropped.compress(Bitmap.CompressFormat.JPEG, 90, out)
+            }
+            bitmap.recycle()
+            cropped.recycle()
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * Basic photo editing: brightness (-100..100), contrast
+     * (0.5..2.0) and saturation (0..2.0). Returns true on success.
+     * Output is JPEG 90%.
+     */
+    fun adjust(
+        input: File,
+        output: File,
+        brightness: Float,
+        contrast: Float,
+        saturation: Float
+    ): Boolean {
+        return try {
+            val bitmap = BitmapFactory.decodeFile(input.absolutePath) ?: return false
+            val result = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(result)
+            val paint = Paint()
+            val matrix = ColorMatrix()
+            matrix.setSaturation(saturation)
+            val adjust = ColorMatrix(
+                floatArrayOf(
+                    contrast, 0f, 0f, 0f, brightness,
+                    0f, contrast, 0f, 0f, brightness,
+                    0f, 0f, contrast, 0f, brightness,
+                    0f, 0f, 0f, 1f, 0f
+                )
+            )
+            matrix.postConcat(adjust)
+            paint.colorFilter = ColorMatrixColorFilter(matrix)
+            canvas.drawBitmap(bitmap, 0f, 0f, paint)
+            FileOutputStream(output).use { out ->
+                result.compress(Bitmap.CompressFormat.JPEG, 90, out)
+            }
+            bitmap.recycle()
+            result.recycle()
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * Crop to a rectangle (in pixels, in the original image).
+     * Returns true on success. Output is JPEG 92%.
+     */
+    fun crop(input: File, output: File, left: Int, top: Int, right: Int, bottom: Int): Boolean {
+        return try {
+            val bitmap = BitmapFactory.decodeFile(input.absolutePath) ?: return false
+            val w = (right - left).coerceIn(1, bitmap.width)
+            val h = (bottom - top).coerceIn(1, bitmap.height)
+            val l = left.coerceIn(0, bitmap.width - 1)
+            val t = top.coerceIn(0, bitmap.height - 1)
+            val cropped = Bitmap.createBitmap(bitmap, l, t, w, h)
+            FileOutputStream(output).use { out ->
+                cropped.compress(Bitmap.CompressFormat.JPEG, 92, out)
+            }
+            bitmap.recycle()
+            cropped.recycle()
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /** Rotate an image by [degrees] (90, 180, 270). */
+    fun rotate(input: File, output: File, degrees: Float): Boolean {
+        return try {
+            val bitmap = BitmapFactory.decodeFile(input.absolutePath) ?: return false
+            val matrix = Matrix()
+            matrix.postRotate(degrees)
+            val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+            FileOutputStream(output).use { out ->
+                rotated.compress(Bitmap.CompressFormat.JPEG, 92, out)
+            }
+            bitmap.recycle()
+            rotated.recycle()
+            true
+        } catch (_: Throwable) {
+            false
+        }
     }
 }
