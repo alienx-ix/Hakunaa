@@ -109,6 +109,15 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   R8 tree-shakes the DEX from 16 MB to ~9 MB (Material views kept —
   R8 first removed MaterialCardView because it is only referenced
   from layout XML, which would have crashed the home screen).
+- **v0.1.4 (2026-11-12):** no custom Application, no CrashInitProvider —
+  still crashed ("Crash and white screen"). So the crash is NOT in
+  the startup code either. Key realisation: the earlier "black-screen
+  freeze" was the crash handler restarting the home screen in a loop
+  after a startup crash — the real problem all along is a crash at
+  launch, hidden by the restart. v0.1.5 shows the exact crash on
+  screen instead: the handler opens a plain CrashReportActivity
+  (yellow, no Material) with the full error, so a screenshot gives
+  the exact exception to fix.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

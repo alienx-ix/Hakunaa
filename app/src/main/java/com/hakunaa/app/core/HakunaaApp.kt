@@ -4,7 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import com.hakunaa.app.MainActivity
+import com.hakunaa.app.CrashReportActivity
 import java.io.File
 import java.io.PrintWriter
 import java.io.StringWriter
@@ -13,16 +13,16 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Safety net: the app must never crash without leaving a trace.
+ * Safety net: the app must never crash without showing the exact error.
  * [install] is called twice on purpose — once from [CrashInitProvider]
  * (which runs before Application.onCreate, so even a crash in another
  * startup component is caught) and once from [onCreate] as a backup.
  * On an unexpected error it:
- *  1. writes the full crash report to Download/Hakunaa/ so the user
- *     can open it in the Files app and tell us the exact error, and
- *  2. reopens the home screen once. A second crash within 10 seconds
- *     means the home screen itself is broken, so it lets the process
- *     die normally instead of looping.
+ *  1. writes the full crash report to Download/Hakunaa/, and
+ *  2. opens [CrashReportActivity] (a plain screen, no Material) showing
+ *     the exact error, so the user can screenshot it and tell us.
+ * It deliberately does NOT restart the home screen — the restart loop
+ * is what turned earlier crashes into a black-screen freeze.
  */
 class HakunaaApp : Application() {
     override fun onCreate() {
@@ -40,24 +40,29 @@ class HakunaaApp : Application() {
             val app = appContext.applicationContext
             val previous = Thread.getDefaultUncaughtExceptionHandler()
             Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+                val detail = try {
+                    val sw = StringWriter()
+                    error.printStackTrace(PrintWriter(sw))
+                    sw.toString()
+                } catch (_: Throwable) {
+                    error.toString()
+                }
                 try {
-                    writeCrashLog(app, thread, error)
+                    writeCrashLog(app, thread, error, detail)
                 } catch (_: Throwable) {
                     // Logging must never make a crash worse.
                 }
                 try {
-                    val prefs = app.getSharedPreferences("hakunaa_crash", Context.MODE_PRIVATE)
-                    val lastRestart = prefs.getLong("last_restart_ms", 0L)
-                    val now = System.currentTimeMillis()
-                    if (now - lastRestart > 10_000L) {
-                        prefs.edit().putLong("last_restart_ms", now).apply()
-                        val restart = Intent(app, MainActivity::class.java).apply {
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-                        }
-                        app.startActivity(restart)
-                        android.os.Process.killProcess(android.os.Process.myPid())
-                        return@setDefaultUncaughtExceptionHandler
+                    // Show the error on screen instead of restarting.
+                    // A plain Activity (no Material) so it opens even
+                    // if the home screen's UI is what crashed.
+                    val show = Intent(app, CrashReportActivity::class.java).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                        putExtra(CrashReportActivity.EXTRA_DETAIL, detail.take(4000))
                     }
+                    app.startActivity(show)
+                    android.os.Process.killProcess(android.os.Process.myPid())
+                    return@setDefaultUncaughtExceptionHandler
                 } catch (_: Throwable) {
                     // Fall through to the default handler below.
                 }
@@ -65,16 +70,14 @@ class HakunaaApp : Application() {
             }
         }
 
-        private fun writeCrashLog(app: Context, thread: Thread, error: Throwable) {
+        private fun writeCrashLog(app: Context, thread: Thread, error: Throwable, detail: String) {
             val stamp = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US).format(Date())
-            val sw = StringWriter()
-            error.printStackTrace(PrintWriter(sw))
             val report = buildString {
                 appendLine("Hakunaa crash report — $stamp")
                 appendLine("Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}), ${Build.MANUFACTURER} ${Build.MODEL}")
-                appendLine("App 0.1.1, thread: ${thread.name}")
+                appendLine("App 0.1.5, thread: ${thread.name}")
                 appendLine()
-                append(sw.toString())
+                append(detail)
             }
             val file = File(app.cacheDir, "crash-log-$stamp.txt").apply {
                 writeText(report)
