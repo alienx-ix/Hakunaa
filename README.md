@@ -254,6 +254,27 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   much — optimize at the END (final version) by switching
   FFmpegKit full-gpl to video-gpl (target ~40–45 MB); for now,
   best functions only.
+- **v0.1.22 (2026-11-12): Best PDF Smart Compress.** The user
+  tested Smart Compress and got 3.8 MB → 4.2 MB (-10%) even
+  though 8 images were "compressed" — the originals were already
+  low-quality JPEGs, so re-encoding at JPEG 82% grew them. Fix:
+  `compressSmartBest` tries 150 DPI / JPEG 82% first, and if the
+  result is not smaller it automatically escalates (100 DPI /
+  JPEG 70%, then 72 DPI / JPEG 60%) until the output IS smaller.
+  A Smart Compress never hands back a bigger file. (v0.1.22 was
+  built and verified but superseded by v0.1.23 before delivery,
+  which adds the same guarantee to Image Compress.)
+- **v0.1.23 (2026-11-12): Best compression everywhere — never
+  bigger, in ANY situation.** The user requires it: no compress
+  may ever return a file bigger than the original. Image Compress
+  now uses `compressBest`: JPEG 85% first, then WebP 85%
+  (25–35% smaller than JPEG), JPEG 70%, WebP 70%, JPEG 60% —
+  until the output IS smaller, and reports which stronger
+  setting was used. If even the strongest settings cannot shrink
+  it, the app says "Already optimized" and saves nothing. Same
+  guarantee already in place for Video (`compressBest`, v0.1.18),
+  PDF Smart (`compressSmartBest`, v0.1.22) and PDF Lossless
+  (size check, v0.1.14).
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

@@ -45,21 +45,26 @@ class ImageCompressActivity : AppCompatActivity() {
         Thread {
             try {
                 val input = FileUtils.copyUriToCache(this, uri, "input_image")
-                // Compress to a cache temp file, then publish via MediaStore.
-                val out = File(cacheDir, "hakunaa_${System.currentTimeMillis()}.jpg")
-                val ok = ImageCompressor.compress(input, out, quality = 85)
+                // Best compression: tries JPEG 85% first, and if the
+                // result is not smaller it automatically escalates
+                // (WebP, lower quality) until the output IS smaller.
+                // Never hands back a bigger file.
+                val outBase = File(cacheDir, "hakunaa_${System.currentTimeMillis()}")
+                val best = ImageCompressor.compressBest(input, outBase)
                 runOnUiThread {
-                    if (ok) {
+                    if (best != null) {
+                        val (out, _, note) = best
                         val after = out.length()
                         val saved = MediaStoreSaver.save(
                             this, out, MediaStoreSaver.Kind.IMAGE, out.name
                         )
-                        status.text = if (saved != null) "Done — saved to Pictures/Hakunaa"
+                        status.text = if (saved != null) "Done — saved to Pictures/Hakunaa$note"
                         else "Done, but couldn't save to Pictures — please try again"
                         result.text = "${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(after)} " +
                             "(${FileUtils.savedPercent(inputSize, after)})"
                     } else {
-                        status.text = "Failed — try another image"
+                        status.text = "Already optimized — even the strongest settings couldn't shrink this image."
+                        result.text = ""
                     }
                 }
             } catch (_: Throwable) {

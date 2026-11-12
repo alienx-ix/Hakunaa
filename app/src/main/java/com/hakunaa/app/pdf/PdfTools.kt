@@ -98,6 +98,10 @@ object PdfTools {
      * Typical result 60–70% smaller, eye cannot tell at 150 DPI.
      * Also strips metadata.
      * Returns the number of images replaced, or -1 on failure.
+     * NOTE: this can make a file BIGGER if the original images were
+     * already low-quality JPEGs (re-encoding at 82% grows them).
+     * Use [compressSmartBest] for the safe version that never hands
+     * back a bigger file.
      */
     fun compressSmart(
         input: File,
@@ -120,6 +124,42 @@ object PdfTools {
         } catch (_: Throwable) {
             -1
         }
+    }
+
+    /**
+     * Best Smart Compress: try the standard settings first (150 DPI,
+     * JPEG 82%); if the result is NOT smaller than the input, the
+     * app automatically escalates to stronger settings (100 DPI /
+     * JPEG 70%, then 72 DPI / JPEG 60%) until the output IS smaller.
+     * A Smart Compress never hands back a bigger file. The user
+     * proved the need: a 3.8 MB PDF came back 4.2 MB (-10%) even
+     * though 8 images were "compressed" — the originals were already
+     * low-quality JPEGs, so re-encoding at 82% grew them.
+     * Returns a Pair: (images replaced, settings note). The note is
+     * "" if the standard settings won, or names the stronger
+     * settings used. Returns (-1, "") on failure, and (0, "already")
+     * if even the strongest settings could not shrink it (in that
+     * case NO output file is left behind).
+     */
+    fun compressSmartBest(input: File, output: File): Pair<Int, String> {
+        val inputSize = input.length()
+        val attempts = listOf(
+            Triple(150, 0.82f, ""),
+            Triple(100, 0.70f, " (used 100 DPI, JPEG 70% to get it smaller)"),
+            Triple(72, 0.60f, " (used 72 DPI, JPEG 60% to get it smaller)")
+        )
+        for ((dpi, quality, note) in attempts) {
+            val replaced = compressSmart(input, output, dpi, quality)
+            if (replaced < 0) return Pair(-1, "")
+            if (!output.exists()) return Pair(-1, "")
+            val outSize = output.length()
+            if (outSize < inputSize) {
+                return Pair(replaced, note)
+            }
+            // Bigger (or equal) — delete it and try harder.
+            try { output.delete() } catch (_: Throwable) { }
+        }
+        return Pair(0, "already")
     }
 
     /** Walk a page's XObjects (including nested Form XObjects) and downscale images. Returns the count replaced. */

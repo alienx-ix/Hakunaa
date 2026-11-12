@@ -158,23 +158,29 @@ class PdfToolsActivity : AppCompatActivity() {
     private fun compressSmartPdf() {
         val input = firstPickedPdf() ?: return
         val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Compressing PDF (smart — 150 DPI, JPEG 82%)…"
+        status.text = "Compressing PDF (smart)…"
         Thread {
             try {
                 val before = input.length()
                 val out = File(hakunaaCacheDir(), "hakunaa_smart_${System.currentTimeMillis()}.pdf")
-                val replaced = PdfTools.compressSmart(input, out)
-                val ok = replaced >= 0 && publishPdf(out)
+                // Best Smart Compress: tries 150 DPI / JPEG 82% first,
+                // and if the result is not smaller it automatically
+                // escalates (100 DPI / 70%, then 72 DPI / 60%) until
+                // the output IS smaller. Never hands back a bigger file.
+                val (replaced, note) = PdfTools.compressSmartBest(input, out)
                 runOnUiThread {
-                    if (ok) {
-                        val after = out.length()
-                        val note = if (replaced == 0)
-                            " No images to compress — this PDF is text-only, so Smart can't shrink it."
-                        else " $replaced image(s) compressed."
-                        status.text = "Done — ${FileUtils.formatSize(before)} → ${FileUtils.formatSize(after)} " +
-                            "(${FileUtils.savedPercent(before, after)}), saved to Documents/Hakunaa/${out.name}.$note"
-                    } else {
-                        status.text = "Compress failed — check the file and try again"
+                    when {
+                        replaced > 0 && out.exists() && publishPdf(out) -> {
+                            val after = out.length()
+                            status.text = "Done — ${FileUtils.formatSize(before)} → ${FileUtils.formatSize(after)} " +
+                                "(${FileUtils.savedPercent(before, after)}), saved to Documents/Hakunaa/${out.name}. $replaced image(s) compressed.$note"
+                        }
+                        replaced == 0 && note == "already" -> {
+                            status.text = "Already optimized — even the strongest Smart settings couldn't shrink this PDF. Try Lossless Compress, or the images are already as small as they get."
+                        }
+                        else -> {
+                            status.text = "Compress failed — check the file and try again"
+                        }
                     }
                 }
             } catch (_: Throwable) {
