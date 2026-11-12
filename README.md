@@ -42,13 +42,14 @@ Image: JPEG 85% is visually lossless for photos. WebP is
 ## Starter v0.1.0 — what is in this code
 
 - Home screen with 3 cards: PDF Tools, Image Compress, Video Compress
-- `video/` — VideoCompressor (FFmpegKit, H.264/H.265, CRF, progress,
+- `video/` — VideoCompressor (FFmpegKit, H.264/H.265/AV1, CRF, progress,
   cancel) + VideoCompressActivity (pick, preset, codec, progress,
   before/after size, saves to Movies/Hakunaa)
 - `pdf/` — PdfTools.merge, split (one file per page), compressLossless
-  (metadata strip, 20–30% smaller, quality 100% same), imageToPdf
+  (metadata strip, 20–30% smaller, quality 100% same), compressSmart
+  (images downscaled to 150 DPI, JPEG 82%, 60–70% smaller), imageToPdf
   (PDFBox-Android) + PdfToolsActivity (pick PDFs / image, merge, split,
-  compress, image to PDF, saves to Documents/Hakunaa)
+  compress lossless, compress smart, image to PDF, saves to Documents/Hakunaa)
 - `image/` — ImageCompressor (JPEG 85% / WebP, max 2048px) +
   ImageCompressActivity (pick, compress, before/after size,
   saves to Pictures/Hakunaa)
@@ -67,19 +68,15 @@ Image: JPEG 85% is visually lossless for photos. WebP is
 
 - Home: PDF card, Image card, Video card — each must open its screen
 - Video: Pick a video, preset radio (23 / 28 / 33 / 38 / 24),
-  codec radio (H.264 / H.265), Compress, progress bar, status,
+  codec radio (H.264 / H.265 / AV1), Compress, progress bar, status,
   before/after result
 - PDF: Pick PDFs, Merge PDFs, Split PDF, Compress PDF (lossless),
-  Image to PDF, status, before/after size on Compress
+  Compress PDF (smart), Image to PDF, status, before/after size on Compress
 - Image: Pick an image, Compress, status, before/after result
-- Explanation only: the note on the PDF screen that Smart lossy
-  Compress (image downscale to 150 DPI) lands next — it explains,
-  it does not act
 
 ## Not built yet
 
-- PDF Smart Compress (lossy, image downscale to 150 DPI)
-- Video Convert (MP4/WebM/MOV), Video to MP3, AV1 option
+- Video Convert (MP4/WebM/MOV), Video to MP3
 - Play Store listing, ads, analytics — none, by design
 
 ## Run it

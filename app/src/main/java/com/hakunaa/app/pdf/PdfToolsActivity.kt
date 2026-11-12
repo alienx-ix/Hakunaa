@@ -49,6 +49,7 @@ class PdfToolsActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnMerge).setOnClickListener { mergePdfs() }
         findViewById<Button>(R.id.btnSplit).setOnClickListener { splitPdf() }
         findViewById<Button>(R.id.btnCompressPdf).setOnClickListener { compressPdf() }
+        findViewById<Button>(R.id.btnCompressSmart).setOnClickListener { compressSmartPdf() }
         findViewById<Button>(R.id.btnImageToPdf).setOnClickListener { pickImageForPdf.launch("image/*") }
     }
 
@@ -108,6 +109,26 @@ class PdfToolsActivity : AppCompatActivity() {
             val before = input.length()
             val out = File(hakunaaDocumentsDir(), "hakunaa_compressed_${System.currentTimeMillis()}.pdf")
             val ok = PdfTools.compressLossless(input, out)
+            runOnUiThread {
+                if (ok) {
+                    val after = out.length()
+                    status.text = "Done — ${FileUtils.formatSize(before)} → ${FileUtils.formatSize(after)} " +
+                        "(${FileUtils.savedPercent(before, after)}), saved to Documents/Hakunaa/${out.name}"
+                } else {
+                    status.text = "Compress failed — check the file and try again"
+                }
+            }
+        }.start()
+    }
+
+    private fun compressSmartPdf() {
+        val input = firstPickedPdf() ?: return
+        val status = findViewById<TextView>(R.id.tvStatus)
+        status.text = "Compressing PDF (smart — 150 DPI, JPEG 82%)…"
+        Thread {
+            val before = input.length()
+            val out = File(hakunaaDocumentsDir(), "hakunaa_smart_${System.currentTimeMillis()}.pdf")
+            val ok = PdfTools.compressSmart(input, out)
             runOnUiThread {
                 if (ok) {
                     val after = out.length()
