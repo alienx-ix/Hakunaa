@@ -236,6 +236,24 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   every Android phone. A video that plays is worth more than a
   smaller file that never plays. (User: "Android la best a
   Perform pananum" — this is what best on Android means.)
+  USER CONFIRMED: Video Compress and Convert work, "idhu video
+  ku fixed". Video screen has too many options (confusing) —
+  simplify at the END (UI phase).
+- **v0.1.21 (2026-11-12): PDF tools from iLovePDF analysis.**
+  iLovePDF 4.0.2 (225 MB, com.ilovepdf.www) analysed with
+  apktool/jadx/strings + REA/Ghidra: its PDF engine is PSPDFKit
+  (commercial, licensed) and its scanner is Genius Scan SDK
+  (commercial, licensed); many convert/OCR tools are cloud-based.
+  Hakunaa cannot copy those SDKs — it implements the same
+  features offline with PDFBox. New PDF tools in this build:
+  Rotate (90/180/270), Watermark (diagonal text), Page Numbers
+  ("Page X of Y"), Delete Pages, Extract Pages (both take a
+  page selection like "1,3,5-7"), and Extract Images (to
+  Pictures/Hakunaa). Existing: Merge, Split, Lossless + Smart
+  Compress, Image to PDF. File size: user says 56 MB is too
+  much — optimize at the END (final version) by switching
+  FFmpegKit full-gpl to video-gpl (target ~40–45 MB); for now,
+  best functions only.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

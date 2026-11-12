@@ -18,8 +18,9 @@ import java.io.FileInputStream
 
 /**
  * PDF tools — 100% on-device with PDFBox-Android.
- * Merge, Split, Lossless Compress, Smart Compress and Image to PDF
- * are all implemented here.
+ * Merge, Split, Lossless Compress, Smart Compress, Image to PDF,
+ * Rotate, Watermark, Page Numbers, Delete Pages, Extract Pages
+ * and Extract Images are all implemented here.
  */
 object PdfTools {
     /** Merge [inputs] in order into [output]. Returns true on success. */
@@ -225,5 +226,253 @@ object PdfTools {
         } catch (_: Throwable) {
             false
         }
+    }
+
+    /**
+     * Rotate every page by [degrees] (90, 180 or 270). Adds to the
+     * page's existing rotation, so rotating twice works as expected.
+     * Returns true on success.
+     */
+    fun rotate(input: File, output: File, degrees: Int): Boolean {
+        return try {
+            PDDocument.load(input).use { doc ->
+                for (page in doc.pages) {
+                    page.rotation = (page.rotation + degrees) % 360
+                }
+                doc.save(output)
+            }
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * Watermark: stamp [text] diagonally across every page, in
+     * semi-transparent light grey, so the content stays readable
+     * underneath. Returns true on success.
+     */
+    fun watermark(input: File, output: File, text: String): Boolean {
+        return try {
+            PDDocument.load(input).use { doc ->
+                for (page in doc.pages) {
+                    val box = page.mediaBox
+                    PDPageContentStream(
+                        doc, page,
+                        PDPageContentStream.AppendMode.APPEND, true, true
+                    ).use { content ->
+                        content.setNonStrokingColor(180, 180, 180)
+                        content.beginText()
+                        // Centre of the page, rotated 45 degrees.
+                        content.setTextMatrix(
+                            com.tom_roush.pdfbox.util.Matrix.getRotateInstance(
+                                Math.toRadians(45.0),
+                                box.width / 2f, box.height / 2f
+                            )
+                        )
+                        content.setFont(
+                            com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA_BOLD, 48f
+                        )
+                        // Centre the text on the rotation point.
+                        val textWidth = com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA_BOLD
+                            .getStringWidth(text) / 1000f * 48f
+                        content.setTextMatrix(
+                            com.tom_roush.pdfbox.util.Matrix.getRotateInstance(
+                                Math.toRadians(45.0),
+                                box.width / 2f - textWidth / 2f, box.height / 2f
+                            )
+                        )
+                        content.showText(text)
+                        content.endText()
+                    }
+                }
+                doc.save(output)
+            }
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * Page Numbers: stamp "Page X of Y" at the bottom centre of
+     * every page. Returns true on success.
+     */
+    fun pageNumbers(input: File, output: File): Boolean {
+        return try {
+            PDDocument.load(input).use { doc ->
+                val total = doc.numberOfPages
+                var index = 1
+                for (page in doc.pages) {
+                    val box = page.mediaBox
+                    val label = "Page $index of $total"
+                    PDPageContentStream(
+                        doc, page,
+                        PDPageContentStream.AppendMode.APPEND, true, true
+                    ).use { content ->
+                        content.beginText()
+                        content.setFont(
+                            com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA, 10f
+                        )
+                        val textWidth = com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA
+                            .getStringWidth(label) / 1000f * 10f
+                        content.newLineAtOffset(
+                            (box.width - textWidth) / 2f, 20f
+                        )
+                        content.showText(label)
+                        content.endText()
+                    }
+                    index++
+                }
+                doc.save(output)
+            }
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * Delete Pages: remove the given 1-based [pages] from the PDF.
+     * Returns the number of pages removed, or -1 on failure.
+     */
+    fun deletePages(input: File, output: File, pages: Set<Int>): Int {
+        return try {
+            var removed = 0
+            PDDocument.load(input).use { doc ->
+                val total = doc.numberOfPages
+                // Remove from the end so earlier indexes stay valid.
+                val sorted = pages.filter { it in 1..total }.sortedDescending()
+                for (pageNum in sorted) {
+                    doc.removePage(pageNum - 1)
+                    removed++
+                }
+                doc.save(output)
+            }
+            removed
+        } catch (_: Throwable) {
+            -1
+        }
+    }
+
+    /**
+     * Extract Pages: keep only the given 1-based [pages] in a new PDF.
+     * Returns the number of pages kept, or -1 on failure.
+     */
+    fun extractPages(input: File, output: File, pages: Set<Int>): Int {
+        return try {
+            var kept = 0
+            PDDocument.load(input).use { doc ->
+                val total = doc.numberOfPages
+                val keep = pages.filter { it in 1..total }.sorted()
+                if (keep.isEmpty()) return -1
+                // Remove every page NOT in the keep list, from the end.
+                for (pageNum in total downTo 1) {
+                    if (pageNum !in keep) doc.removePage(pageNum - 1)
+                }
+                kept = keep.size
+                doc.save(output)
+            }
+            kept
+        } catch (_: Throwable) {
+            -1
+        }
+    }
+
+    /**
+     * Extract Images: save every embedded image to [outputDir] as
+     * PNG or JPEG (matching its stored format). Returns the created
+     * files. Also walks nested Form XObjects.
+     */
+    fun extractImages(input: File, outputDir: File): List<File> {
+        val created = mutableListOf<File>()
+        try {
+            PDDocument.load(input).use { doc ->
+                var index = 1
+                for (page in doc.pages) {
+                    index = extractImagesFromResources(
+                        page.resources, outputDir, index, created
+                    )
+                }
+            }
+        } catch (_: Throwable) {
+            return emptyList()
+        }
+        return created
+    }
+
+    private fun extractImagesFromResources(
+        resources: PDResources?,
+        outputDir: File,
+        startIndex: Int,
+        created: MutableList<File>
+    ): Int {
+        if (resources == null) return startIndex
+        var index = startIndex
+        val names = resources.xObjectNames?.toList() ?: return index
+        for (name in names) {
+            val xObject = try {
+                resources.getXObject(name)
+            } catch (_: Throwable) {
+                continue
+            } ?: continue
+            when (xObject) {
+                is PDImageXObject -> {
+                    try {
+                        val suffix = try {
+                            xObject.suffix?.lowercase() ?: "png"
+                        } catch (_: Throwable) {
+                            "png"
+                        }
+                        val ext = if (suffix == "jpg" || suffix == "jpeg") "jpg" else "png"
+                        val out = File(outputDir, "hakunaa_image_$index.$ext")
+                        val bitmap = xObject.image ?: continue
+                        val stream = java.io.FileOutputStream(out)
+                        stream.use {
+                            bitmap.compress(
+                                if (ext == "jpg") Bitmap.CompressFormat.JPEG
+                                else Bitmap.CompressFormat.PNG,
+                                90, it
+                            )
+                        }
+                        created.add(out)
+                        index++
+                    } catch (_: Throwable) {
+                        continue
+                    }
+                }
+                is PDFormXObject -> index = extractImagesFromResources(
+                    xObject.resources, outputDir, index, created
+                )
+            }
+        }
+        return index
+    }
+
+    /**
+     * Parse a page selection like "1,3,5-7" into a set of 1-based
+     * page numbers. Returns null if the text is empty or invalid.
+     */
+    fun parsePageSelection(text: String): Set<Int>? {
+        val result = mutableSetOf<Int>()
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return null
+        for (part in trimmed.split(",")) {
+            val p = part.trim()
+            if (p.isEmpty()) return null
+            if (p.contains("-")) {
+                val bounds = p.split("-")
+                if (bounds.size != 2) return null
+                val start = bounds[0].trim().toIntOrNull() ?: return null
+                val end = bounds[1].trim().toIntOrNull() ?: return null
+                if (start < 1 || end < start) return null
+                for (n in start..end) result.add(n)
+            } else {
+                val n = p.toIntOrNull() ?: return null
+                if (n < 1) return null
+                result.add(n)
+            }
+        }
+        return if (result.isEmpty()) null else result
     }
 }

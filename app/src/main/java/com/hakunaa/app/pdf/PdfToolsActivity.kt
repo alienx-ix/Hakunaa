@@ -3,6 +3,8 @@ package com.hakunaa.app.pdf
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Button
+import android.widget.EditText
+import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -55,6 +57,12 @@ class PdfToolsActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnCompressPdf).setOnClickListener { compressPdf() }
         findViewById<Button>(R.id.btnCompressSmart).setOnClickListener { compressSmartPdf() }
         findViewById<Button>(R.id.btnImageToPdf).setOnClickListener { pickImageForPdf.launch("image/*") }
+        findViewById<Button>(R.id.btnRotate).setOnClickListener { rotatePdf() }
+        findViewById<Button>(R.id.btnWatermark).setOnClickListener { watermarkPdf() }
+        findViewById<Button>(R.id.btnPageNumbers).setOnClickListener { pageNumbersPdf() }
+        findViewById<Button>(R.id.btnDeletePages).setOnClickListener { deletePagesPdf() }
+        findViewById<Button>(R.id.btnExtractPages).setOnClickListener { extractPagesPdf() }
+        findViewById<Button>(R.id.btnExtractImages).setOnClickListener { extractImagesPdf() }
     }
 
     // PDF work writes to a temp folder in the app cache; finished files
@@ -171,6 +179,150 @@ class PdfToolsActivity : AppCompatActivity() {
                 }
             } catch (_: Throwable) {
                 runOnUiThread { status.text = "Compress failed — check the file and try again" }
+            }
+        }.start()
+    }
+
+    private fun selectedRotation(): Int {
+        return when (findViewById<RadioGroup>(R.id.rgRotate).checkedRadioButtonId) {
+            R.id.rbRotate180 -> 180
+            R.id.rbRotate270 -> 270
+            else -> 90
+        }
+    }
+
+    private fun rotatePdf() {
+        val input = firstPickedPdf() ?: return
+        val degrees = selectedRotation()
+        val status = findViewById<TextView>(R.id.tvStatus)
+        status.text = "Rotating PDF by $degrees°…"
+        Thread {
+            try {
+                val out = File(hakunaaCacheDir(), "hakunaa_rotated_${System.currentTimeMillis()}.pdf")
+                val ok = PdfTools.rotate(input, out, degrees) && publishPdf(out)
+                runOnUiThread {
+                    status.text = if (ok) "Done — rotated $degrees°, saved to Documents/Hakunaa/${out.name}"
+                    else "Rotate failed — check the file and try again"
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Rotate failed — check the file and try again" }
+            }
+        }.start()
+    }
+
+    private fun watermarkPdf() {
+        val input = firstPickedPdf() ?: return
+        val text = findViewById<EditText>(R.id.etWatermark).text.toString().trim()
+        if (text.isEmpty()) {
+            Toast.makeText(this, "Type a watermark text first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val status = findViewById<TextView>(R.id.tvStatus)
+        status.text = "Adding watermark…"
+        Thread {
+            try {
+                val out = File(hakunaaCacheDir(), "hakunaa_watermarked_${System.currentTimeMillis()}.pdf")
+                val ok = PdfTools.watermark(input, out, text) && publishPdf(out)
+                runOnUiThread {
+                    status.text = if (ok) "Done — watermarked, saved to Documents/Hakunaa/${out.name}"
+                    else "Watermark failed — check the file and try again"
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Watermark failed — check the file and try again" }
+            }
+        }.start()
+    }
+
+    private fun pageNumbersPdf() {
+        val input = firstPickedPdf() ?: return
+        val status = findViewById<TextView>(R.id.tvStatus)
+        status.text = "Adding page numbers…"
+        Thread {
+            try {
+                val out = File(hakunaaCacheDir(), "hakunaa_numbered_${System.currentTimeMillis()}.pdf")
+                val ok = PdfTools.pageNumbers(input, out) && publishPdf(out)
+                runOnUiThread {
+                    status.text = if (ok) "Done — page numbers added, saved to Documents/Hakunaa/${out.name}"
+                    else "Page numbers failed — check the file and try again"
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Page numbers failed — check the file and try again" }
+            }
+        }.start()
+    }
+
+    private fun readPageSelection(): Set<Int>? {
+        val text = findViewById<EditText>(R.id.etPages).text.toString()
+        val pages = PdfTools.parsePageSelection(text)
+        if (pages == null) {
+            Toast.makeText(
+                this, "Type pages like 1,3,5-7", Toast.LENGTH_SHORT
+            ).show()
+        }
+        return pages
+    }
+
+    private fun deletePagesPdf() {
+        val input = firstPickedPdf() ?: return
+        val pages = readPageSelection() ?: return
+        val status = findViewById<TextView>(R.id.tvStatus)
+        status.text = "Deleting ${pages.size} page(s)…"
+        Thread {
+            try {
+                val out = File(hakunaaCacheDir(), "hakunaa_deleted_${System.currentTimeMillis()}.pdf")
+                val removed = PdfTools.deletePages(input, out, pages)
+                val ok = removed >= 0 && publishPdf(out)
+                runOnUiThread {
+                    status.text = if (ok) "Done — $removed page(s) deleted, saved to Documents/Hakunaa/${out.name}"
+                    else "Delete pages failed — check the pages and try again"
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Delete pages failed — check the pages and try again" }
+            }
+        }.start()
+    }
+
+    private fun extractPagesPdf() {
+        val input = firstPickedPdf() ?: return
+        val pages = readPageSelection() ?: return
+        val status = findViewById<TextView>(R.id.tvStatus)
+        status.text = "Extracting ${pages.size} page(s)…"
+        Thread {
+            try {
+                val out = File(hakunaaCacheDir(), "hakunaa_extracted_${System.currentTimeMillis()}.pdf")
+                val kept = PdfTools.extractPages(input, out, pages)
+                val ok = kept >= 0 && publishPdf(out)
+                runOnUiThread {
+                    status.text = if (ok) "Done — $kept page(s) extracted, saved to Documents/Hakunaa/${out.name}"
+                    else "Extract pages failed — check the pages and try again"
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Extract pages failed — check the pages and try again" }
+            }
+        }.start()
+    }
+
+    private fun extractImagesPdf() {
+        val input = firstPickedPdf() ?: return
+        val status = findViewById<TextView>(R.id.tvStatus)
+        status.text = "Extracting images…"
+        Thread {
+            try {
+                val outDir = File(hakunaaCacheDir(), "images_${System.currentTimeMillis()}").apply { mkdirs() }
+                val created = PdfTools.extractImages(input, outDir)
+                var published = 0
+                for (file in created) {
+                    if (MediaStoreSaver.save(this, file, MediaStoreSaver.Kind.IMAGE, file.name) != null) {
+                        published++
+                    }
+                }
+                runOnUiThread {
+                    status.text = if (published > 0) "Done — $published image(s) saved to Pictures/Hakunaa"
+                    else if (created.isEmpty()) "No images found in this PDF"
+                    else "Extract failed — check the file and try again"
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Extract failed — check the file and try again" }
             }
         }.start()
     }
