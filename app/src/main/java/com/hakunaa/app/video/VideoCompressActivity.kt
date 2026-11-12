@@ -38,6 +38,9 @@ class VideoCompressActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_video_compress)
 
+        findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar)
+            .setNavigationOnClickListener { finish() }
+
         findViewById<RadioGroup>(R.id.rgPresets).setOnCheckedChangeListener { _, id ->
             selectedCrf = when (id) {
                 R.id.rbHigh -> 23
@@ -93,9 +96,11 @@ class VideoCompressActivity : AppCompatActivity() {
 
     /** Show only the option groups that apply to the selected mode. */
     private fun updateModeUi() {
-        val compressOptions = findViewById<LinearLayout>(R.id.llCompressOptions)
-        val formatOptions = findViewById<LinearLayout>(R.id.llFormatOptions)
-        val resolutionOptions = findViewById<LinearLayout>(R.id.llResolutionOptions)
+        // Toggle the whole cards (not just the inner layouts) so no
+        // empty card is left showing when a group is hidden.
+        val compressOptions = findViewById<com.google.android.material.card.MaterialCardView>(R.id.cardCompressOptions)
+        val formatOptions = findViewById<com.google.android.material.card.MaterialCardView>(R.id.cardFormatOptions)
+        val resolutionOptions = findViewById<com.google.android.material.card.MaterialCardView>(R.id.cardResolutionOptions)
         val actionButton = findViewById<Button>(R.id.btnCompress)
         when (mode) {
             Mode.COMPRESS -> {

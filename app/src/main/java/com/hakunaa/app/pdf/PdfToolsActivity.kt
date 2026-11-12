@@ -51,6 +51,9 @@ class PdfToolsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_pdf_tools)
 
+        findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar)
+            .setNavigationOnClickListener { finish() }
+
         findViewById<Button>(R.id.btnPickPdfs).setOnClickListener { pickPdfs.launch("application/pdf") }
         findViewById<Button>(R.id.btnMerge).setOnClickListener { mergePdfs() }
         findViewById<Button>(R.id.btnSplit).setOnClickListener { splitPdf() }

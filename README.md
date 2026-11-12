@@ -285,6 +285,19 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   72 DPI / JPEG 50% — and keeps the SMALLEST output. Same change
   for Image `compressBest` (tries all 5 levels, keeps smallest).
   Slower (runs each level once) but the smallest file wins.
+- **v0.1.25 (2026-11-12): iLovePDF-quality UI.** The user said
+  the menus are not proper and the alignment is not right — it
+  must look like iLovePDF. Redesign (no questions asked, best
+  judgement): every screen now has a proper MaterialToolbar with
+  a back button; tools are grouped into labelled section cards
+  (FILE / ORGANIZE / COMPRESS / CREATE / EDIT / PAGES / EXTRACT
+  on PDF; FILE / WHAT TO DO / QUALITY / CODEC / CONVERT TO /
+  RESOLUTION on Video) with 12dp corners, 2dp elevation, 16dp
+  padding and uniform 12dp gaps; all buttons are the same 56dp
+  height; watermark/pages fields are outlined TextInputLayouts;
+  status lives in its own card; the home cards now have PDF /
+  Image / Video icons. Mode switching on Video now hides the
+  whole card (not just the inner layout) so no empty card shows.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

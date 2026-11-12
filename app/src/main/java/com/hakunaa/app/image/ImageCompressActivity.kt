@@ -30,6 +30,9 @@ class ImageCompressActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_image_compress)
 
+        findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar)
+            .setNavigationOnClickListener { finish() }
+
         findViewById<Button>(R.id.btnPickImage).setOnClickListener { pickImage.launch("image/*") }
         findViewById<Button>(R.id.btnCompress).setOnClickListener { compress() }
     }
