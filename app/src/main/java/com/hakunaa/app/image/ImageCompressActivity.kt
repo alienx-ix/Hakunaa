@@ -58,7 +58,11 @@ class ImageCompressActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnPickImage).setOnClickListener { pickImage.launch("image/*") }
 
         // Quick squish — one tap, just make it smaller.
-        findViewById<LinearLayout>(R.id.toolQuickSquish).setOnClickListener { quickSquish() }
+        // NOTE: toolQuickSquish is a MaterialCardView in the layout,
+        // not a LinearLayout — casting it to LinearLayout crashed
+        // the whole screen (v0.1.33, ClassCastException).
+        findViewById<com.google.android.material.card.MaterialCardView>(R.id.toolQuickSquish)
+            .setOnClickListener { quickSquish() }
         findViewById<LinearLayout>(R.id.toolResize).setOnClickListener {
             openTool(ImageToolActivity.MODE_RESIZE)
         }

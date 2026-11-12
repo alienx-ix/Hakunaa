@@ -441,6 +441,18 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   rotate. Object erase: user asked if it is easy — simple
   brush-and-fill is doable, Magic Eraser quality needs a 200 MB+
   AI model (not feasible at the current app size); not built yet.
+- **v0.1.34 (2026-11-12): Image Compress crash FIXED.** The user
+  tested v0.1.33 and Image Compress crashed on open:
+  `ClassCastException: MaterialCardView cannot be cast to
+  LinearLayout` at ImageCompressActivity.onCreate:50. Root cause:
+  the Quick Squish card (`toolQuickSquish`) is a MaterialCardView
+  in the layout, but the code cast it to LinearLayout. Fixed the
+  cast. While checking, found the same class of bug in
+  ImageEditActivity — it looked up a `btnBack` ImageButton that
+  does not exist in its layout (it uses a toolbar back arrow),
+  which would have crashed Edit on open; fixed to use the
+  toolbar navigation. All other view casts in the new image
+  activities were checked and match their layouts.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

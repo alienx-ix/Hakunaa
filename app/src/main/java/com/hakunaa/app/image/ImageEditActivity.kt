@@ -4,7 +4,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
-import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.SeekBar
 import android.widget.TextView
@@ -38,7 +37,11 @@ class ImageEditActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_image_edit)
 
-        findViewById<ImageButton>(R.id.btnBack).setOnClickListener { finish() }
+        // The layout uses a toolbar with a back arrow, not a
+        // separate btnBack button — looking up btnBack would
+        // return null and crash (same class of bug as v0.1.33).
+        findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar)
+            .setNavigationOnClickListener { finish() }
 
         val uriString = intent.getStringExtra(EXTRA_IMAGE_URI)
         if (uriString == null) {
