@@ -15,7 +15,8 @@ import java.io.FileOutputStream
 object ImageCompressor {
     enum class Format(val extension: String) {
         JPEG("jpg"),
-        WEBP("webp")
+        WEBP("webp"),
+        PNG("png")
     }
 
     fun compress(
@@ -38,6 +39,62 @@ object ImageCompressor {
             val compressFormat = when (format) {
                 Format.JPEG -> Bitmap.CompressFormat.JPEG
                 Format.WEBP -> Bitmap.CompressFormat.WEBP
+                Format.PNG -> Bitmap.CompressFormat.PNG
+            }
+            FileOutputStream(output).use { out ->
+                bitmap.compress(compressFormat, quality, out)
+            }
+            bitmap.recycle()
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * Resize image: scale the image so its longest side is at most
+     * [maxDimension] pixels, keeping the aspect ratio. Returns true
+     * on success. The output format is JPEG 90%.
+     */
+    fun resize(input: File, output: File, maxDimension: Int): Boolean {
+        return try {
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(input.absolutePath, options)
+            val largest = maxOf(options.outWidth, options.outHeight)
+            if (largest <= maxDimension) {
+                // Already small enough — copy it as-is.
+                input.copyTo(output, overwrite = true)
+                return true
+            }
+            val scale = maxDimension.toFloat() / largest.toFloat()
+            val targetW = (options.outWidth * scale).toInt().coerceAtLeast(1)
+            val targetH = (options.outHeight * scale).toInt().coerceAtLeast(1)
+            val bitmap = BitmapFactory.decodeFile(input.absolutePath)
+                ?: return false
+            val scaled = Bitmap.createScaledBitmap(bitmap, targetW, targetH, true)
+            FileOutputStream(output).use { out ->
+                scaled.compress(Bitmap.CompressFormat.JPEG, 90, out)
+            }
+            bitmap.recycle()
+            scaled.recycle()
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * Convert image format: re-encode the image as [format]
+     * (JPEG / PNG / WEBP) at [quality]. Returns true on success.
+     */
+    fun convertFormat(input: File, output: File, format: Format, quality: Int = 90): Boolean {
+        return try {
+            val bitmap = BitmapFactory.decodeFile(input.absolutePath)
+                ?: return false
+            val compressFormat = when (format) {
+                Format.JPEG -> Bitmap.CompressFormat.JPEG
+                Format.WEBP -> Bitmap.CompressFormat.WEBP
+                Format.PNG -> Bitmap.CompressFormat.PNG
             }
             FileOutputStream(output).use { out ->
                 bitmap.compress(compressFormat, quality, out)

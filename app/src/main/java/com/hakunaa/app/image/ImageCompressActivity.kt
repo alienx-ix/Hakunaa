@@ -35,6 +35,8 @@ class ImageCompressActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.btnPickImage).setOnClickListener { pickImage.launch("image/*") }
         findViewById<Button>(R.id.btnCompress).setOnClickListener { compress() }
+        findViewById<Button>(R.id.btnResize).setOnClickListener { resizeImage() }
+        findViewById<Button>(R.id.btnConvertFormat).setOnClickListener { convertImage() }
     }
 
     private fun compress() {
@@ -68,6 +70,79 @@ class ImageCompressActivity : AppCompatActivity() {
                     } else {
                         status.text = "Already optimized — even the strongest settings couldn't shrink this image."
                         result.text = ""
+                    }
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Failed — try another image" }
+            }
+        }.start()
+    }
+
+    private fun resizeImage() {
+        val uri = inputUri ?: run {
+            Toast.makeText(this, getString(R.string.pick_first_image), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val size = findViewById<com.google.android.material.textfield.TextInputEditText>(R.id.etResizeSize)
+            .text?.toString()?.toIntOrNull()
+        if (size == null || size < 16) {
+            Toast.makeText(this, "Type a size in pixels, e.g. 1080", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val status = findViewById<TextView>(R.id.tvStatus)
+        val result = findViewById<TextView>(R.id.tvResult)
+        status.text = "Resizing…"
+        Thread {
+            try {
+                val input = FileUtils.copyUriToCache(this, uri, "input_image")
+                val out = File(cacheDir, "hakunaa_resized_${System.currentTimeMillis()}.jpg")
+                val ok = ImageCompressor.resize(input, out, size)
+                runOnUiThread {
+                    if (ok) {
+                        val after = out.length()
+                        val saved = MediaStoreSaver.save(this, out, MediaStoreSaver.Kind.IMAGE, out.name)
+                        status.text = if (saved != null) "Done — resized image saved to Pictures/Hakunaa"
+                        else "Done, but couldn't save to Pictures — please try again"
+                        result.text = "${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(after)} " +
+                            "(${FileUtils.savedPercent(inputSize, after)})"
+                    } else {
+                        status.text = "Failed — try another image"
+                    }
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Failed — try another image" }
+            }
+        }.start()
+    }
+
+    private fun convertImage() {
+        val uri = inputUri ?: run {
+            Toast.makeText(this, getString(R.string.pick_first_image), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val format = when (findViewById<android.widget.RadioGroup>(R.id.rgConvertFormat).checkedRadioButtonId) {
+            R.id.rbConvPng -> ImageCompressor.Format.PNG
+            R.id.rbConvWebp -> ImageCompressor.Format.WEBP
+            else -> ImageCompressor.Format.JPEG
+        }
+        val status = findViewById<TextView>(R.id.tvStatus)
+        val result = findViewById<TextView>(R.id.tvResult)
+        status.text = "Converting…"
+        Thread {
+            try {
+                val input = FileUtils.copyUriToCache(this, uri, "input_image")
+                val out = File(cacheDir, "hakunaa_converted_${System.currentTimeMillis()}.${format.extension}")
+                val ok = ImageCompressor.convertFormat(input, out, format)
+                runOnUiThread {
+                    if (ok) {
+                        val after = out.length()
+                        val saved = MediaStoreSaver.save(this, out, MediaStoreSaver.Kind.IMAGE, out.name)
+                        status.text = if (saved != null) "Done — ${format.extension.uppercase()} saved to Pictures/Hakunaa"
+                        else "Done, but couldn't save to Pictures — please try again"
+                        result.text = "${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(after)} " +
+                            "(${FileUtils.savedPercent(inputSize, after)})"
+                    } else {
+                        status.text = "Failed — try another image"
                     }
                 }
             } catch (_: Throwable) {

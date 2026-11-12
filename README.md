@@ -298,6 +298,31 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   status lives in its own card; the home cards now have PDF /
   Image / Video icons. Mode switching on Video now hides the
   whole card (not just the inner layout) so no empty card shows.
+- **v0.1.26 (2026-11-12): More tools, like iLovePDF.** The user
+  showed iLovePDF's tools grid — "idhula ivlo options iruku"
+  (so many options here). New tools, all offline with PDFBox /
+  Bitmap: PDF to JPG (every page rendered at 150 DPI),
+  Extract TXT (full text to a .txt file), Protect PDF (128-bit
+  password lock), Unlock PDF (remove password), Organize PDF
+  (reorder pages, e.g. 3,1,2), Create PDF (from typed text),
+  Resize Image (longest side in pixels), Convert Image (to
+  JPG / PNG / WebP). NOT possible offline: PDF to Word / Excel /
+  PowerPoint and OCR — those are iLovePDF-cloud features by
+  design, and PSPDFKit/Genius Scan are commercial SDKs that
+  cannot be copied.
+- **v0.1.27 (2026-11-12): PDF Scanner — the 4th home option.**
+  The user asked "scanner enga? epo add pana?" and showed the
+  home screen: "Home la 4 Options... Idhula PDF Scanner add
+  pananum". Home now has 4 cards: PDF Tools, Image Compress,
+  Video Compress, PDF Scanner. The scanner takes photos with the
+  camera (or picks from gallery), applies a filter — Color,
+  Grayscale, or B&W (best for documents, crisp black text on
+  white) — and saves all pages as one A4 PDF. 100% on-device.
+  Note: this is a camera + filter + PDF scanner. Automatic edge
+  detection and perspective correction need OpenCV, which is a
+  later step — the user frames the document in the camera itself
+  for now. (v0.1.26 was built and verified but superseded by
+  v0.1.27 before delivery, which adds the scanner on top.)
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

@@ -10,11 +10,17 @@ import com.tom_roush.pdfbox.pdmodel.graphics.form.PDFormXObject
 import com.tom_roush.pdfbox.pdmodel.graphics.image.JPEGFactory
 import com.tom_roush.pdfbox.pdmodel.graphics.image.LosslessFactory
 import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
+import com.tom_roush.pdfbox.pdmodel.encryption.AccessPermission
+import com.tom_roush.pdfbox.pdmodel.encryption.StandardProtectionPolicy
+import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import com.tom_roush.pdfbox.multipdf.PDFMergerUtility
+import com.tom_roush.pdfbox.rendering.PDFRenderer
+import com.tom_roush.pdfbox.text.PDFTextStripper
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileOutputStream
 
 /**
  * PDF tools — 100% on-device with PDFBox-Android.
@@ -266,24 +272,36 @@ object PdfTools {
 
     /** One image per page, fit to an A4 page. Returns true on success. */
     fun imageToPdf(imageFile: File, output: File): Boolean {
+        return imageToPdf(listOf(imageFile), output)
+    }
+
+    /**
+     * Image to PDF (multi-page): one A4 page per image, each image
+     * scaled to fit with a small margin. Used by the scanner, which
+     * combines several scanned photos into a single PDF.
+     */
+    fun imageToPdf(imageFiles: List<File>, output: File): Boolean {
         return try {
-            val bitmap = BitmapFactory.decodeFile(imageFile.absolutePath) ?: return false
             PDDocument().use { doc ->
-                val page = PDPage(PDRectangle.A4)
-                doc.addPage(page)
-                val image = LosslessFactory.createFromImage(doc, bitmap)
-                PDPageContentStream(doc, page).use { content ->
-                    val pageWidth = page.mediaBox.width
-                    val pageHeight = page.mediaBox.height
-                    val scale = minOf(
-                        pageWidth / bitmap.width.toFloat(),
-                        pageHeight / bitmap.height.toFloat()
-                    ) * 0.95f
-                    val width = bitmap.width * scale
-                    val height = bitmap.height * scale
-                    val x = (pageWidth - width) / 2f
-                    val y = (pageHeight - height) / 2f
-                    content.drawImage(image, x, y, width, height)
+                for (imageFile in imageFiles) {
+                    val bitmap = BitmapFactory.decodeFile(imageFile.absolutePath) ?: return false
+                    val page = PDPage(PDRectangle.A4)
+                    doc.addPage(page)
+                    val image = LosslessFactory.createFromImage(doc, bitmap)
+                    PDPageContentStream(doc, page).use { content ->
+                        val pageWidth = page.mediaBox.width
+                        val pageHeight = page.mediaBox.height
+                        val scale = minOf(
+                            pageWidth / bitmap.width.toFloat(),
+                            pageHeight / bitmap.height.toFloat()
+                        ) * 0.95f
+                        val width = bitmap.width * scale
+                        val height = bitmap.height * scale
+                        val x = (pageWidth - width) / 2f
+                        val y = (pageHeight - height) / 2f
+                        content.drawImage(image, x, y, width, height)
+                    }
+                    bitmap.recycle()
                 }
                 doc.save(output)
             }
@@ -539,5 +557,143 @@ object PdfTools {
             }
         }
         return if (result.isEmpty()) null else result
+    }
+
+    /**
+     * PDF to JPG: render every page to a JPG image at [dpi] (default
+     * 150). Returns the list of image files created, or an empty
+     * list on failure. Files are named <base>_page1.jpg, etc.
+     */
+    fun pdfToJpg(input: File, outputDir: File, dpi: Float = 150f): List<File> {
+        val created = mutableListOf<File>()
+        return try {
+            if (!outputDir.exists()) outputDir.mkdirs()
+            PDDocument.load(input).use { doc ->
+                val renderer = PDFRenderer(doc)
+                val base = input.nameWithoutExtension
+                for (page in 0 until doc.numberOfPages) {
+                    val bitmap = renderer.renderImageWithDPI(page, dpi)
+                    val out = File(outputDir, "${base}_page${page + 1}.jpg")
+                    FileOutputStream(out).use { stream ->
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+                    }
+                    bitmap.recycle()
+                    created.add(out)
+                }
+            }
+            created
+        } catch (_: Throwable) {
+            created
+        }
+    }
+
+    /**
+     * Extract TXT: pull all text out of the PDF. Returns the text,
+     * or null on failure. The caller saves it as a .txt file.
+     */
+    fun extractText(input: File): String? {
+        return try {
+            PDDocument.load(input).use { doc ->
+                PDFTextStripper().getText(doc)
+            }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /**
+     * Protect PDF: lock the PDF with a user [password]. Anyone
+     * opening it must type the password. Returns true on success.
+     */
+    fun protect(input: File, output: File, password: String): Boolean {
+        return try {
+            PDDocument.load(input).use { doc ->
+                val permission = AccessPermission()
+                val policy = StandardProtectionPolicy(password, password, permission)
+                policy.encryptionKeyLength = 128
+                doc.protect(policy)
+                doc.save(output)
+            }
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * Unlock PDF: remove the password from a locked PDF. The caller
+     * must supply the current [password]. Returns true on success.
+     */
+    fun unlock(input: File, output: File, password: String): Boolean {
+        return try {
+            PDDocument.load(input, password).use { doc ->
+                // Saving without a policy strips the protection.
+                doc.isAllSecurityToBeRemoved = true
+                doc.save(output)
+            }
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * Organize PDF: reorder the pages. [order] is a list of 1-based
+     * page numbers in the new order, e.g. [3, 1, 2] puts page 3
+     * first. Must list every page exactly once. Returns true on
+     * success.
+     */
+    fun organize(input: File, output: File, order: List<Int>): Boolean {
+        return try {
+            PDDocument.load(input).use { doc ->
+                val total = doc.numberOfPages
+                if (order.size != total) return false
+                if (order.toSet().size != total) return false
+                if (order.any { it < 1 || it > total }) return false
+                val pages = (0 until total).map { doc.getPage(it) }
+                val newDoc = PDDocument()
+                try {
+                    for (n in order) {
+                        newDoc.importPage(pages[n - 1])
+                    }
+                    newDoc.save(output)
+                } finally {
+                    newDoc.close()
+                }
+            }
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * Create PDF: make a new PDF from plain [text] (one paragraph
+     * per line). Returns true on success.
+     */
+    fun createPdf(output: File, text: String): Boolean {
+        return try {
+            PDDocument().use { doc ->
+                val page = PDPage(PDRectangle.A4)
+                doc.addPage(page)
+                PDPageContentStream(doc, page).use { stream ->
+                    stream.beginText()
+                    stream.setFont(PDType1Font.HELVETICA, 12f)
+                    stream.newLineAtOffset(50f, 750f)
+                    var y = 750f
+                    for (line in text.lines()) {
+                        if (y < 60f) break
+                        stream.showText(line.take(95))
+                        stream.newLineAtOffset(0f, -18f)
+                        y -= 18f
+                    }
+                    stream.endText()
+                }
+                doc.save(output)
+            }
+            true
+        } catch (_: Throwable) {
+            false
+        }
     }
 }

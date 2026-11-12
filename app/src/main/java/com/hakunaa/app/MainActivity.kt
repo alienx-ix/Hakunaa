@@ -7,6 +7,7 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.hakunaa.app.image.ImageCompressActivity
 import com.hakunaa.app.pdf.PdfToolsActivity
+import com.hakunaa.app.scanner.ScannerActivity
 import com.hakunaa.app.video.VideoCompressActivity
 
 class MainActivity : AppCompatActivity() {
@@ -30,6 +31,9 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<View>(R.id.cardVideo).setOnClickListener {
             startActivity(Intent(this, VideoCompressActivity::class.java))
+        }
+        findViewById<View>(R.id.cardScanner).setOnClickListener {
+            startActivity(Intent(this, ScannerActivity::class.java))
         }
     }
 }

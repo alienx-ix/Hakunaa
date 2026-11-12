@@ -66,6 +66,12 @@ class PdfToolsActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnDeletePages).setOnClickListener { deletePagesPdf() }
         findViewById<Button>(R.id.btnExtractPages).setOnClickListener { extractPagesPdf() }
         findViewById<Button>(R.id.btnExtractImages).setOnClickListener { extractImagesPdf() }
+        findViewById<Button>(R.id.btnPdfToJpg).setOnClickListener { pdfToJpg() }
+        findViewById<Button>(R.id.btnExtractText).setOnClickListener { extractTextPdf() }
+        findViewById<Button>(R.id.btnProtect).setOnClickListener { protectPdf() }
+        findViewById<Button>(R.id.btnUnlock).setOnClickListener { unlockPdf() }
+        findViewById<Button>(R.id.btnOrganize).setOnClickListener { organizePdf() }
+        findViewById<Button>(R.id.btnCreatePdf).setOnClickListener { createPdf() }
     }
 
     // PDF work writes to a temp folder in the app cache; finished files
@@ -332,6 +338,150 @@ class PdfToolsActivity : AppCompatActivity() {
                 }
             } catch (_: Throwable) {
                 runOnUiThread { status.text = "Extract failed — check the file and try again" }
+            }
+        }.start()
+    }
+
+    private fun pdfToJpg() {
+        val input = firstPickedPdf() ?: return
+        val status = findViewById<TextView>(R.id.tvStatus)
+        status.text = "Converting PDF to JPG…"
+        Thread {
+            try {
+                val outDir = File(hakunaaCacheDir(), "jpg_${System.currentTimeMillis()}").apply { mkdirs() }
+                val created = PdfTools.pdfToJpg(input, outDir)
+                var published = 0
+                for (file in created) {
+                    if (MediaStoreSaver.save(this, file, MediaStoreSaver.Kind.IMAGE, file.name) != null) {
+                        published++
+                    }
+                }
+                runOnUiThread {
+                    status.text = if (published > 0) "Done — $published page(s) saved to Pictures/Hakunaa"
+                    else "PDF to JPG failed — check the file and try again"
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "PDF to JPG failed — check the file and try again" }
+            }
+        }.start()
+    }
+
+    private fun extractTextPdf() {
+        val input = firstPickedPdf() ?: return
+        val status = findViewById<TextView>(R.id.tvStatus)
+        status.text = "Extracting text…"
+        Thread {
+            try {
+                val text = PdfTools.extractText(input)
+                if (text == null) {
+                    runOnUiThread { status.text = "Extract failed — check the file and try again" }
+                    return@Thread
+                }
+                val out = File(hakunaaCacheDir(), "${input.nameWithoutExtension}.txt")
+                out.writeText(text)
+                val saved = MediaStoreSaver.save(this, out, MediaStoreSaver.Kind.DOCUMENT, out.name, "text/plain")
+                runOnUiThread {
+                    status.text = if (saved != null) "Done — text saved to Documents/Hakunaa/${out.name} (${text.length} characters)"
+                    else "Extract failed — couldn't save the text file"
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Extract failed — check the file and try again" }
+            }
+        }.start()
+    }
+
+    private fun readPassword(): String? {
+        val password = findViewById<com.google.android.material.textfield.TextInputEditText>(R.id.etPassword)
+            .text?.toString().orEmpty()
+        if (password.isEmpty()) {
+            Toast.makeText(this, "Type a password first", Toast.LENGTH_SHORT).show()
+            return null
+        }
+        return password
+    }
+
+    private fun protectPdf() {
+        val input = firstPickedPdf() ?: return
+        val password = readPassword() ?: return
+        val status = findViewById<TextView>(R.id.tvStatus)
+        status.text = "Protecting PDF…"
+        Thread {
+            try {
+                val out = File(hakunaaCacheDir(), "hakunaa_protected_${System.currentTimeMillis()}.pdf")
+                val ok = PdfTools.protect(input, out, password) && publishPdf(out)
+                runOnUiThread {
+                    status.text = if (ok) "Done — protected PDF saved to Documents/Hakunaa/${out.name}"
+                    else "Protect failed — check the file and try again"
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Protect failed — check the file and try again" }
+            }
+        }.start()
+    }
+
+    private fun unlockPdf() {
+        val input = firstPickedPdf() ?: return
+        val password = readPassword() ?: return
+        val status = findViewById<TextView>(R.id.tvStatus)
+        status.text = "Unlocking PDF…"
+        Thread {
+            try {
+                val out = File(hakunaaCacheDir(), "hakunaa_unlocked_${System.currentTimeMillis()}.pdf")
+                val ok = PdfTools.unlock(input, out, password) && publishPdf(out)
+                runOnUiThread {
+                    status.text = if (ok) "Done — unlocked PDF saved to Documents/Hakunaa/${out.name}"
+                    else "Unlock failed — wrong password or file not locked"
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Unlock failed — wrong password or file not locked" }
+            }
+        }.start()
+    }
+
+    private fun organizePdf() {
+        val input = firstPickedPdf() ?: return
+        val status = findViewById<TextView>(R.id.tvStatus)
+        val orderText = findViewById<com.google.android.material.textfield.TextInputEditText>(R.id.etPageOrder)
+            .text?.toString().orEmpty()
+        val order = orderText.split(",").mapNotNull { it.trim().toIntOrNull() }
+        if (order.isEmpty()) {
+            Toast.makeText(this, "Type the new page order, e.g. 3,1,2", Toast.LENGTH_SHORT).show()
+            return
+        }
+        status.text = "Organizing PDF…"
+        Thread {
+            try {
+                val out = File(hakunaaCacheDir(), "hakunaa_organized_${System.currentTimeMillis()}.pdf")
+                val ok = PdfTools.organize(input, out, order) && publishPdf(out)
+                runOnUiThread {
+                    status.text = if (ok) "Done — reorganized PDF saved to Documents/Hakunaa/${out.name}"
+                    else "Organize failed — list every page exactly once, e.g. 3,1,2"
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Organize failed — list every page exactly once, e.g. 3,1,2" }
+            }
+        }.start()
+    }
+
+    private fun createPdf() {
+        val status = findViewById<TextView>(R.id.tvStatus)
+        val text = findViewById<com.google.android.material.textfield.TextInputEditText>(R.id.etCreateText)
+            .text?.toString().orEmpty()
+        if (text.isBlank()) {
+            Toast.makeText(this, "Type some text for the new PDF first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        status.text = "Creating PDF…"
+        Thread {
+            try {
+                val out = File(hakunaaCacheDir(), "hakunaa_created_${System.currentTimeMillis()}.pdf")
+                val ok = PdfTools.createPdf(out, text) && publishPdf(out)
+                runOnUiThread {
+                    status.text = if (ok) "Done — new PDF saved to Documents/Hakunaa/${out.name}"
+                    else "Create failed — try again"
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Create failed — try again" }
             }
         }.start()
     }

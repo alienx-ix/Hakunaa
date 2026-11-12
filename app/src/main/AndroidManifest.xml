@@ -4,6 +4,8 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
         android:name=".core.HakunaaApp"
@@ -25,6 +27,7 @@
         <activity android:name=".pdf.PdfToolsActivity" android:exported="false" />
         <activity android:name=".image.ImageCompressActivity" android:exported="false" />
         <activity android:name=".video.VideoCompressActivity" android:exported="false" />
+        <activity android:name=".scanner.ScannerActivity" android:exported="false" />
         <activity android:name=".CrashReportActivity" android:exported="false" />
         <!-- Installs the crash handler before anything else starts,
              so even an early startup crash leaves a report. -->
