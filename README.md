@@ -216,6 +216,14 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   bigger file. (The user rejected a "don't save, try something
   else" message — they want the app to find the best result
   itself.)
+- **v0.1.19 (2026-11-12): H.265 plays on Android.** The user
+  compressed with H.265 + 720p and got a great result (11.7 MB →
+  5.9 MB, 50% smaller) — but the video would NOT play. Cause:
+  the H.265 command used `-tag:v hvc1`, the Apple/QuickTime tag.
+  Android players expect `hev1` for HEVC in MP4. Fix: H.265 now
+  uses `-tag:v hev1`, the standard Android tag. (v0.1.18 was built
+  and pushed but never delivered as an APK; v0.1.19 includes the
+  v0.1.18 best-compression fix plus this playback fix.)
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

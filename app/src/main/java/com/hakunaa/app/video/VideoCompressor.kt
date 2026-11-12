@@ -90,10 +90,14 @@ object VideoCompressor {
         resolution.scaleFilter?.let { filter ->
             args += "-vf"; args += filter
         }
-        // H.265 needs a tag that plays on most phones; AV1 uses
-        // cpu-used 4 (faster, still good quality).
+        // H.265 needs a tag that plays on Android. "hvc1" is the
+        // Apple/QuickTime tag — an H.265 MP4 with hvc1 would NOT play
+        // in the user's Android gallery (v0.1.17, 50% smaller file
+        // that refused to play). "hev1" is the standard Android/MP4
+        // tag for HEVC, so we use that. AV1 uses cpu-used 4 (faster,
+        // still good quality).
         when (codec) {
-            Codec.H265 -> { args += "-tag:v"; args += "hvc1" }
+            Codec.H265 -> { args += "-tag:v"; args += "hev1" }
             Codec.AV1 -> { args += "-cpu-used"; args += "4" }
             else -> {}
         }
