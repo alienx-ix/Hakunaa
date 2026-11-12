@@ -186,6 +186,34 @@ object VideoCompressor {
         return engineOk
     }
 
+    /**
+     * Can THIS phone actually play back a video in the given codec?
+     * Encoding is not the problem — FFmpeg can encode H.265 anywhere.
+     * Playback is: if the phone has no HEVC decoder, an H.265 file
+     * will not play in the gallery or any player that relies on the
+     * system codecs. The user proved this: a fresh v0.1.19 compress
+     * (hev1 tag) still would not play on their phone, so the tag was
+     * never the real cause — the phone simply has no HEVC decoder.
+     * Checked with MediaCodecList (system decoders only, not
+     * encoders). H.264 ("video/avc") is present on every Android
+     * phone, so it is the safe default. H.265 is "video/hevc",
+     * AV1 is "video/av01".
+     */
+    fun isPlaybackSupported(mimeType: String): Boolean {
+        return try {
+            val codecList = android.media.MediaCodecList(
+                android.media.MediaCodecList.REGULAR_CODECS
+            )
+            codecList.codecInfos.any { info ->
+                !info.isEncoder && info.supportedTypes.contains(mimeType)
+            }
+        } catch (_: Throwable) {
+            // If the check itself fails, assume H.264 only (the one
+            // codec that is guaranteed on every Android phone).
+            mimeType == "video/avc"
+        }
+    }
+
     fun compress(
         inputPath: String,
         outputPath: String,

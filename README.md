@@ -224,6 +224,18 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   uses `-tag:v hev1`, the standard Android tag. (v0.1.18 was built
   and pushed but never delivered as an APK; v0.1.19 includes the
   v0.1.18 best-compression fix plus this playback fix.)
+- **v0.1.20 (2026-11-12): only offer codecs the phone can play.**
+  The user did a FRESH v0.1.19 compress and the H.265 video
+  STILL would not play — so the `hev1` tag was never the real
+  cause. The phone simply has no HEVC decoder. Encoding H.265
+  is easy; playing it back is the problem. Fix: the app now
+  checks the phone's system decoders (MediaCodecList) and does
+  NOT offer a codec the phone cannot play back — H.265 (and
+  AV1, if unsupported) are disabled with "not supported on this
+  phone", and the selection falls back to H.264, which plays on
+  every Android phone. A video that plays is worth more than a
+  smaller file that never plays. (User: "Android la best a
+  Perform pananum" — this is what best on Android means.)
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

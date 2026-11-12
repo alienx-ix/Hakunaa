@@ -58,6 +58,37 @@ class VideoCompressActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnPickVideo).setOnClickListener { pickVideo.launch("video/*") }
         findViewById<Button>(R.id.btnCompress).setOnClickListener { startAction() }
         updateModeUi()
+        applyCodecSupport()
+    }
+
+    /**
+     * Hide/disable codecs this phone cannot play back. Encoding an
+     * H.265 file is easy, but if the phone has no HEVC decoder the
+     * result will never play — the user proved it with a fresh
+     * v0.1.19 compress (hev1 tag) that still would not play. So a
+     * codec the phone cannot decode is not offered at all, and the
+     * selection falls back to H.264, which plays on every Android
+     * phone. This is what "best on Android" means: a video that
+     * actually plays.
+     */
+    private fun applyCodecSupport() {
+        val rgCodec = findViewById<RadioGroup>(R.id.rgCodec)
+        val rbH265 = findViewById<android.widget.RadioButton>(R.id.rbH265)
+        val rbAV1 = findViewById<android.widget.RadioButton>(R.id.rbAV1)
+        if (!VideoCompressor.isPlaybackSupported("video/hevc")) {
+            rbH265.isEnabled = false
+            rbH265.text = "H.265 (not supported on this phone)"
+            if (rgCodec.checkedRadioButtonId == R.id.rbH265) {
+                rgCodec.check(R.id.rbH264)
+            }
+        }
+        if (!VideoCompressor.isPlaybackSupported("video/av01")) {
+            rbAV1.isEnabled = false
+            rbAV1.text = "AV1 (not supported on this phone)"
+            if (rgCodec.checkedRadioButtonId == R.id.rbAV1) {
+                rgCodec.check(R.id.rbH264)
+            }
+        }
     }
 
     /** Show only the option groups that apply to the selected mode. */
