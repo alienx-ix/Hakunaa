@@ -78,42 +78,47 @@ object PdfTools {
     /**
      * Smart Compress (lossy): downscale every embedded image that is
      * larger than [targetDpi] at full-page size, re-encode as JPEG
-     * [jpegQuality]. Typical result 60–70% smaller, eye cannot tell
-     * at 150 DPI on a phone screen. Also strips metadata.
-     * Returns true on success.
+     * [jpegQuality]. Also re-encodes large losslessly-stored images
+     * (PNG etc.) as JPEG 82% even when they fit the page — those are
+     * the main source of bloat, and downscaling alone missed them.
+     * Typical result 60–70% smaller, eye cannot tell at 150 DPI.
+     * Also strips metadata.
+     * Returns the number of images replaced, or -1 on failure.
      */
     fun compressSmart(
         input: File,
         output: File,
         targetDpi: Int = 150,
         jpegQuality: Float = 0.82f
-    ): Boolean {
+    ): Int {
+        var replaced = 0
         return try {
             PDDocument.load(input).use { doc ->
                 for (page in doc.pages) {
                     val maxW = (page.mediaBox.width / 72f * targetDpi).toInt()
                     val maxH = (page.mediaBox.height / 72f * targetDpi).toInt()
-                    downscaleImages(doc, page.resources, maxW, maxH, jpegQuality)
+                    replaced += downscaleImages(doc, page.resources, maxW, maxH, jpegQuality)
                 }
                 doc.documentInformation = PDDocumentInformation()
                 doc.save(output)
             }
-            true
+            replaced
         } catch (_: Throwable) {
-            false
+            -1
         }
     }
 
-    /** Walk a page's XObjects (including nested Form XObjects) and downscale images. */
+    /** Walk a page's XObjects (including nested Form XObjects) and downscale images. Returns the count replaced. */
     private fun downscaleImages(
         doc: PDDocument,
         resources: PDResources?,
         maxW: Int,
         maxH: Int,
         quality: Float
-    ) {
-        if (resources == null) return
-        val names = resources.xObjectNames?.toList() ?: return
+    ): Int {
+        if (resources == null) return 0
+        var count = 0
+        val names = resources.xObjectNames?.toList() ?: return 0
         for (name in names) {
             val xObject = try {
                 resources.getXObject(name)
@@ -123,14 +128,24 @@ object PdfTools {
             when (xObject) {
                 is PDImageXObject -> {
                     val replacement = downscaleImage(doc, xObject, maxW, maxH, quality)
-                    if (replacement != null) resources.put(name, replacement)
+                    if (replacement != null) {
+                        resources.put(name, replacement)
+                        count++
+                    }
                 }
-                is PDFormXObject -> downscaleImages(doc, xObject.resources, maxW, maxH, quality)
+                is PDFormXObject -> count += downscaleImages(doc, xObject.resources, maxW, maxH, quality)
             }
         }
+        return count
     }
 
-    /** Downscale one image to fit [maxW] x [maxH], re-encoded as JPEG. Null if unchanged. */
+    /**
+     * Downscale one image to fit [maxW] x [maxH], re-encoded as JPEG.
+     * Also re-encodes a large losslessly-stored image (PNG etc.) as
+     * JPEG even when it fits the page — otherwise image-heavy PDFs
+     * that store big PNGs came back "0% smaller". Returns null if the
+     * image was left unchanged.
+     */
     private fun downscaleImage(
         doc: PDDocument,
         image: PDImageXObject,
@@ -138,19 +153,30 @@ object PdfTools {
         maxH: Int,
         quality: Float
     ): PDImageXObject? {
-        if (image.width <= maxW && image.height <= maxH) return null
+        val needsDownscale = image.width > maxW || image.height > maxH
+        // Is it already a JPEG? (DCTDecode.) Lossless images (PNG etc.)
+        // are far bigger than JPEG 82% at the same pixels.
+        val suffix = try { image.suffix } catch (_: Throwable) { null }
+        val isJpeg = suffix?.equals("jpg", ignoreCase = true) == true
+        val pixelCount = image.width.toLong() * image.height.toLong()
+        val needsReencode = !isJpeg && pixelCount > 50_000L
+        if (!needsDownscale && !needsReencode) return null
         return try {
             val bitmap = image.image ?: return null
-            val scale = minOf(
-                maxW / bitmap.width.toFloat(),
-                maxH / bitmap.height.toFloat()
-            )
-            val scaled = Bitmap.createScaledBitmap(
-                bitmap,
-                (bitmap.width * scale).toInt().coerceAtLeast(1),
-                (bitmap.height * scale).toInt().coerceAtLeast(1),
-                true
-            )
+            val scaled = if (needsDownscale) {
+                val scale = minOf(
+                    maxW / bitmap.width.toFloat(),
+                    maxH / bitmap.height.toFloat()
+                )
+                Bitmap.createScaledBitmap(
+                    bitmap,
+                    (bitmap.width * scale).toInt().coerceAtLeast(1),
+                    (bitmap.height * scale).toInt().coerceAtLeast(1),
+                    true
+                )
+            } else {
+                bitmap
+            }
             val result = JPEGFactory.createFromImage(doc, scaled, quality)
             if (scaled !== bitmap) scaled.recycle()
             result

@@ -118,10 +118,14 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   screen instead: the handler opens a plain CrashReportActivity
   (yellow, no Material) with the full error, so a screenshot gives
   the exact exception to fix.
-- **v0.1.8 (2026-11-12): IT WORKS.** User confirmed 10:14 IST:
-  "Finally open" — the home screen (PDF Tools, Image Compress,
-  Video Compress) opens on their Android 15 phone. The launch crash
-  is fixed.
+- **v0.1.10 (2026-11-12):** fixes both tools the user tested.
+  Video: FFmpeg failed on videos with no audio track (the command
+  forced AAC); audio is now optional (`-map 0:a:0?`), and a failure
+  now shows the real FFmpeg error instead of the generic message.
+  PDF Smart: only downscaled images bigger than the page, so a PDF
+  whose images were stored as big PNGs came back "0% smaller"; it
+  now also re-encodes large lossless images as JPEG 82%, and reports
+  how many images it compressed (or says the PDF is text-only).
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

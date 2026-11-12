@@ -41,7 +41,12 @@ object VideoCompressor {
             Codec.AV1 -> " -pix_fmt yuv420p -cpu-used 4"
             else -> " -pix_fmt yuv420p"
         }
-        return "-i \"$inputPath\" -c:v $videoCodec -crf $crf -preset $preset$extra " +
+        // Map video always; audio only if the input has an audio
+        // stream (the "?" makes the audio mapping optional). Many
+        // phone videos — screen recordings, muted clips — have no
+        // audio track, and forcing "-c:a aac" with no audio stream
+        // made FFmpeg fail outright ("Failed: FFmpeg failed").
+        return "-i \"$inputPath\" -map 0:v:0 -map 0:a:0? -c:v $videoCodec -crf $crf -preset $preset$extra " +
             "-c:a aac -b:a ${Presets.AUDIO_BITRATE} \"$outputPath\""
     }
 
@@ -110,7 +115,21 @@ object VideoCompressor {
         val session = FFmpegKit.executeAsync(buildCommand(inputPath, outputPath, crf, codec)) { s ->
             finished = true
             val ok = ReturnCode.isSuccess(s.returnCode)
-            onDone(ok, if (ok) outputPath else (s.failStackTrace ?: "FFmpeg failed"))
+            // On failure, show the real FFmpeg error (last lines of the
+            // session output) instead of the generic "FFmpeg failed" —
+            // otherwise a failure can never be diagnosed from the phone.
+            val detail = if (ok) outputPath else {
+                val out = s.output ?: ""
+                val tail = out.trim().lines().filter { it.isNotBlank() }
+                    .takeLast(3).joinToString(" | ").take(300)
+                val base = s.failStackTrace?.trim()?.take(200)
+                when {
+                    tail.isNotBlank() -> tail
+                    !base.isNullOrBlank() -> base
+                    else -> "FFmpeg failed"
+                }
+            }
+            onDone(ok, detail)
         }
         // Keep the session reference alive for cancellation in the Activity.
         currentSessionId = session.sessionId

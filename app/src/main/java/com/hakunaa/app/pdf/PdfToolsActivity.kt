@@ -148,12 +148,16 @@ class PdfToolsActivity : AppCompatActivity() {
             try {
                 val before = input.length()
                 val out = File(hakunaaCacheDir(), "hakunaa_smart_${System.currentTimeMillis()}.pdf")
-                val ok = PdfTools.compressSmart(input, out) && publishPdf(out)
+                val replaced = PdfTools.compressSmart(input, out)
+                val ok = replaced >= 0 && publishPdf(out)
                 runOnUiThread {
                     if (ok) {
                         val after = out.length()
+                        val note = if (replaced == 0)
+                            " No images to compress — this PDF is text-only, so Smart can't shrink it."
+                        else " $replaced image(s) compressed."
                         status.text = "Done — ${FileUtils.formatSize(before)} → ${FileUtils.formatSize(after)} " +
-                            "(${FileUtils.savedPercent(before, after)}), saved to Documents/Hakunaa/${out.name}"
+                            "(${FileUtils.savedPercent(before, after)}), saved to Documents/Hakunaa/${out.name}.$note"
                     } else {
                         status.text = "Compress failed — check the file and try again"
                     }
