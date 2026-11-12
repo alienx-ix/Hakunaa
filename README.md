@@ -323,6 +323,25 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   later step — the user frames the document in the camera itself
   for now. (v0.1.26 was built and verified but superseded by
   v0.1.27 before delivery, which adds the scanner on top.)
+- **v0.1.28 (2026-11-12): Professional scanner — live preview,
+  camera permission, auto straighten.** The user reported the
+  camera would not open ("Camara Open aagala") and wants a
+  professional scanner "same as Professional Scanner apps",
+  with preview and everything, "Need Professional +++++++".
+  Root cause of the camera failure: the CAMERA permission was
+  in the manifest but NEVER requested at runtime — Android 6+
+  needs the system dialog. Fix: the scanner now asks for the
+  camera permission properly when it opens, the way every app
+  does. New professional scanner: live CameraX PreviewView
+  inside the app (not the system camera), Capture button,
+  auto document detection + perspective correction (pure-Kotlin
+  edge detection, NO OpenCV — that would add a 20 MB native
+  library and the user wants the app smaller), filters
+  (Color / Grayscale / B&W), a live preview thumbnail of the
+  latest scanned page, multi-page to one PDF, gallery pick.
+  Also fixes the user's question: "ella apps um install pana
+  odanae permissions ketu vangum but nee edhum kekela" — yes,
+  Hakunaa now asks for the camera permission like other apps.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

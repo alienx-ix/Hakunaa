@@ -29,15 +29,30 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Scan documents with your camera and save them as one PDF — 100% on-device."
+                android:text="Point the camera at a document — it detects the page, straightens it, and saves it as a PDF. 100% on-device."
                 android:textColor="@color/hakunaa_text_secondary"
                 android:textSize="14sp" />
+
+            <!-- Live camera preview -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp">
+
+                <androidx.camera.view.PreviewView
+                    android:id="@+id/previewView"
+                    android:layout_width="match_parent"
+                    android:layout_height="280dp"
+                    app:scaleType="fitCenter" />
+            </com.google.android.material.card.MaterialCardView>
 
             <!-- Capture -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
+                android:layout_marginTop="12dp"
                 app:cardCornerRadius="12dp"
                 app:cardElevation="2dp">
 
@@ -56,11 +71,11 @@
                         android:textStyle="bold" />
 
                     <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnTakePhoto"
+                        android:id="@+id/btnCapture"
                         android:layout_width="match_parent"
                         android:layout_height="56dp"
                         android:layout_marginTop="12dp"
-                        android:text="Take Photo" />
+                        android:text="Capture" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnPickPhoto"
@@ -74,7 +89,48 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:text="No pages yet — take a photo or pick one"
+                        android:text="No pages yet — point the camera and tap Capture"
+                        android:textColor="@color/hakunaa_text_secondary"
+                        android:textSize="13sp" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Latest page preview -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="PREVIEW"
+                        android:textColor="@color/hakunaa_text_secondary"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+
+                    <ImageView
+                        android:id="@+id/ivPreview"
+                        android:layout_width="match_parent"
+                        android:layout_height="200dp"
+                        android:layout_marginTop="12dp"
+                        android:scaleType="fitCenter"
+                        android:background="@color/hakunaa_background" />
+
+                    <TextView
+                        android:id="@+id/tvPreviewLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text=""
                         android:textColor="@color/hakunaa_text_secondary"
                         android:textSize="13sp" />
                 </LinearLayout>

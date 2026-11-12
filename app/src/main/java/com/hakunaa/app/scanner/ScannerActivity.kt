@@ -1,55 +1,72 @@
 package com.hakunaa.app.scanner
 
-import android.content.ContentValues
-import android.content.Intent
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.net.Uri
 import android.os.Bundle
-import android.provider.MediaStore
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
+import androidx.core.content.ContextCompat
 import com.hakunaa.app.R
 import com.hakunaa.app.core.FileUtils
 import com.hakunaa.app.core.MediaStoreSaver
 import com.hakunaa.app.pdf.PdfTools
 import java.io.File
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 /**
- * PDF Scanner — scan documents with the camera (or pick photos)
- * and save them as one PDF. No cloud, no account, 100% on-device.
+ * PDF Scanner — professional document scanner, 100% on-device.
  *
- * How it works: each captured photo becomes one scan page. The
- * user picks a filter — Color, Grayscale or B&W (black & white,
- * best for documents) — and the app applies it to every page,
- * then combines all pages into a single PDF (A4, one photo per
- * page) via the same imageToPdf used by PDF Tools.
+ * - Live camera preview inside the app (CameraX PreviewView),
+ *   not the system camera app.
+ * - Asks for the CAMERA permission properly, with the system
+ *   dialog, the way every other app does. Without it the camera
+ *   cannot open — that was the v0.1.27 bug: the permission was
+ *   in the manifest but never requested at runtime.
+ * - Capture: takes a photo, auto-detects the document edges
+ *   (pure-Kotlin Sobel edge detection, no OpenCV), corrects the
+ *   perspective so the page looks flat and straight, then applies
+ *   the chosen filter (Color / Grayscale / B&W).
+ * - Page preview: every scanned page shows as a thumbnail.
+ * - Multi-page: keep scanning, then save all pages as one PDF.
+ * - Also accepts photos from the gallery.
  *
- * This is a camera + filter + PDF scanner. It does NOT do
- * automatic edge detection or perspective correction yet — that
- * needs OpenCV, which is a later step. The user crops/frames the
- * document in the camera itself.
+ * No cloud, no account. Files never leave the phone.
  */
 class ScannerActivity : AppCompatActivity() {
 
     enum class Filter { COLOR, GRAYSCALE, BW }
 
     private val pages = mutableListOf<File>()
-    private var cameraUri: Uri? = null
+    private var imageCapture: ImageCapture? = null
+    private var cameraExecutor: ExecutorService? = null
 
-    private val takePhoto =
-        registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-            if (ok) {
-                val uri = cameraUri ?: return@registerForActivityResult
-                addPageFromUri(uri)
+    private val requestCameraPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                startCamera()
+            } else {
+                findViewById<TextView>(R.id.tvStatus).text =
+                    "Camera permission is needed to scan. Allow it in Settings, or pick photos from the gallery instead."
             }
         }
 
@@ -65,29 +82,105 @@ class ScannerActivity : AppCompatActivity() {
         findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar)
             .setNavigationOnClickListener { finish() }
 
-        findViewById<Button>(R.id.btnTakePhoto).setOnClickListener { takePhoto() }
+        cameraExecutor = Executors.newSingleThreadExecutor()
+
+        findViewById<Button>(R.id.btnCapture).setOnClickListener { capturePhoto() }
         findViewById<Button>(R.id.btnPickPhoto).setOnClickListener { pickPhoto.launch("image/*") }
         findViewById<Button>(R.id.btnSavePdf).setOnClickListener { saveAsPdf() }
         findViewById<Button>(R.id.btnClearPages).setOnClickListener { clearPages() }
+
+        // Ask for the camera permission the way every app does.
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            startCamera()
+        } else {
+            requestCameraPermission.launch(Manifest.permission.CAMERA)
+        }
         updatePagesLabel()
     }
 
-    private fun takePhoto() {
-        try {
-            val values = ContentValues().apply {
-                put(MediaStore.Images.Media.DISPLAY_NAME, "hakunaa_scan_${System.currentTimeMillis()}.jpg")
-                put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+    override fun onDestroy() {
+        super.onDestroy()
+        cameraExecutor?.shutdown()
+    }
+
+    private fun startCamera() {
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
+        cameraProviderFuture.addListener({
+            try {
+                val cameraProvider = cameraProviderFuture.get()
+                val preview = Preview.Builder().build().also {
+                    it.setSurfaceProvider(findViewById<PreviewView>(R.id.previewView).surfaceProvider)
+                }
+                imageCapture = ImageCapture.Builder()
+                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                    .build()
+                val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+                cameraProvider.unbindAll()
+                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture)
+                findViewById<TextView>(R.id.tvStatus).text =
+                    "Point the camera at a document and tap Capture"
+            } catch (_: Throwable) {
+                findViewById<TextView>(R.id.tvStatus).text =
+                    "Couldn't start the camera — try picking a photo from the gallery instead"
             }
-            val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-            if (uri == null) {
-                Toast.makeText(this, "Couldn't open the camera", Toast.LENGTH_SHORT).show()
-                return
-            }
-            cameraUri = uri
-            takePhoto.launch(uri)
-        } catch (_: Throwable) {
-            Toast.makeText(this, "Couldn't open the camera", Toast.LENGTH_SHORT).show()
+        }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun capturePhoto() {
+        val capture = imageCapture
+        if (capture == null) {
+            Toast.makeText(this, "Camera is not ready yet", Toast.LENGTH_SHORT).show()
+            return
         }
+        val status = findViewById<TextView>(R.id.tvStatus)
+        status.text = "Capturing…"
+        val photoFile = File(cacheDir, "scan_capture_${System.currentTimeMillis()}.jpg")
+        val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+        capture.takePicture(
+            outputOptions,
+            ContextCompat.getMainExecutor(this),
+            object : ImageCapture.OnImageSavedCallback {
+                override fun onError(exception: ImageCaptureException) {
+                    runOnUiThread { status.text = "Capture failed — try again" }
+                }
+
+                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                    processCapturedPhoto(photoFile)
+                }
+            }
+        )
+    }
+
+    private fun processCapturedPhoto(photoFile: File) {
+        val status = findViewById<TextView>(R.id.tvStatus)
+        Thread {
+            try {
+                // 1. Detect the document corners and straighten it.
+                val straightened = DocumentDetector.straighten(photoFile)
+                val source = straightened ?: photoFile
+                // 2. Apply the chosen filter.
+                val filtered = File(cacheDir, "scan_filtered_${System.currentTimeMillis()}.jpg")
+                val ok = applyFilter(source, filtered, selectedFilter())
+                if (straightened != null && straightened != photoFile) {
+                    try { straightened.delete() } catch (_: Throwable) { }
+                }
+                try { photoFile.delete() } catch (_: Throwable) { }
+                runOnUiThread {
+                    if (ok) {
+                        pages.add(filtered)
+                        updatePagesLabel()
+                        updatePreview()
+                        status.text = "Page ${pages.size} added — scan another, or save as PDF"
+                    } else {
+                        status.text = "Couldn't process that photo — try again"
+                    }
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Couldn't process that photo — try again" }
+            }
+        }.start()
     }
 
     private fun selectedFilter(): Filter {
@@ -104,13 +197,20 @@ class ScannerActivity : AppCompatActivity() {
         Thread {
             try {
                 val input = FileUtils.copyUriToCache(this, uri, "scan_page")
+                val straightened = DocumentDetector.straighten(input)
+                val source = straightened ?: input
                 val filtered = File(cacheDir, "scan_filtered_${System.currentTimeMillis()}.jpg")
-                val ok = applyFilter(input, filtered, selectedFilter())
+                val ok = applyFilter(source, filtered, selectedFilter())
+                if (straightened != null && straightened != input) {
+                    try { straightened.delete() } catch (_: Throwable) { }
+                }
+                try { input.delete() } catch (_: Throwable) { }
                 runOnUiThread {
                     if (ok) {
                         pages.add(filtered)
                         updatePagesLabel()
-                        status.text = "Page ${pages.size} added — take another, or save as PDF"
+                        updatePreview()
+                        status.text = "Page ${pages.size} added — scan another, or save as PDF"
                     } else {
                         status.text = "Couldn't add that photo — try again"
                     }
@@ -143,9 +243,6 @@ class ScannerActivity : AppCompatActivity() {
                     canvas.drawBitmap(bitmap, 0f, 0f, paint)
                 }
                 Filter.BW -> {
-                    // Grayscale, then a hard threshold: dark pixels
-                    // become black, light pixels become white. This
-                    // is what makes a scanned document crisp.
                     val gray = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
                     val grayCanvas = Canvas(gray)
                     val grayPaint = Paint()
@@ -182,8 +279,19 @@ class ScannerActivity : AppCompatActivity() {
 
     private fun updatePagesLabel() {
         findViewById<TextView>(R.id.tvPages).text =
-            if (pages.isEmpty()) "No pages yet — take a photo or pick one"
+            if (pages.isEmpty()) "No pages yet — point the camera and tap Capture"
             else "${pages.size} page(s) scanned"
+    }
+
+    /** Show the latest scanned page as a thumbnail preview. */
+    private fun updatePreview() {
+        val last = pages.lastOrNull() ?: return
+        try {
+            val bitmap = BitmapFactory.decodeFile(last.absolutePath) ?: return
+            findViewById<ImageView>(R.id.ivPreview).setImageBitmap(bitmap)
+            findViewById<TextView>(R.id.tvPreviewLabel).text = "Latest page — ${pages.size} total"
+        } catch (_: Throwable) {
+        }
     }
 
     private fun clearPages() {
@@ -192,6 +300,8 @@ class ScannerActivity : AppCompatActivity() {
         }
         pages.clear()
         updatePagesLabel()
+        findViewById<ImageView>(R.id.ivPreview).setImageDrawable(null)
+        findViewById<TextView>(R.id.tvPreviewLabel).text = ""
         findViewById<TextView>(R.id.tvStatus).text = "Cleared — start a new scan"
     }
 
