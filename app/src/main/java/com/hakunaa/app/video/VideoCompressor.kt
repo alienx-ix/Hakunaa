@@ -46,11 +46,16 @@ object VideoCompressor {
         val args = mutableListOf<String>()
         args += "-i"; args += inputPath
         args += "-c:v"; args += codec.ffmpegName
-        // NOTE: no "-preset" option. It kept failing with
-        // "Unrecognized option 'preset'" on this phone across every
-        // invocation style (String command and argv array). libx264
-        // falls back to its default preset (medium) — slightly slower
-        // than "fast" but the same CRF quality, and it works.
+        // "-preset" is BACK (v0.1.16). It was removed in v0.1.13 because it
+        // failed with "Unrecognized option 'preset'" — but that failure was
+        // a symptom, not the cause: the old non-GPL engine had NO libx264,
+        // so there was no encoder to accept the option. Now that the GPL
+        // engine (v0.1.15) has libx264, "-preset fast" works — proven by
+        // the reference Video Converter app, which uses -crf + -preset +
+        // libx264 with the same GPL FFmpegKit. "fast" matches the
+        // reference app's Compress mode and is faster than libx264's
+        // default "medium" at the same CRF quality.
+        args += "-preset"; args += preset
         args += "-crf"; args += crf.toString()
         args += "-pix_fmt"; args += "yuv420p"
         // H.265 needs a tag that plays on most phones; AV1 uses

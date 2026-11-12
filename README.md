@@ -162,6 +162,30 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   for the deleted old AAR). The user asked for a full rework with
   full time: video, PDF (v0.1.14 fix) and Image (pure Android Bitmap,
   no FFmpeg) were all reviewed; video was the only broken engine.
+- **v0.1.16 (2026-11-12):** `-preset` is BACK. It was removed in
+  v0.1.13 because it failed with "Unrecognized option 'preset'" —
+  but that was a symptom: the old non-GPL engine had NO libx264, so
+  no encoder existed to accept the option. Now the GPL engine
+  (v0.1.15) has libx264, so `-preset fast` works — proven by the
+  reference app (below), which uses -crf + -preset + libx264 with
+  the same GPL FFmpegKit. "fast" matches the reference app's
+  Compress mode and is faster than libx264's default "medium" at
+  the same CRF quality.
+- **Reference app analysis (2026-11-12):** the user asked to reverse
+  engineer the old Video Converter app they showed (`com.audio.
+  videoformat.formatchanger.videoconverter` v1.2.15, 34.6 MB APK).
+  Findings: it also uses FFmpegKit (old upstream 6.0, FFmpeg 6.x,
+  libavcodec 60.3.100) with libx264 + libx265 present (GPL build);
+  its DEX contains `-crf`, `-preset`, `libx264`, `-b:a` and the
+  presets fast/medium/slow/veryfast/veryslow plus H.264 profiles
+  baseline/main and an ORIGINAL resolution option. Its code is
+  heavily obfuscated (single-letter class/method names), so the
+  exact command order was not extracted — but the sample output
+  already proved its Compress mode: CRF 24, preset FAST, 1080p,
+  ~1.5 Mbps, H.264 High, AAC 128k. Hakunaa now matches that
+  engine (GPL, libx264) and those settings (CRF 24 default, FAST
+  preset, AAC 128k). Note: this analysis was for learning the
+  technique, not copying code.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.
