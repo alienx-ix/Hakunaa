@@ -375,6 +375,28 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   CamScanner; Markup and Sign are later steps. First v0.1.30
   build failed on `Filter` needing its `ImageEnhancer.` prefix;
   fixed.
+- **v0.1.31 (2026-11-12): PDF size fix + Pages screen + Soft
+  filter.** The user said the app is good now ("Yahh ok nala
+  irku"), but: (1) the captured PDF was **22 MB for 2 photos** —
+  root cause: `imageToPdf` used LosslessFactory, embedding each
+  12 MP photo as lossless PNG (~10 MB each). Fix: new
+  `imageToPdfOptimized` downscales each page to A4 print
+  resolution (longest side 2000 px, ~200 DPI) and embeds as JPEG
+  quality 80 — a 2-page scan is now about 1 MB instead of 22 MB,
+  text stays crisp at print size. Used by both Single and Batch
+  save paths. (2) **Pages screen** (Batch mode): after multiple
+  captures, "Save as PDF" opens a thumbnail grid where the user
+  can preview every page, reorder it (left/right arrows),
+  rotate it, delete it, add more pages, then save as one
+  optimized PDF. (3) **Soft filter** added to the Enhance
+  screen (Original / Lighten / Enhance / No Shadow / B&W / Soft)
+  — gentle, slightly brighter, muted colours. B&W was already
+  there. (4) Alignment fixes deferred to the final pass, as the
+  user said ("alignment fix pananu ok finall a panikalam").
+  Two build fixes: `layout_columnWeight` is not valid on an
+  item root (set GridLayout params in code instead), and an
+  edit had eaten the first lines of the `rotate` doc comment in
+  PdfTools (restored).
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

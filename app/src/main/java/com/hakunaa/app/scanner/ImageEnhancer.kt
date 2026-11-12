@@ -25,7 +25,8 @@ object ImageEnhancer {
         LIGHTEN("Lighten"),
         ENHANCE("Enhance"),
         NO_SHADOW("No Shadow"),
-        BW("B&W")
+        BW("B&W"),
+        SOFT("Soft")
     }
 
     fun apply(bitmap: Bitmap, filter: Filter): Bitmap {
@@ -101,6 +102,24 @@ object ImageEnhancer {
                 }
                 result.setPixels(pixels, 0, result.width, 0, 0, result.width, result.height)
                 gray.recycle()
+            }
+            Filter.SOFT -> {
+                // Soft: gentle look — slightly less contrast, a touch
+                // brighter, colours muted. Easy on the eyes, good for
+                // photos and soft documents.
+                val matrix = ColorMatrix()
+                matrix.setSaturation(0.85f)
+                val soft = ColorMatrix(
+                    floatArrayOf(
+                        0.9f, 0f, 0f, 0f, 18f,
+                        0f, 0.9f, 0f, 0f, 18f,
+                        0f, 0f, 0.9f, 0f, 18f,
+                        0f, 0f, 0f, 1f, 0f
+                    )
+                )
+                matrix.postConcat(soft)
+                paint.colorFilter = ColorMatrixColorFilter(matrix)
+                canvas.drawBitmap(bitmap, 0f, 0f, paint)
             }
             else -> {
                 canvas.drawBitmap(bitmap, 0f, 0f, paint)

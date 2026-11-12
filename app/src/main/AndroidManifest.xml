@@ -30,6 +30,7 @@
         <activity android:name=".scanner.ScannerActivity" android:exported="false" />
         <activity android:name=".scanner.CropActivity" android:exported="false" />
         <activity android:name=".scanner.EnhanceActivity" android:exported="false" />
+        <activity android:name=".scanner.PagesActivity" android:exported="false" />
         <activity android:name=".CrashReportActivity" android:exported="false" />
         <!-- Installs the crash handler before anything else starts,
              so even an early startup crash leaves a report. -->

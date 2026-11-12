@@ -93,6 +93,19 @@ class ScannerActivity : AppCompatActivity() {
             }
         }
 
+    private val pagesLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) {
+                // PDF saved from the Pages screen — clear and stay on camera.
+                pages.clear()
+                docName = null
+                updatePagesLabel()
+                findViewById<TextView>(R.id.tvStatus).text =
+                    "Done — PDF saved. Scan another document when ready"
+            }
+            // RESULT_ADD_PAGE or back: stay on the camera, pages kept.
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_scanner)
@@ -119,7 +132,7 @@ class ScannerActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.tvModeSingle).setOnClickListener { setMode(Mode.SINGLE) }
         findViewById<TextView>(R.id.tvModeBatch).setOnClickListener { setMode(Mode.BATCH) }
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnSavePdf)
-            .setOnClickListener { saveAsPdf() }
+            .setOnClickListener { openPages() }
 
         // Ask for the camera permission the way every app does.
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
@@ -255,6 +268,21 @@ class ScannerActivity : AppCompatActivity() {
             if (pages.isNotEmpty() && mode == Mode.BATCH) View.VISIBLE else View.GONE
     }
 
+    /** Batch mode: review, reorder and save all pages. */
+    private fun openPages() {
+        if (pages.isEmpty()) {
+            Toast.makeText(this, "Scan at least one page first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val intent = Intent(this, PagesActivity::class.java)
+        intent.putStringArrayListExtra(
+            PagesActivity.EXTRA_PAGE_PATHS,
+            ArrayList(pages.map { it.absolutePath })
+        )
+        intent.putExtra(PagesActivity.EXTRA_DOC_NAME, docName)
+        pagesLauncher.launch(intent)
+    }
+
     private fun saveAsPdf() {
         if (pages.isEmpty()) {
             Toast.makeText(this, "Scan at least one page first", Toast.LENGTH_SHORT).show()
@@ -266,12 +294,15 @@ class ScannerActivity : AppCompatActivity() {
         Thread {
             try {
                 val out = File(cacheDir, "$name.pdf")
-                val ok = PdfTools.imageToPdf(pages, out)
+                // Optimized: downscaled + JPEG, about 1 MB for 2 pages
+                // instead of 22 MB (lossless PNG was the problem).
+                val ok = PdfTools.imageToPdfOptimized(pages, out)
                 val saved = ok && MediaStoreSaver.save(this, out, MediaStoreSaver.Kind.DOCUMENT, out.name) != null
                 runOnUiThread {
                     if (saved) {
-                        status.text = "Done — scanned PDF saved to Documents/Hakunaa/${out.name} (${pages.size} page(s))"
-                        Toast.makeText(this, "PDF saved", Toast.LENGTH_SHORT).show()
+                        val sizeKb = out.length() / 1024
+                        status.text = "Done — scanned PDF saved to Documents/Hakunaa/${out.name} (${pages.size} page(s), ${sizeKb} KB)"
+                        Toast.makeText(this, "PDF saved (${sizeKb} KB)", Toast.LENGTH_SHORT).show()
                         pages.clear()
                         docName = null
                         updatePagesLabel()

@@ -312,6 +312,65 @@ object PdfTools {
     }
 
     /**
+     * Image to PDF, optimized for scanned pages.
+     *
+     * The plain imageToPdf uses LosslessFactory, which embeds each
+     * photo as lossless PNG — a 12 MP phone photo becomes ~10 MB
+     * in the PDF, so 2 photos = 22 MB. That is what the user
+     * reported ("capture panuna pdf 22 mb pothu 2 photo kae").
+     *
+     * This version downscales each page to A4 print resolution
+     * (longest side 2000 px, about 200 DPI) and embeds it as
+     * JPEG quality 80. A 2-page scan is about 1 MB instead of
+     * 22 MB, and the text stays crisp at print size.
+     */
+    fun imageToPdfOptimized(imageFiles: List<File>, output: File): Boolean {
+        return try {
+            PDDocument().use { doc ->
+                for (imageFile in imageFiles) {
+                    val original = BitmapFactory.decodeFile(imageFile.absolutePath) ?: return false
+                    val bitmap = downscaleForPrint(original)
+                    if (bitmap != original) original.recycle()
+                    val page = PDPage(PDRectangle.A4)
+                    doc.addPage(page)
+                    val image = JPEGFactory.createFromImage(doc, bitmap, 0.8f)
+                    PDPageContentStream(doc, page).use { content ->
+                        val pageWidth = page.mediaBox.width
+                        val pageHeight = page.mediaBox.height
+                        val scale = minOf(
+                            pageWidth / bitmap.width.toFloat(),
+                            pageHeight / bitmap.height.toFloat()
+                        ) * 0.95f
+                        val width = bitmap.width * scale
+                        val height = bitmap.height * scale
+                        val x = (pageWidth - width) / 2f
+                        val y = (pageHeight - height) / 2f
+                        content.drawImage(image, x, y, width, height)
+                    }
+                    bitmap.recycle()
+                }
+                doc.save(output)
+            }
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /** Downscale a bitmap so its longest side is at most 2000 px
+     *  (A4 at about 200 DPI — crisp for print, small in a PDF).
+     *  Returns the original bitmap unchanged if it is already small. */
+    private fun downscaleForPrint(bitmap: Bitmap): Bitmap {
+        val maxSide = 2000
+        val longest = maxOf(bitmap.width, bitmap.height)
+        if (longest <= maxSide) return bitmap
+        val scale = maxSide.toFloat() / longest
+        val newWidth = (bitmap.width * scale).toInt().coerceAtLeast(1)
+        val newHeight = (bitmap.height * scale).toInt().coerceAtLeast(1)
+        return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
+    }
+
+    /**
      * Rotate every page by [degrees] (90, 180 or 270). Adds to the
      * page's existing rotation, so rotating twice works as expected.
      * Returns true on success.
