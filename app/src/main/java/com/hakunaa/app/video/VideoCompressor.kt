@@ -26,6 +26,15 @@ object VideoCompressor {
         AV1("libaom-av1", "av1")
     }
 
+    /**
+     * Build the FFmpeg command as an argument ARRAY (argv), not a
+     * single String. FFmpegKit's String-command parser splits on
+     * spaces and mishandles quoting — that is what produced
+     * "Unrecognized option 'preset'" even though the command text
+     * was correct. An argv array passes each argument exactly, so
+     * no parsing can shift or merge options. This is the robust,
+     * correct way to invoke FFmpegKit.
+     */
     fun buildCommand(
         inputPath: String,
         outputPath: String,
@@ -33,23 +42,29 @@ object VideoCompressor {
         codec: Codec = Codec.H264,
         preset: String = Presets.VIDEO_PRESET,
         hasAudio: Boolean = true
-    ): String {
-        val videoCodec = codec.ffmpegName
-        // H.265 needs a pixel-format + tag that plays on most phones.
-        // AV1 is encoded with cpu-used 4 (faster, still good quality).
-        val extra = when (codec) {
-            Codec.H265 -> " -pix_fmt yuv420p -tag:v hvc1"
-            Codec.AV1 -> " -pix_fmt yuv420p -cpu-used 4"
-            else -> " -pix_fmt yuv420p"
+    ): Array<String> {
+        val args = mutableListOf<String>()
+        args += "-i"; args += inputPath
+        args += "-c:v"; args += codec.ffmpegName
+        args += "-preset"; args += preset
+        args += "-crf"; args += crf.toString()
+        args += "-pix_fmt"; args += "yuv420p"
+        // H.265 needs a tag that plays on most phones; AV1 uses
+        // cpu-used 4 (faster, still good quality).
+        when (codec) {
+            Codec.H265 -> { args += "-tag:v"; args += "hvc1" }
+            Codec.AV1 -> { args += "-cpu-used"; args += "4" }
+            else -> {}
         }
-        // Standard, proven order (same as the reference app): input,
-        // video codec, preset, CRF, pixel format, then audio ONLY if
-        // the input actually has an audio stream. Forcing "-c:a aac"
-        // on a video with no audio made FFmpeg fail, and the "-map
-        // 0:a:0?" workaround broke option parsing ("Unrecognized
-        // option 'preset'"). Audio is probed up front instead.
-        val audio = if (hasAudio) " -c:a aac -b:a ${Presets.AUDIO_BITRATE}" else ""
-        return "-i \"$inputPath\" -c:v $videoCodec -preset $preset -crf $crf$extra$audio \"$outputPath\""
+        // Audio ONLY if the input actually has an audio stream.
+        // Forcing "-c:a aac" on a video with no audio makes FFmpeg
+        // fail. Audio presence is probed up front with FFprobe.
+        if (hasAudio) {
+            args += "-c:a"; args += "aac"
+            args += "-b:a"; args += Presets.AUDIO_BITRATE
+        }
+        args += outputPath
+        return args.toTypedArray()
     }
 
     // Is the native video engine loadable on this phone?
@@ -122,7 +137,14 @@ object VideoCompressor {
                 onProgress(percent)
             }
         }
-        val session = FFmpegKit.executeAsync(buildCommand(inputPath, outputPath, crf, codec, Presets.VIDEO_PRESET, hasAudio)) { s ->
+        // Execute via an FFmpegSession built from an argv array (see
+        // buildCommand). FFmpegKit.executeAsync(String) only takes a
+        // single String and re-parses it, which is what broke the
+        // command. FFmpegSession.create(String[], callback) +
+        // asyncFFmpegExecute(session) runs the exact argv, no parsing.
+        val session = com.arthenica.ffmpegkit.FFmpegSession.create(
+            buildCommand(inputPath, outputPath, crf, codec, Presets.VIDEO_PRESET, hasAudio)
+        ) { s ->
             finished = true
             val ok = ReturnCode.isSuccess(s.returnCode)
             // On failure, show the real FFmpeg error (last lines of the
@@ -141,6 +163,7 @@ object VideoCompressor {
             }
             onDone(ok, detail)
         }
+        com.arthenica.ffmpegkit.FFmpegKitConfig.asyncFFmpegExecute(session)
         // Keep the session reference alive for cancellation in the Activity.
         currentSessionId = session.sessionId
     }

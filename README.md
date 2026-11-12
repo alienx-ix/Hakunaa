@@ -118,12 +118,14 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   screen instead: the handler opens a plain CrashReportActivity
   (yellow, no Material) with the full error, so a screenshot gives
   the exact exception to fix.
-- **v0.1.11 (2026-11-12):** fixes the video "Unrecognized option
-  'preset'" error. The `-map 0:a:0?` workaround broke FFmpeg's
-  option parsing; it is removed. The command is now the standard
-  proven form (`-i input -c:v codec -preset fast -crf N -pix_fmt
-  yuv420p [-c:a aac]`), and audio is probed with FFprobe and only
-  encoded when the input actually has an audio stream.
+- **v0.1.12 (2026-11-12):** fixes video properly. The "Unrecognized
+  option 'preset'" came from FFmpegKit's String-command parser
+  mangling the command — and `executeAsync` has no array overload
+  (verified with javap). The app now builds the command as an argv
+  array and runs it via `FFmpegSession.create(argv, callback)` +
+  `asyncFFmpegExecute(session)`, so no string parsing can break the
+  options. Same standard command, audio probed and only encoded
+  when present.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.
