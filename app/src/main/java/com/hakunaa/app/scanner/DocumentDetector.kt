@@ -18,18 +18,23 @@ import kotlin.math.sqrt
  *
  * How it works:
  * 1. Downscale the photo (max 800 px) for speed.
- * 2. Grayscale + a simple brightness threshold: a document is
- *    bright paper on a darker background, so the bright region
- *    is the page.
+ * 2. Grayscale + Otsu's threshold: the optimal split between
+ *    bright paper and darker background, computed from the
+ *    actual brightness histogram — so it works in dim light,
+ *    bright light, and with shadows, not just one fixed level.
  * 3. Find the page edges by scanning rows/columns for the bright
- *    region and fitting a line to each side (least squares).
+ *    region and fitting a line to each side (least squares, with
+ *    outlier rejection so text or shadows near the edge do not
+ *    pull the frame off).
  * 4. Intersect the four edge lines to get the four corners.
  * 5. Warp the full-resolution photo with Matrix.setPolyToPoly,
  *    which maps the four corners to a flat rectangle — the page
  *    looks straight and flat, like a real scan.
  * 6. If detection fails (corners invalid, page too small, or the
  *    photo has no clear bright page), returns null and the caller
- *    keeps the original photo.
+ *    keeps the original photo. The Crop screen also lets the user
+ *    adjust the corners by hand — auto + manual, the way
+ *    professional scanners do it.
  */
 object DocumentDetector {
 
@@ -73,20 +78,17 @@ object DocumentDetector {
         small.getPixels(pixels, 0, w, 0, 0, w, h)
         small.recycle()
 
-        // Grayscale + brightness.
+        // Grayscale.
         val gray = FloatArray(w * h)
-        var sum = 0f
         for (i in pixels.indices) {
             val p = pixels[i]
-            val lum = 0.299f * ((p shr 16) and 0xFF) +
+            gray[i] = 0.299f * ((p shr 16) and 0xFF) +
                 0.587f * ((p shr 8) and 0xFF) +
                 0.114f * (p and 0xFF)
-            gray[i] = lum
-            sum += lum
         }
-        val mean = sum / gray.size
-        // A page is bright; use a threshold a bit above the mean.
-        val threshold = min(200f, mean + 25f)
+        // Otsu's threshold: the optimal split between bright paper
+        // and darker background, from the actual histogram.
+        val threshold = otsuThreshold(gray)
 
         // For each row, find the leftmost and rightmost bright pixel.
         // For each column, find the topmost and bottommost bright pixel.
@@ -165,8 +167,62 @@ object DocumentDetector {
         )
     }
 
+    /** Otsu's method: the threshold that best separates the bright
+     *  paper from the darker background, computed from the
+     *  brightness histogram. Adapts to dim light, bright light
+     *  and shadows — a fixed threshold cannot do that. */
+    private fun otsuThreshold(gray: FloatArray): Float {
+        val hist = IntArray(256)
+        for (v in gray) {
+            hist[v.toInt().coerceIn(0, 255)]++
+        }
+        val total = gray.size
+        var sum = 0.0
+        for (i in 0..255) sum += i * hist[i]
+        var sumB = 0.0
+        var wB = 0
+        var maxVariance = -1.0
+        var best = 128
+        for (t in 0..255) {
+            wB += hist[t]
+            if (wB == 0) continue
+            val wF = total - wB
+            if (wF == 0) break
+            sumB += t * hist[t]
+            val mB = sumB / wB
+            val mF = (sum - sumB) / wF
+            val variance = wB.toDouble() * wF * (mB - mF) * (mB - mF)
+            if (variance > maxVariance) {
+                maxVariance = variance
+                best = t
+            }
+        }
+        // Keep the threshold in a sane range for paper detection.
+        return best.toFloat().coerceIn(80f, 220f)
+    }
+
     /** Fit x = a*y + b (a near-vertical edge). Returns Line(a, b, 0) in ax + by + c = 0 form. */
     private fun fitVertical(points: List<Pair<Float, Float>>): Line? {
+        return fitVerticalRobust(points)
+    }
+
+    /** Two-pass least squares: fit, drop points far from the line
+     *  (text or shadows near the edge), then fit again. */
+    private fun fitVerticalRobust(points: List<Pair<Float, Float>>): Line? {
+        val first = fitVerticalOnce(points) ?: return null
+        val residuals = points.map { (x, y) ->
+            abs(x - (first.first * y + first.second))
+        }
+        val median = residuals.sorted()[residuals.size / 2]
+        val cutoff = max(4f, median * 3f)
+        val inliers = points.filterIndexed { i, _ -> residuals[i] <= cutoff }
+        if (inliers.size >= 3) {
+            return fitVerticalOnce(inliers)?.let { (a, b) -> Line(1f, -a, -b) }
+        }
+        return Line(1f, -first.first, -first.second)
+    }
+
+    private fun fitVerticalOnce(points: List<Pair<Float, Float>>): Pair<Float, Float>? {
         // Least squares for x = a*y + b.
         var n = 0
         var sumY = 0.0
@@ -185,12 +241,29 @@ object DocumentDetector {
         if (abs(denom) < 1e-6) return null
         val a = ((n * sumYX - sumY * sumX) / denom).toFloat()
         val b = ((sumX - a * sumY) / n).toFloat()
-        // x - a*y - b = 0
-        return Line(1f, -a, -b)
+        return Pair(a, b)
     }
 
     /** Fit y = a*x + b (a near-horizontal edge). Returns Line in ax + by + c = 0 form. */
     private fun fitHorizontal(points: List<Pair<Float, Float>>): Line? {
+        return fitHorizontalRobust(points)
+    }
+
+    private fun fitHorizontalRobust(points: List<Pair<Float, Float>>): Line? {
+        val first = fitHorizontalOnce(points) ?: return null
+        val residuals = points.map { (x, y) ->
+            abs(y - (first.first * x + first.second))
+        }
+        val median = residuals.sorted()[residuals.size / 2]
+        val cutoff = max(4f, median * 3f)
+        val inliers = points.filterIndexed { i, _ -> residuals[i] <= cutoff }
+        if (inliers.size >= 3) {
+            return fitHorizontalOnce(inliers)?.let { (a, b) -> Line(a, -1f, b) }
+        }
+        return Line(first.first, -1f, first.second)
+    }
+
+    private fun fitHorizontalOnce(points: List<Pair<Float, Float>>): Pair<Float, Float>? {
         var n = 0
         var sumX = 0.0
         var sumY = 0.0
@@ -208,8 +281,7 @@ object DocumentDetector {
         if (abs(denom) < 1e-6) return null
         val a = ((n * sumXY - sumX * sumY) / denom).toFloat()
         val b = ((sumY - a * sumX) / n).toFloat()
-        // a*x - y + b = 0
-        return Line(a, -1f, b)
+        return Pair(a, b)
     }
 
     /** Intersect two lines (ax + by + c = 0). Returns (x, y) or null if parallel. */

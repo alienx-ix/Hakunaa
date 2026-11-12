@@ -12,13 +12,17 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import kotlin.math.abs
 import com.hakunaa.app.R
 import com.hakunaa.app.core.FileUtils
 import com.hakunaa.app.core.MediaStoreSaver
@@ -33,7 +37,9 @@ import java.util.concurrent.Executors
  *
  * 1. Camera (this screen): full-screen live preview, flash + HD
  *    toggles, Single / Batch mode, big capture button, Import
- *    Images / Import Files.
+ *    Images / Import Files. AUTO capture: when a document is held
+ *    steady in the frame, the app captures it by itself — the way
+ *    professional scanners do it (toggle AUTO in the top bar).
  * 2. Crop (CropActivity): draggable teal corner handles, Auto
  *    Detect, rotate Left / Right, Next.
  * 3. Enhance (EnhanceActivity): filters Original / Lighten /
@@ -56,9 +62,19 @@ class ScannerActivity : AppCompatActivity() {
     private var docName: String? = null
     private var mode = Mode.SINGLE
     private var imageCapture: ImageCapture? = null
+    private var camera: Camera? = null
     private var cameraExecutor: ExecutorService? = null
-    private var flashOn = false
+    private var torchOn = false
     private var hdOn = false
+    private var autoCaptureOn = true
+    private var isCapturing = false
+    // Auto-capture state: the last detected corners, how many
+    // consecutive frames they stayed still, and when the last
+    // capture happened (cooldown so it does not fire twice).
+    private var lastCorners: FloatArray? = null
+    private var stableFrames = 0
+    private var lastAnalysisMs = 0L
+    private var lastCaptureMs = 0L
 
     private val requestCameraPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -114,7 +130,9 @@ class ScannerActivity : AppCompatActivity() {
 
         findViewById<ImageButton>(R.id.btnClose).setOnClickListener { finish() }
         findViewById<ImageButton>(R.id.btnCapture).setOnClickListener { capturePhoto() }
-        findViewById<ImageButton>(R.id.btnFlash).setOnClickListener { toggleFlash() }
+        findViewById<ImageButton>(R.id.btnFlash).setOnClickListener { toggleTorch() }
+        findViewById<com.google.android.material.button.MaterialButton>(R.id.btnAuto)
+            .setOnClickListener { toggleAutoCapture() }
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnHd)
             .setOnClickListener { toggleHd() }
         findViewById<ImageButton>(R.id.btnMenu).setOnClickListener {
@@ -170,13 +188,32 @@ class ScannerActivity : AppCompatActivity() {
             else "Batch mode — keep capturing, save when done"
     }
 
-    private fun toggleFlash() {
-        flashOn = !flashOn
-        imageCapture?.flashMode =
-            if (flashOn) ImageCapture.FLASH_MODE_ON else ImageCapture.FLASH_MODE_OFF
+    /** Torch: the flashlight stays ON while scanning, so the
+     *  document is lit in the dark — the way professional scanners
+     *  do it. (Different from the capture flash, which only fires
+     *  when the photo is taken.) */
+    private fun toggleTorch() {
+        torchOn = !torchOn
+        camera?.cameraControl?.enableTorch(torchOn)
         findViewById<ImageButton>(R.id.btnFlash).setImageResource(
-            if (flashOn) R.drawable.ic_flash_on else R.drawable.ic_flash_off
+            if (torchOn) R.drawable.ic_flash_on else R.drawable.ic_flash_off
         )
+        findViewById<TextView>(R.id.tvStatus).text =
+            if (torchOn) "Torch on" else "Torch off"
+    }
+
+    private fun toggleAutoCapture() {
+        autoCaptureOn = !autoCaptureOn
+        stableFrames = 0
+        lastCorners = null
+        val btn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnAuto)
+        btn.setTextColor(
+            if (autoCaptureOn) getColor(R.color.hakunaa_teal)
+            else getColor(android.R.color.white)
+        )
+        findViewById<TextView>(R.id.tvStatus).text =
+            if (autoCaptureOn) "Auto capture on — hold the page steady"
+            else "Auto capture off — tap Capture yourself"
     }
 
     private fun toggleHd() {
@@ -201,12 +238,21 @@ class ScannerActivity : AppCompatActivity() {
                     captureBuilder.setTargetResolution(android.util.Size(1920, 1080))
                 }
                 imageCapture = captureBuilder.build().also {
-                    it.flashMode =
-                        if (flashOn) ImageCapture.FLASH_MODE_ON else ImageCapture.FLASH_MODE_OFF
+                    it.flashMode = ImageCapture.FLASH_MODE_AUTO
                 }
+                // Real-time document detection for auto-capture:
+                // analyse a small frame a few times a second.
+                val analysis = ImageAnalysis.Builder()
+                    .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build()
+                analysis.setAnalyzer(cameraExecutor!!, ::analyzeFrame)
                 val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
                 cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture)
+                camera = cameraProvider.bindToLifecycle(
+                    this, cameraSelector, preview, imageCapture, analysis
+                )
+                if (torchOn) camera?.cameraControl?.enableTorch(true)
                 findViewById<TextView>(R.id.tvStatus).text =
                     "Point the camera at a document and tap Capture"
             } catch (_: Throwable) {
@@ -216,12 +262,75 @@ class ScannerActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
+    /** Analyse one camera frame for auto-capture. Runs on a
+     *  background thread, throttled to about 3 frames a second.
+     *  When a document is detected and its corners stay still for
+     *  3 checks in a row, the page is held correctly — capture it
+     *  automatically, the way professional scanners do. */
+    private fun analyzeFrame(imageProxy: ImageProxy) {
+        try {
+            if (!autoCaptureOn || isCapturing) return
+            val now = System.currentTimeMillis()
+            if (now - lastAnalysisMs < 350) return
+            if (now - lastCaptureMs < 3000) return
+            lastAnalysisMs = now
+            val bitmap = imageProxy.toBitmap()
+            val corners = DocumentDetector.detectCorners(bitmap)
+            bitmap.recycle()
+            if (corners == null) {
+                stableFrames = 0
+                lastCorners = null
+                return
+            }
+            val prev = lastCorners
+            if (prev != null) {
+                // How far did the corners move since the last check?
+                var maxMove = 0f
+                for (i in corners.indices) {
+                    maxMove = maxOf(maxMove, abs(corners[i] - prev[i]))
+                }
+                // The analysis frame is small; 25 px of movement
+                // means the phone or the page is still moving.
+                if (maxMove < 25f) {
+                    stableFrames++
+                } else {
+                    stableFrames = 0
+                }
+            } else {
+                stableFrames = 0
+            }
+            lastCorners = corners
+            if (stableFrames >= 3) {
+                stableFrames = 0
+                lastCorners = null
+                runOnUiThread {
+                    findViewById<TextView>(R.id.tvStatus).text = "Document found — capturing…"
+                    capturePhoto()
+                }
+            } else if (stableFrames == 1) {
+                runOnUiThread {
+                    findViewById<TextView>(R.id.tvStatus).text = "Document found — hold steady…"
+                }
+            }
+        } catch (_: Throwable) {
+            // Analysis must never crash the camera.
+        } finally {
+            imageProxy.close()
+        }
+    }
+
     private fun capturePhoto() {
         val capture = imageCapture
-        if (capture == null) {
-            Toast.makeText(this, "Camera is not ready yet", Toast.LENGTH_SHORT).show()
+        if (capture == null || isCapturing) {
+            if (capture == null) {
+                Toast.makeText(this, "Camera is not ready yet", Toast.LENGTH_SHORT).show()
+            }
             return
         }
+        isCapturing = true
+        lastCaptureMs = System.currentTimeMillis()
+        stableFrames = 0
+        lastCorners = null
         val status = findViewById<TextView>(R.id.tvStatus)
         status.text = "Capturing…"
         val photoFile = File(cacheDir, "scan_capture_${System.currentTimeMillis()}.jpg")
@@ -231,10 +340,12 @@ class ScannerActivity : AppCompatActivity() {
             ContextCompat.getMainExecutor(this),
             object : ImageCapture.OnImageSavedCallback {
                 override fun onError(exception: ImageCaptureException) {
+                    isCapturing = false
                     runOnUiThread { status.text = "Capture failed — try again" }
                 }
 
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                    isCapturing = false
                     openCrop(photoFile)
                 }
             }

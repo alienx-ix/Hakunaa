@@ -5,25 +5,30 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.os.Bundle
+import android.view.LayoutInflater
 import android.view.View
-import android.widget.GridLayout
+import android.view.ViewGroup
 import android.widget.ImageButton
 import android.widget.ImageView
-import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.ItemTouchHelper
+import androidx.recyclerview.widget.RecyclerView
 import com.hakunaa.app.R
 import com.hakunaa.app.core.MediaStoreSaver
 import com.hakunaa.app.pdf.PdfTools
 import java.io.File
+import java.util.Collections
 
 /**
  * Pages screen — the CamScanner-style multi-page review.
  *
  * After capturing several pages (Batch mode), the user sees every
  * page as a thumbnail and can:
- * - Reorder pages (left / right arrows on each card)
+ * - Drag a page to reorder it (long-press the card, then drag —
+ *   no arrows, the way professional scanners do it)
  * - Rotate a page 90 degrees
  * - Delete a page
  * - Add more pages (back to the camera)
@@ -40,6 +45,7 @@ class PagesActivity : AppCompatActivity() {
 
     private val pages = mutableListOf<File>()
     private var docName: String? = null
+    private lateinit var adapter: PagesAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -59,8 +65,52 @@ class PagesActivity : AppCompatActivity() {
             if (file.exists()) pages.add(file)
         }
 
-        findViewById<TextView>(R.id.tvTitle).text =
-            (docName ?: "Scanned Pages") + " (${pages.size})"
+        adapter = PagesAdapter(
+            pages,
+            onRotate = { index -> rotatePage(index) },
+            onDelete = { index ->
+                try { pages[index].delete() } catch (_: Throwable) { }
+                pages.removeAt(index)
+                if (pages.isEmpty()) {
+                    Toast.makeText(this, "No pages left", Toast.LENGTH_SHORT).show()
+                    finish()
+                } else {
+                    adapter.notifyItemRemoved(index)
+                    updateTitle()
+                }
+            }
+        )
+        val recycler = findViewById<RecyclerView>(R.id.pagesRecycler)
+        recycler.layoutManager = GridLayoutManager(this, 2)
+        recycler.adapter = adapter
+
+        // Drag to reorder: long-press a card, drag it to its new spot.
+        val touchHelper = ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(
+            ItemTouchHelper.UP or ItemTouchHelper.DOWN or
+                ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT,
+            0
+        ) {
+            override fun onMove(
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder,
+                target: RecyclerView.ViewHolder
+            ): Boolean {
+                val from = viewHolder.adapterPosition
+                val to = target.adapterPosition
+                Collections.swap(pages, from, to)
+                adapter.notifyItemMoved(from, to)
+                return true
+            }
+
+            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
+                // No swipe action.
+            }
+
+            override fun isLongPressDragEnabled(): Boolean = true
+        })
+        touchHelper.attachToRecyclerView(recycler)
+
+        updateTitle()
 
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnAddPage)
             .setOnClickListener {
@@ -69,62 +119,11 @@ class PagesActivity : AppCompatActivity() {
             }
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnSavePdf)
             .setOnClickListener { saveAsPdf() }
-
-        renderGrid()
     }
 
-    private fun renderGrid() {
-        val grid = findViewById<GridLayout>(R.id.pagesGrid)
-        grid.removeAllViews()
+    private fun updateTitle() {
         findViewById<TextView>(R.id.tvTitle).text =
             (docName ?: "Scanned Pages") + " (${pages.size})"
-        for ((index, file) in pages.withIndex()) {
-            val card = layoutInflater.inflate(R.layout.item_page, grid, false)
-            val thumb = card.findViewById<ImageView>(R.id.ivPageThumb)
-            val label = card.findViewById<TextView>(R.id.tvPageLabel)
-            label.text = "Page ${index + 1}"
-            Thread {
-                try {
-                    val options = BitmapFactory.Options()
-                    options.inSampleSize = 4
-                    val bmp = BitmapFactory.decodeFile(file.absolutePath, options)
-                    runOnUiThread { thumb.setImageBitmap(bmp) }
-                } catch (_: Throwable) {
-                }
-            }.start()
-            card.findViewById<ImageButton>(R.id.btnMoveLeft).setOnClickListener {
-                if (index > 0) {
-                    pages.add(index - 1, pages.removeAt(index))
-                    renderGrid()
-                }
-            }
-            card.findViewById<ImageButton>(R.id.btnMoveRight).setOnClickListener {
-                if (index < pages.size - 1) {
-                    pages.add(index + 1, pages.removeAt(index))
-                    renderGrid()
-                }
-            }
-            card.findViewById<ImageButton>(R.id.btnRotate).setOnClickListener {
-                rotatePage(index)
-            }
-            card.findViewById<ImageButton>(R.id.btnDelete).setOnClickListener {
-                try { file.delete() } catch (_: Throwable) { }
-                pages.removeAt(index)
-                if (pages.isEmpty()) {
-                    Toast.makeText(this, "No pages left", Toast.LENGTH_SHORT).show()
-                    finish()
-                } else {
-                    renderGrid()
-                }
-            }
-            // Two equal columns in the grid.
-            val params = GridLayout.LayoutParams()
-            params.width = 0
-            params.height = GridLayout.LayoutParams.WRAP_CONTENT
-            params.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
-            card.layoutParams = params
-            grid.addView(card)
-        }
     }
 
     private fun rotatePage(index: Int) {
@@ -140,7 +139,7 @@ class PagesActivity : AppCompatActivity() {
                 }
                 bmp.recycle()
                 rotated.recycle()
-                runOnUiThread { renderGrid() }
+                runOnUiThread { adapter.notifyItemChanged(index) }
             } catch (_: Throwable) {
                 runOnUiThread {
                     Toast.makeText(this, "Rotate failed", Toast.LENGTH_SHORT).show()
@@ -179,5 +178,44 @@ class PagesActivity : AppCompatActivity() {
                 runOnUiThread { status.text = "Save failed — try again" }
             }
         }.start()
+    }
+
+    private class PagesAdapter(
+        private val pages: List<File>,
+        private val onRotate: (Int) -> Unit,
+        private val onDelete: (Int) -> Unit
+    ) : RecyclerView.Adapter<PagesAdapter.PageViewHolder>() {
+
+        class PageViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+            val thumb: ImageView = view.findViewById(R.id.ivPageThumb)
+            val label: TextView = view.findViewById(R.id.tvPageLabel)
+            val btnRotate: ImageButton = view.findViewById(R.id.btnRotate)
+            val btnDelete: ImageButton = view.findViewById(R.id.btnDelete)
+        }
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PageViewHolder {
+            val view = LayoutInflater.from(parent.context)
+                .inflate(R.layout.item_page, parent, false)
+            return PageViewHolder(view)
+        }
+
+        override fun onBindViewHolder(holder: PageViewHolder, position: Int) {
+            val file = pages[position]
+            holder.label.text = "Page ${position + 1}"
+            holder.thumb.setImageDrawable(null)
+            Thread {
+                try {
+                    val options = BitmapFactory.Options()
+                    options.inSampleSize = 4
+                    val bmp = BitmapFactory.decodeFile(file.absolutePath, options)
+                    holder.thumb.post { holder.thumb.setImageBitmap(bmp) }
+                } catch (_: Throwable) {
+                }
+            }.start()
+            holder.btnRotate.setOnClickListener { onRotate(holder.adapterPosition) }
+            holder.btnDelete.setOnClickListener { onDelete(holder.adapterPosition) }
+        }
+
+        override fun getItemCount(): Int = pages.size
     }
 }

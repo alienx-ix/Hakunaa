@@ -397,6 +397,28 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   item root (set GridLayout params in code instead), and an
   edit had eaten the first lines of the `rotate` doc comment in
   PdfTools (restored).
+- **v0.1.32 (2026-11-12): Full professional — drag reorder,
+  auto capture, torch, more filters, better detection.** The
+  user asked for "full professional" and added torch ("scan la
+  torch enable pananum la"). (1) **Drag reorder**: Pages screen
+  rebuilt with RecyclerView + ItemTouchHelper — long-press a
+  page and drag it to its new spot, no arrows. (2) **Auto
+  capture**: CameraX ImageAnalysis watches the live preview;
+  when a document is detected and its corners stay still for 3
+  checks, the app captures by itself ("Document found — hold
+  steady…"). AUTO toggle in the top bar turns it off; 3-second
+  cooldown after each capture so it never fires twice.
+  (3) **Torch**: the flash button now turns the flashlight ON
+  while scanning (CameraX enableTorch), so documents are lit in
+  the dark — the way professional scanners do it. (4) **More
+  filters**: Gray, Vivid, Warm added — now 9 filters (Original /
+  Lighten / Enhance / No Shadow / B&W / Soft / Gray / Vivid /
+  Warm). (5) **Better crop detection**: Otsu's threshold
+  (adapts to dim/bright light and shadows instead of one fixed
+  level) + two-pass line fitting with outlier rejection, so text
+  or shadows near the edge do not pull the frame off. Crop
+  screen keeps both auto (Auto Detect) and manual (draggable
+  corners), like professional scanners.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

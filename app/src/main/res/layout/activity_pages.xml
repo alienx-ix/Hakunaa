@@ -39,19 +39,12 @@
         </LinearLayout>
     </com.google.android.material.appbar.MaterialToolbar>
 
-    <ScrollView
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/pagesRecycler"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:padding="8dp">
-
-        <GridLayout
-            android:id="@+id/pagesGrid"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:columnCount="2"
-            android:orientation="horizontal" />
-    </ScrollView>
+        android:padding="8dp" />
 
     <TextView
         android:id="@+id/tvStatus"
@@ -59,7 +52,7 @@
         android:layout_height="wrap_content"
         android:gravity="center"
         android:padding="8dp"
-        android:text="Tap ← → to reorder, rotate or delete a page"
+        android:text="Long-press a page and drag to reorder"
         android:textColor="@color/hakunaa_text_secondary"
         android:textSize="13sp" />
 

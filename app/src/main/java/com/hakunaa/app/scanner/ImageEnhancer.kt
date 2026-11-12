@@ -26,7 +26,10 @@ object ImageEnhancer {
         ENHANCE("Enhance"),
         NO_SHADOW("No Shadow"),
         BW("B&W"),
-        SOFT("Soft")
+        SOFT("Soft"),
+        GRAY("Gray"),
+        VIVID("Vivid"),
+        WARM("Warm")
     }
 
     fun apply(bitmap: Bitmap, filter: Filter): Bitmap {
@@ -118,6 +121,45 @@ object ImageEnhancer {
                     )
                 )
                 matrix.postConcat(soft)
+                paint.colorFilter = ColorMatrixColorFilter(matrix)
+                canvas.drawBitmap(bitmap, 0f, 0f, paint)
+            }
+            Filter.GRAY -> {
+                // Pure grayscale (no threshold) — keeps the shading,
+                // just removes the colour. Good for old documents.
+                val matrix = ColorMatrix()
+                matrix.setSaturation(0f)
+                paint.colorFilter = ColorMatrixColorFilter(matrix)
+                canvas.drawBitmap(bitmap, 0f, 0f, paint)
+            }
+            Filter.VIVID -> {
+                // Vivid: strong colour and contrast, the "magic
+                // colour" look turned up — text pops, colours sing.
+                val matrix = ColorMatrix()
+                matrix.setSaturation(1.6f)
+                val contrast = ColorMatrix(
+                    floatArrayOf(
+                        1.45f, 0f, 0f, 0f, -25f,
+                        0f, 1.45f, 0f, 0f, -25f,
+                        0f, 0f, 1.45f, 0f, -25f,
+                        0f, 0f, 0f, 1f, 0f
+                    )
+                )
+                matrix.postConcat(contrast)
+                paint.colorFilter = ColorMatrixColorFilter(matrix)
+                canvas.drawBitmap(bitmap, 0f, 0f, paint)
+            }
+            Filter.WARM -> {
+                // Warm: warm tones for old, yellowed documents —
+                // reds and yellows up, blues down slightly.
+                val matrix = ColorMatrix(
+                    floatArrayOf(
+                        1.15f, 0f, 0f, 0f, 12f,
+                        0f, 1.05f, 0f, 0f, 8f,
+                        0f, 0f, 0.85f, 0f, 0f,
+                        0f, 0f, 0f, 1f, 0f
+                    )
+                )
                 paint.colorFilter = ColorMatrixColorFilter(matrix)
                 canvas.drawBitmap(bitmap, 0f, 0f, paint)
             }
