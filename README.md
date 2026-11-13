@@ -629,25 +629,24 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   ValueAnimator on the UI thread (60 fps, vsync); full means
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
-- **v0.1.45 auto-capture hold + Book Scan two strips (same build).**
-  Auto capture fired too fast: the ring started the instant the
-  document looked stable, before the user had framed it. Now
-  the page must sit still for 1.5 s first (the steady hold),
-  and only then does the ring run for the chosen delay
-  (2 / 3 / 5 s). Book Scan is split into two side strips, so it
-  reads like a real camera app: the LEFT strip holds the file
-  actions (Close, Pages with the count, Save PDF) and the RIGHT
-  strip holds the shooting actions (Torch, Single / Double, the
-  big capture button). The strip buttons are wider now (140 dp)
-  with smaller text, so "Pages (0)" and "Save PDF" sit on one
-  line instead of wrapping. And a full-screen page preview:
-  tapping a page in the Pages screen (after capture, where
-  Page 1, 2, 3… are shown) now opens it full-screen, so the
-  user can read it and check the scan before saving the PDF —
-  pinch to zoom (up to 4x), drag to pan when zoomed,
-  double-tap to toggle between fit and 2x. The page is
-  downsampled to ~2048 px for the preview, so a full-res phone
-  photo never blows up memory, and it stays sharp at 2x.
+- **v0.1.46 camera black screen + lag fix (same build).**
+  The camera went BLACK when returning to it — switch from
+  Book back to Single, or go to Pages and come back to
+  capture, and the preview never came back. Root cause: the
+  camera was bound once in onCreate and left to CameraX's
+  automatic rebind, which never re-attached the Preview to
+  the recreated surface on this phone. Now the camera is
+  managed explicitly: it is bound while the screen is visible
+  and released the moment it leaves (onPause unbinds), and a
+  fresh bind happens on every resume — with a guard so a late
+  provider result never grabs the camera in the background,
+  and a flag so onResume never double-binds. The lag is fixed
+  the same way: the live analysis ran at 640x480 every
+  150–200 ms, and the bitmap conversion + detection cost
+  enough CPU to drop preview frames. It now runs at 320x240
+  (4x fewer pixels) every 250 ms, so the preview stays
+  smooth; the steadiness threshold is halved to match the
+  smaller frame.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

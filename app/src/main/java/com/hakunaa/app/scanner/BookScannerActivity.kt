@@ -69,6 +69,19 @@ class BookScannerActivity : AppCompatActivity() {
     private var camera: Camera? = null
     private var imageCapture: ImageCapture? = null
     private var cameraExecutor: ExecutorService? = null
+
+    // Camera lifecycle (the black-screen fix). The camera is
+    // bound while this screen is visible and released the
+    // moment it leaves; a fresh bind on every resume guarantees
+    // the preview comes back after returning from another
+    // screen (Book Scan, Pages, Enhance, Export). cameraBound
+    // means a bind succeeded; cameraStarting means a bind is
+    // in flight (onResume calls startCamera too, so the two
+    // must not double-bind).
+    private var cameraProvider: androidx.camera.lifecycle.ProcessCameraProvider? = null
+    private var cameraResumed = false
+    private var cameraBound = false
+    private var cameraStarting = false
     private var torchOn = false
     private var isCapturing = false
     private var doubleMode = true
@@ -177,6 +190,31 @@ class BookScannerActivity : AppCompatActivity() {
         updateLabels()
     }
 
+    override fun onResume() {
+        super.onResume()
+        cameraResumed = true
+        // Returning from another screen left the preview BLACK
+        // — the Preview use case never re-attached to the
+        // recreated surface. Rebind fresh on every resume so
+        // the camera always comes back.
+        if (!cameraBound) startCamera()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Release the camera the moment this screen leaves, so
+        // the next screen (or the next resume) starts clean —
+        // and so no analysis keeps burning CPU in the
+        // background while the user is on another screen.
+        cameraResumed = false
+        cameraBound = false
+        cameraStarting = false
+        try {
+            cameraProvider?.unbindAll()
+        } catch (_: Throwable) {
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         cameraExecutor?.shutdown()
@@ -222,10 +260,21 @@ class BookScannerActivity : AppCompatActivity() {
     }
 
     private fun startCamera() {
+        // One bind at a time — onResume calls this too, and the
+        // provider future from onCreate may still be pending.
+        if (cameraStarting || cameraBound) return
+        cameraStarting = true
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
+            cameraStarting = false
+            // Never bind while this screen is not visible — a
+            // late provider result after the user left must not
+            // grab the camera in the background. onResume will
+            // call startCamera again when they come back.
+            if (!cameraResumed || isFinishing || isDestroyed) return@addListener
             try {
                 val cameraProvider = cameraProviderFuture.get()
+                this.cameraProvider = cameraProvider
                 val preview = Preview.Builder()
                     // The sensor's native 4:3 aspect, landscape —
                     // the widest field of view for a spread.
@@ -270,6 +319,7 @@ class BookScannerActivity : AppCompatActivity() {
                         )
                     }
                 }
+                cameraBound = true
                 try {
                     if (torchOn) camera?.cameraControl?.enableTorch(true)
                 } catch (_: Throwable) {
@@ -284,10 +334,12 @@ class BookScannerActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
-    /** The live spine-detection stream. A fixed 640x480 is
-     *  fastest (small frames, no lag), but some phones reject
-     *  that exact combination — then CameraX picks the size
-     *  itself (auto resolve), which works everywhere. */
+    /** The live spine-detection stream. A fixed 320x240 is
+     *  fastest (small frames, no lag — 4x fewer pixels than
+     *  640x480, so the spine scan costs a quarter of the CPU),
+     *  but some phones reject that exact combination — then
+     *  CameraX picks the size itself (auto resolve), which
+     *  works everywhere. */
     private fun buildAnalysis(fixedResolution: Boolean): ImageAnalysis {
         val builder = ImageAnalysis.Builder()
             // 4:3, the same aspect as the preview, so the
@@ -296,7 +348,7 @@ class BookScannerActivity : AppCompatActivity() {
             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
         if (fixedResolution) {
-            builder.setTargetResolution(android.util.Size(640, 480))
+            builder.setTargetResolution(android.util.Size(320, 240))
         }
         return builder.build().also {
             it.setAnalyzer(cameraExecutor!!, ::analyzeFrame)
@@ -327,7 +379,7 @@ class BookScannerActivity : AppCompatActivity() {
         try {
             if (isCapturing) return
             val now = System.currentTimeMillis()
-            if (now - lastAnalysisMs < 200) return
+            if (now - lastAnalysisMs < 250) return
             lastAnalysisMs = now
             val raw = imageProxy.toBitmap()
             // The buffer may be rotated relative to the display;

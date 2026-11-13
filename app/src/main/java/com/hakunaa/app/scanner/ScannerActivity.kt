@@ -107,6 +107,19 @@ class ScannerActivity : AppCompatActivity() {
     private var imageCapture: ImageCapture? = null
     private var camera: Camera? = null
     private var cameraExecutor: ExecutorService? = null
+
+    // Camera lifecycle (the black-screen fix). The camera is
+    // bound while this screen is visible and released the
+    // moment it leaves; a fresh bind on every resume guarantees
+    // the preview comes back after returning from another
+    // screen (Book Scan, Pages, Enhance, Export). cameraBound
+    // means a bind succeeded; cameraStarting means a bind is
+    // in flight (onResume calls startCamera too, so the two
+    // must not double-bind).
+    private var cameraProvider: androidx.camera.lifecycle.ProcessCameraProvider? = null
+    private var cameraResumed = false
+    private var cameraBound = false
+    private var cameraStarting = false
     private var torchOn = false
     // Full camera quality is the DEFAULT: HD on means the sensor's
     // full resolution, no artificial cap. HD off drops to 1920x1080
@@ -284,6 +297,31 @@ class ScannerActivity : AppCompatActivity() {
         updatePagesLabel()
     }
 
+    override fun onResume() {
+        super.onResume()
+        cameraResumed = true
+        // Returning from another screen left the preview BLACK
+        // — the Preview use case never re-attached to the
+        // recreated surface. Rebind fresh on every resume so
+        // the camera always comes back.
+        if (!cameraBound) startCamera()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Release the camera the moment this screen leaves, so
+        // the next screen (or the next resume) starts clean —
+        // and so no analysis keeps burning CPU in the
+        // background while the user is on another screen.
+        cameraResumed = false
+        cameraBound = false
+        cameraStarting = false
+        try {
+            cameraProvider?.unbindAll()
+        } catch (_: Throwable) {
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         cameraExecutor?.shutdown()
@@ -378,10 +416,21 @@ class ScannerActivity : AppCompatActivity() {
     }
 
     private fun startCamera() {
+        // One bind at a time — onResume calls this too, and the
+        // provider future from onCreate may still be pending.
+        if (cameraStarting || cameraBound) return
+        cameraStarting = true
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
+            cameraStarting = false
+            // Never bind while this screen is not visible — a
+            // late provider result after the user left must not
+            // grab the camera in the background. onResume will
+            // call startCamera again when they come back.
+            if (!cameraResumed || isFinishing || isDestroyed) return@addListener
             try {
                 val cameraProvider = cameraProviderFuture.get()
+                this.cameraProvider = cameraProvider
                 val preview = Preview.Builder()
                     // The sensor's NATIVE 4:3 aspect — the widest
                     // field of view, nothing cropped. A 16:9 target
@@ -440,6 +489,7 @@ class ScannerActivity : AppCompatActivity() {
                         )
                     }
                 }
+                cameraBound = true
                 // Torch / brightness must never break the camera:
                 // a phone that does not support them just skips
                 // them (applyExposure guards itself the same way).
@@ -460,8 +510,10 @@ class ScannerActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
-    /** The live-detection stream. A fixed 640x480 is fastest
-     *  (small frames, no lag), but some phones reject that exact
+    /** The live-detection stream. A fixed 320x240 is fastest
+     *  (small frames, no lag — 4x fewer pixels than 640x480,
+     *  so the detector and the bitmap conversion cost a
+     *  quarter of the CPU), but some phones reject that exact
      *  combination — then CameraX picks the size itself (auto
      *  resolve), which works everywhere. */
     private fun buildAnalysis(fixedResolution: Boolean): ImageAnalysis {
@@ -472,12 +524,13 @@ class ScannerActivity : AppCompatActivity() {
             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
         if (fixedResolution) {
-            // Small analysis frames (640x480): the detector only
+            // Small analysis frames (320x240): the detector only
             // needs a small image, and a full-size frame made
-            // toBitmap + detection slow enough to lag the app
-            // while the bar runs. 640x480 is 4:3, so the overlay
-            // mapping is unchanged.
-            builder.setTargetResolution(android.util.Size(640, 480))
+            // toBitmap + detection slow enough to lag the preview
+            // — the camera dropped frames while the analysis ran.
+            // 320x240 is 4:3, so the overlay mapping is unchanged,
+            // and the steadiness threshold is halved to match.
+            builder.setTargetResolution(android.util.Size(320, 240))
         }
         return builder.build().also {
             it.setAnalyzer(cameraExecutor!!, ::analyzeFrame)
@@ -693,8 +746,8 @@ class ScannerActivity : AppCompatActivity() {
 
     /** Analyse one camera frame for auto-capture and for the
      *  dynamic edge overlay. Runs on a background thread,
-     *  throttled to about 6 frames a second so the frame tracks
-     *  the page smoothly. When a document is detected and its
+     *  throttled to about 4 frames a second so the frame tracks
+     *  the page smoothly without ever lagging the preview. When a document is detected and its
      *  corners stay still, the capture ring around the capture
      *  button fills smoothly over the user's hold time (menu:
      *  2 / 3 / 5 seconds); full means the page is held
@@ -711,7 +764,7 @@ class ScannerActivity : AppCompatActivity() {
                 return
             }
             val now = System.currentTimeMillis()
-            if (now - lastAnalysisMs < 150) return
+            if (now - lastAnalysisMs < 250) return
             if (now - lastCaptureMs < 3000) return
             lastAnalysisMs = now
             val bitmap = imageProxy.toBitmap()
@@ -767,9 +820,10 @@ class ScannerActivity : AppCompatActivity() {
                 for (i in smoothed.indices) {
                     maxMove = maxOf(maxMove, abs(smoothed[i] - prev[i]))
                 }
-                // The analysis frame is small; 25 px of movement
-                // means the phone or the page is still moving.
-                stable = maxMove < 25f
+                // The analysis frame is now 320x240 (half the old
+                // size), so the same real movement is half the
+                // pixels — 12 px here is the old 25 px.
+                stable = maxMove < 12f
             }
             if (!stable) {
                 // Moved — the hold starts over, the ring empties.
