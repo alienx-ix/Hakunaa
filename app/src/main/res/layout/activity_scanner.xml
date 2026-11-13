@@ -5,21 +5,28 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <!-- Full-screen live camera preview -->
+    <!-- Full-screen live camera preview — FIT_CENTER shows the
+         whole camera frame (fillCenter cropped it, so the screen
+         looked zoomed in). 16:9 fills most of the tall screen
+         without cropping anything. -->
     <androidx.camera.view.PreviewView
         android:id="@+id/previewView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        app:scaleType="fillCenter" />
+        app:scaleType="fitCenter" />
 
-    <!-- Document frame guide — hold the page inside these corners -->
+    <!-- Document frame guide — hidden until a document is actually
+         detected (thin light line, not a bold box). Shown from
+         analyzeFrame only while corners are found. -->
     <ImageView
+        android:id="@+id/frameGuide"
         android:layout_width="280dp"
         android:layout_height="373dp"
         android:layout_gravity="center"
         android:layout_marginBottom="180dp"
         android:contentDescription="Document frame"
-        android:src="@drawable/ic_scan_frame" />
+        android:src="@drawable/ic_scan_frame"
+        android:visibility="gone" />
 
     <!-- Top bar -->
     <LinearLayout

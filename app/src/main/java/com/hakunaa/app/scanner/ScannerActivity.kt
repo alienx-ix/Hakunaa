@@ -14,6 +14,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.AspectRatio
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -248,7 +249,12 @@ class ScannerActivity : AppCompatActivity() {
         cameraProviderFuture.addListener({
             try {
                 val cameraProvider = cameraProviderFuture.get()
-                val preview = Preview.Builder().build().also {
+                val preview = Preview.Builder()
+                    // 16:9 fills the tall screen without cropping
+                    // the frame (the preview shows everything the
+                    // camera sees — no zoomed-in look).
+                    .setTargetAspectRatio(AspectRatio.RATIO_16_9)
+                    .build().also {
                     it.setSurfaceProvider(findViewById<PreviewView>(R.id.previewView).surfaceProvider)
                 }
                 // ORIGINAL CAMERA QUALITY: MAXIMIZE_QUALITY captures
@@ -287,6 +293,16 @@ class ScannerActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
+    /** The frame guide is a DETECTION indicator, not decoration:
+     *  it appears only while a document's edges are actually found,
+     *  and hides the moment they are lost. A thin light line. */
+    private fun setFrameGuideVisible(visible: Boolean) {
+        runOnUiThread {
+            findViewById<View>(R.id.frameGuide).visibility =
+                if (visible) View.VISIBLE else View.GONE
+        }
+    }
+
     /** Analyse one camera frame for auto-capture. Runs on a
      *  background thread, throttled to about 3 frames a second.
      *  When a document is detected and its corners stay still for
@@ -294,7 +310,10 @@ class ScannerActivity : AppCompatActivity() {
      *  automatically, the way professional scanners do. */
     private fun analyzeFrame(imageProxy: ImageProxy) {
         try {
-            if (!autoCaptureOn || isCapturing) return
+            if (!autoCaptureOn || isCapturing) {
+                setFrameGuideVisible(false)
+                return
+            }
             val now = System.currentTimeMillis()
             if (now - lastAnalysisMs < 350) return
             if (now - lastCaptureMs < 3000) return
@@ -305,8 +324,11 @@ class ScannerActivity : AppCompatActivity() {
             if (corners == null) {
                 stableFrames = 0
                 lastCorners = null
+                setFrameGuideVisible(false)
                 return
             }
+            // A document is in the frame — show the guide.
+            setFrameGuideVisible(true)
             val prev = lastCorners
             if (prev != null) {
                 // How far did the corners move since the last check?
@@ -356,6 +378,7 @@ class ScannerActivity : AppCompatActivity() {
         lastCaptureMs = System.currentTimeMillis()
         stableFrames = 0
         lastCorners = null
+        setFrameGuideVisible(false)
         val status = findViewById<TextView>(R.id.tvStatus)
         status.text = "Capturing…"
         val photoFile = File(cacheDir, "scan_capture_${System.currentTimeMillis()}.jpg")

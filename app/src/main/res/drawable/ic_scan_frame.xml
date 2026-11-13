@@ -10,26 +10,26 @@
         android:pathData="M8,56 L8,8 L56,8"
         android:strokeColor="#00BFA5"
         android:strokeLineCap="round"
-        android:strokeWidth="6" />
+        android:strokeWidth="3" />
     <!-- Top-right corner -->
     <path
         android:fillColor="#00000000"
         android:pathData="M184,8 L232,8 L232,56"
         android:strokeColor="#00BFA5"
         android:strokeLineCap="round"
-        android:strokeWidth="6" />
+        android:strokeWidth="3" />
     <!-- Bottom-right corner -->
     <path
         android:fillColor="#00000000"
         android:pathData="M232,264 L232,312 L184,312"
         android:strokeColor="#00BFA5"
         android:strokeLineCap="round"
-        android:strokeWidth="6" />
+        android:strokeWidth="3" />
     <!-- Bottom-left corner -->
     <path
         android:fillColor="#00000000"
         android:pathData="M56,312 L8,312 L8,264"
         android:strokeColor="#00BFA5"
         android:strokeLineCap="round"
-        android:strokeWidth="6" />
+        android:strokeWidth="3" />
 </vector>

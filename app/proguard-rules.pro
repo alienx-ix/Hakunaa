@@ -40,6 +40,15 @@
 # classes are all needed at runtime.
 -keep class androidx.camera.** { *; }
 
+# AndroidX Core widgets — Material's dialog layout
+# (m3_alert_dialog) references androidx.core.widget
+# .NestedScrollView from XML. R8 cannot see XML references, so
+# it removed NestedScrollView and the export dialog crashed on
+# inflate (v0.1.38: "Error inflating class androidx.core.widget
+# .NestedScrollView"). Same class of bug as PreviewView.
+# Keep the whole widget package; it is small.
+-keep class androidx.core.widget.** { *; }
+
 # The app's own code — all of it.
 -keep class com.hakunaa.app.** { *; }
 

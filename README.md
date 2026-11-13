@@ -509,6 +509,22 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   size, tap one to save. UI: document frame guide on the
   camera screen, mode tabs in a segmented pill, Pages screen
   shows total size. New: PdfExportDialog + dialog_pdf_export.
+- **v0.1.39 (2026-11-13): Scanner export crash FIXED.** The user
+  tested v0.1.38 and the app crashed when the export dialog
+  opened: `Error inflating class androidx.core.widget
+  .NestedScrollView` in Material's `m3_alert_dialog` layout.
+  Root cause: R8 removed NestedScrollView because it is only
+  referenced from that layout's XML (R8 cannot see XML
+  references) — the same class of bug as the PreviewView crash
+  in v0.1.28. Fix: `-keep class androidx.core.widget.** { *; }`
+  in proguard-rules.pro (both the build copy and the repo copy).
+  Verified in the APK dex before delivery: NestedScrollView is
+  present. Also in v0.1.39 — scanner frame fixes from the user's
+  screenshot: the camera preview used fillCenter, so the screen
+  looked zoomed in (now fitCenter + 16:9, the whole frame is
+  shown, nothing cropped); the frame guide was a static bold box
+  (now a thin 3dp light line, hidden until a document's edges
+  are actually detected, then it appears).
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.
