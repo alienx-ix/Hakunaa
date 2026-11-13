@@ -215,11 +215,14 @@
                 <!-- Bullseye spirit level (v0.1.59): a round
                      bubble that moves left / right AND top /
                      bottom, so the phone can be levelled in
-                     every direction. ON by default. -->
+                     every direction. ON by default. Bigger
+                     in v0.1.63 (56dp, was 44dp) — the user
+                     asked for the Level circle to be a
+                     little bigger. -->
                 <com.hakunaa.app.scanner.SpiritLevelView
                     android:id="@+id/levelView"
-                    android:layout_width="44dp"
-                    android:layout_height="44dp" />
+                    android:layout_width="56dp"
+                    android:layout_height="56dp" />
 
                 <TextView
                     android:id="@+id/tvLevelLabel"

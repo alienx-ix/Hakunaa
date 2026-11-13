@@ -23,8 +23,15 @@ import kotlin.math.sqrt
  *
  * Style 01 Classic Bullseye (v0.1.62): the user picked this
  * style from the animation preview page — a classic bullseye
- * with a YELLOW bubble (the way a real spirit level looks),
- * gliding smoothly, teal when level.
+ * with a yellow bubble (the way a real spirit level looks),
+ * gliding smoothly.
+ *
+ * Traffic-light colours (v0.1.63, the user's idea): the
+ * bubble is RED when the phone is far off level (worst
+ * angle), YELLOW when it is close (balanced), and GREEN
+ * when it sits in the centre (best angle, level) — so the
+ * colour alone tells the user how level the phone is. The
+ * circle is a little bigger too (v0.1.63).
  *
  * Tilt comes from the accelerometer, two axes:
  *  roll  = atan2(x, sqrt(y^2 + z^2)) — left / right tilt.
@@ -73,8 +80,17 @@ class SpiritLevelView @JvmOverloads constructor(
         style = Paint.Style.FILL
     }
 
+    // Traffic-light colours (v0.1.63): red = far off level
+    // (worst angle), yellow = close (balanced), green = in
+    // the centre (best angle, level). The old teal "level"
+    // paint is gone — green is the level colour now.
+    private val bubbleWorstPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#FF5252")
+        style = Paint.Style.FILL
+    }
+
     private val bubbleLevelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#00BFA5")
+        color = Color.parseColor("#00C853")
         style = Paint.Style.FILL
     }
 
@@ -127,21 +143,29 @@ class SpiritLevelView @JvmOverloads constructor(
         // The bullseye: an outer ring and a small centre ring
         // the bubble must sit inside when the phone is level.
         val outerR = (minOf(w, h) / 2f) - 3f * density
-        val centreR = 6f * density
+        val centreR = 7f * density
         canvas.drawCircle(cx, cy, outerR, ringPaint)
         canvas.drawCircle(cx, cy, centreR, centrePaint)
         // Bubble: moves with the tilt in both directions —
-        // roll left / right, pitch top / bottom — teal when
-        // level on both axes. Clamped inside the ring.
-        val bubbleR = 9f * density
+        // roll left / right, pitch top / bottom. Traffic-light
+        // colour (v0.1.63): GREEN when level (within 2 degrees
+        // on both axes — the bubble sits in the centre ring),
+        // YELLOW when close (within 6 degrees — balanced),
+        // RED when far off (worst angle). Clamped inside
+        // the ring.
+        val bubbleR = 11f * density
         val travel = outerR - bubbleR - 2f * density
         val bx = cx + (roll / 15f) * travel
         val by = cy + (pitch / 15f) * travel
-        val level = abs(roll) < 2f && abs(pitch) < 2f
-        val paint = if (level) bubbleLevelPaint else bubblePaint
+        val worst = maxOf(abs(roll), abs(pitch))
+        val paint = when {
+            worst < 2f -> bubbleLevelPaint
+            worst < 6f -> bubblePaint
+            else -> bubbleWorstPaint
+        }
         canvas.drawCircle(bx, by, bubbleR, paint)
         // A small dark dot in the bubble's centre, so it reads
-        // as a bubble even when it is teal.
+        // as a bubble in any colour.
         canvas.drawCircle(bx, by, 3f * density, bubbleDotPaint)
     }
 

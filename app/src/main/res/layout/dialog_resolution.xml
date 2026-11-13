@@ -1,15 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Capture resolution picker (v0.1.62, CamScanner-style) —
-     the HD button opens it. A dark rounded card like the
-     Settings panel: title + a list of radio options built
-     in code from what this phone's camera really supports
-     (Full sensor + each size + Standard 1920x1080). -->
+<!-- Capture resolution picker (v0.1.63, professional
+     bottom sheet — CamScanner-style): the sheet slides up
+     from the bottom edge, full width, rounded top corners.
+     Title + a list of clean rows (built in code from what
+     this phone's camera really supports) + a Hide button
+     at the bottom, the way CamScanner does it. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/dialog_dark_bg"
+    android:background="@drawable/dialog_bottom_sheet_bg"
     android:orientation="vertical"
-    android:padding="20dp">
+    android:paddingBottom="12dp"
+    android:paddingLeft="20dp"
+    android:paddingRight="20dp"
+    android:paddingTop="16dp">
 
     <!-- Title -->
     <LinearLayout
@@ -38,11 +42,26 @@
             android:tint="#FFFFFF" />
     </LinearLayout>
 
-    <!-- Options — built in code (the phone's real sizes). -->
-    <RadioGroup
-        android:id="@+id/rgResolution"
+    <!-- Rows — built in code (the phone's real sizes). -->
+    <LinearLayout
+        android:id="@+id/resolutionRows"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
+        android:layout_marginTop="8dp"
         android:orientation="vertical" />
+
+    <!-- Hide — CamScanner's bottom dismiss. -->
+    <TextView
+        android:id="@+id/tvHideResolution"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="12dp"
+        android:paddingBottom="8dp"
+        android:paddingLeft="16dp"
+        android:paddingRight="16dp"
+        android:paddingTop="8dp"
+        android:text="Hide  ^"
+        android:textColor="#9A9A9A"
+        android:textSize="15sp" />
 </LinearLayout>

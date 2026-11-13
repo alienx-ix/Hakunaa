@@ -50,7 +50,10 @@
         android:textColor="#B0B0B0"
         android:textSize="13sp" />
 
-    <!-- Bottom bar: Left / Right / Auto Detect / Next -->
+    <!-- Bottom bar: Left / Right / Retake / Next (v0.1.63:
+         the Auto Detect button is gone — the user asked to
+         remove it and put a Retake button in its place.
+         Auto-detection still runs when the screen opens. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="72dp"
@@ -105,7 +108,7 @@
         </LinearLayout>
 
         <LinearLayout
-            android:id="@+id/btnAutoDetect"
+            android:id="@+id/btnRetake"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
@@ -115,14 +118,14 @@
             <ImageView
                 android:layout_width="26dp"
                 android:layout_height="26dp"
-                android:src="@drawable/ic_auto_detect"
+                android:src="@drawable/ic_retake"
                 android:tint="#FFFFFF" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Auto Detect"
+                android:text="Retake"
                 android:textColor="#FFFFFF"
                 android:textSize="12sp" />
         </LinearLayout>

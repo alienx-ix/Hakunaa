@@ -26,7 +26,6 @@ import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
@@ -357,10 +356,11 @@ class ScannerActivity : AppCompatActivity() {
         }
         // Bottom row, left: the Spirit Level (in the Grid
         // button's place — the Grid itself is in the Settings
-        // panel now). Tap it to turn the level on / off.
-        findViewById<LinearLayout>(R.id.btnLevel).setOnClickListener {
-            setSpiritLevel(!spiritLevelOn)
-        }
+        // panel now). It is a DISPLAY only (v0.1.63): tapping
+        // it does NOT turn it on / off — the user asked for
+        // the Level to be controlled ONLY from the Settings
+        // panel (Spirit Level switch), so there is no tap
+        // listener here at all.
         findViewById<LinearLayout>(R.id.btnImportImages).setOnClickListener {
             pickPhoto.launch("image/*")
         }
@@ -708,49 +708,81 @@ class ScannerActivity : AppCompatActivity() {
      *  camera really supports, so every option works — nothing
      *  is premium-locked (CamScanner crowns some sizes). The
      *  choice is saved and the camera re-binds with it. */
+    /** The HD resolution picker (v0.1.63, professional
+     *  bottom sheet — CamScanner-style): the sheet slides up
+     *  from the bottom edge, full width, rounded top corners,
+     *  clean rows (bold megapixels + grey dimensions, teal
+     *  check on the right, divider under each row) and a
+     *  Hide button at the bottom. It lists what THIS phone's
+     *  camera really supports, so every option works — nothing
+     *  is premium-locked (CamScanner crowns some sizes). The
+     *  choice is saved and the camera re-binds with it. */
     private fun showResolutionDialog() {
         val sizes = supportedCaptureSizes()
-        val labels = mutableListOf<String>()
-        val values = mutableListOf<String>()
-        labels.add("Full sensor (max)")
-        values.add("max")
+        // Each entry: the MP text, the dimensions text, the
+        // saved value, and whether it gets the BEST badge.
+        data class ResOption(
+            val mp: String,
+            val dims: String,
+            val value: String,
+            val best: Boolean = false
+        )
+        val options = mutableListOf<ResOption>()
+        options.add(ResOption("Full sensor", "(max)", "max", best = true))
         for (size in sizes) {
-            labels.add("${mpLabel(size)} (${size.width}x${size.height})")
-            values.add("${size.width}x${size.height}")
+            options.add(
+                ResOption(
+                    mpLabel(size),
+                    "(${size.width}x${size.height})",
+                    "${size.width}x${size.height}"
+                )
+            )
         }
-        labels.add("Standard (1920x1080)")
-        values.add("std")
-        val checked = values.indexOf(captureRes).takeIf { it >= 0 } ?: 0
+        options.add(ResOption("Standard", "(1920x1080)", "std"))
+        val checked = options.indexOfFirst { it.value == captureRes }
+            .takeIf { it >= 0 } ?: 0
         val dialog = Dialog(this)
         dialog.setContentView(R.layout.dialog_resolution)
         dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         dialog.setCancelable(true)
-        val rg = dialog.findViewById<RadioGroup>(R.id.rgResolution)
-        for (i in labels.indices) {
-            val rb = RadioButton(this)
-            rb.id = View.generateViewId()
-            rb.text = labels[i]
-            rb.setTextColor(Color.WHITE)
-            rb.textSize = 15f
-            rb.isChecked = (i == checked)
-            rb.setOnClickListener {
-                captureRes = values[i]
+        val rows = dialog.findViewById<LinearLayout>(R.id.resolutionRows)
+        for (i in options.indices) {
+            val opt = options[i]
+            val row = layoutInflater.inflate(R.layout.item_resolution, rows, false)
+            row.findViewById<TextView>(R.id.tvMp).text = opt.mp
+            row.findViewById<TextView>(R.id.tvDims).text = opt.dims
+            if (opt.best) {
+                row.findViewById<TextView>(R.id.tvBadge).visibility = View.VISIBLE
+            }
+            val check = row.findViewById<ImageView>(R.id.ivCheck)
+            check.setImageResource(
+                if (i == checked) R.drawable.ic_radio_checked
+                else R.drawable.ic_radio_unchecked
+            )
+            row.setOnClickListener {
+                captureRes = opt.value
                 prefs().edit().putString(PREF_CAPTURE_RES, captureRes).apply()
                 updateHdButton()
                 findViewById<TextView>(R.id.tvStatus).text =
-                    "Resolution: ${labels[i]}"
+                    "Resolution: ${opt.mp} ${opt.dims}"
                 dialog.dismiss()
                 startCamera()
             }
-            rg.addView(rb)
+            rows.addView(row)
         }
         dialog.findViewById<ImageButton>(R.id.btnCloseResolution)
             .setOnClickListener { dialog.dismiss() }
+        dialog.findViewById<TextView>(R.id.tvHideResolution)
+            .setOnClickListener { dialog.dismiss() }
         dialog.show()
-        dialog.window?.setLayout(
-            (resources.displayMetrics.widthPixels * 0.9f).toInt(),
-            android.view.ViewGroup.LayoutParams.WRAP_CONTENT
-        )
+        // Bottom sheet: full width, anchored to the bottom.
+        dialog.window?.apply {
+            setGravity(android.view.Gravity.BOTTOM)
+            setLayout(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
     }
 
     /** "16M" / "12M" / "5M" for a size — the megapixel label

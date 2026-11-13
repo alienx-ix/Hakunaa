@@ -19,7 +19,12 @@ import java.io.File
  * Crop screen — the CamScanner-style crop step after capture.
  *
  * - The photo with a teal frame and draggable corner handles.
- * - Auto Detect: finds the document edges and snaps the frame.
+ * - Auto-detection still runs when the screen opens (it
+ *   snaps the frame to the page) — but the Auto Detect
+ *   BUTTON is gone (v0.1.63): the user asked to remove it
+ *   and put a Retake button in its place.
+ * - Retake: discards this photo and goes back to the camera
+ *   for a new capture.
  * - Left / Right: rotate the photo 90 degrees.
  * - Next: straightens the page (perspective correction) and
  *   opens the Enhance screen — except in Batch mode, where it
@@ -101,7 +106,7 @@ class CropActivity : AppCompatActivity() {
 
         findViewById<LinearLayout>(R.id.btnRotateLeft).setOnClickListener { rotate(-90f) }
         findViewById<LinearLayout>(R.id.btnRotateRight).setOnClickListener { rotate(90f) }
-        findViewById<LinearLayout>(R.id.btnAutoDetect).setOnClickListener { autoDetect() }
+        findViewById<LinearLayout>(R.id.btnRetake).setOnClickListener { retake() }
         findViewById<TextView>(R.id.btnNext).setOnClickListener { next() }
     }
 
@@ -123,6 +128,16 @@ class CropActivity : AppCompatActivity() {
                 runOnUiThread { status.text = "Couldn't detect the page — drag the corners yourself" }
             }
         }.start()
+    }
+
+    /** Retake (v0.1.63): discard this photo and go back to
+     *  the camera for a new capture. Finishing with no
+     *  result means the scanner does not add the photo to
+     *  the pages — the user is back at the camera and can
+     *  capture again. */
+    private fun retake() {
+        setResult(RESULT_CANCELED)
+        finish()
     }
 
     private fun rotate(degrees: Float) {
