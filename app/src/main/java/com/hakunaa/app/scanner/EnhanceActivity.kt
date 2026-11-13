@@ -6,10 +6,12 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.os.Bundle
 import android.view.View
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -24,25 +26,45 @@ import java.util.Locale
  *
  * - The straightened page, with an editable document name
  *   ("Hakunaa 11-12-2026 19.53" style).
- * - Filter thumbnails: Original, Lighten, Enhance, No Shadow, B&W.
- *   Tap one to preview it on the page.
+ * - Filter thumbnails: Original, Lighten, Enhance, No Shadow, B&W…
+ *   Tap one to preview it on the page — and an Adjust panel
+ *   opens below the filters (Brightness / Contrast / Sharpness),
+ *   the way professional apps do it.
+ * - "Apply to all pages": when this batch already has other
+ *   pages, the chosen filter + adjustments are applied to every
+ *   page on save — so the whole document looks the same.
  * - Rotate Left.
  * - The green checkmark saves the page with the chosen filter.
  *
- * Not here (and not possible offline): Extract Text (OCR) and
- * To Word — those are cloud features in CamScanner. Markup and
- * Sign are later steps.
+ * The preview is a downsampled copy (≤1200 px), so picking a
+ * filter or moving a slider updates at once; the save always
+ * uses the full-resolution page. Not here (and not possible
+ * offline): Extract Text (OCR) and To Word — those are cloud
+ * features in CamScanner. Markup and Sign are later steps.
  */
 class EnhanceActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_IMAGE_PATH = "image_path"
         const val EXTRA_ENHANCED_PATH = "enhanced_path"
+        const val EXTRA_PAGE_PATHS = "page_paths"
+        const val EXTRA_SCAN_FILTER = "scan_filter"
     }
 
     private var bitmap: Bitmap? = null
+    private var previewBitmap: Bitmap? = null
     private var selectedFilter = ImageEnhancer.Filter.ENHANCE
     private var currentPreview: Bitmap? = null
+    // A tap on a filter starts a background preview pass; a
+    // fast second tap must not be overwritten by the first
+    // pass finishing late — only the latest pass may show.
+    private var previewGeneration = 0
+    private var pagePaths: List<String> = emptyList()
+
+    // Manual adjustments (the Adjust panel), on top of the filter.
+    private var brightness = 0f
+    private var contrast = 1f
+    private var sharpness = 0f
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -53,6 +75,22 @@ class EnhanceActivity : AppCompatActivity() {
         // Default document name, CamScanner style: "Hakunaa 11-12-2026 19.53".
         val name = "Hakunaa " + SimpleDateFormat("dd-MM-yyyy HH.mm", Locale.getDefault()).format(Date())
         findViewById<EditText>(R.id.etDocName).setText(name)
+
+        // The scan filter chosen on the camera screen (if any) —
+        // every captured page opens with it already selected.
+        try {
+            val filterName = intent.getStringExtra(EXTRA_SCAN_FILTER)
+            if (filterName != null) {
+                selectedFilter = ImageEnhancer.Filter.valueOf(filterName)
+            }
+        } catch (_: Throwable) {
+        }
+        pagePaths = intent.getStringArrayListExtra(EXTRA_PAGE_PATHS) ?: emptyList()
+        if (pagePaths.isNotEmpty()) {
+            findViewById<View>(R.id.applyAllRow).visibility = View.VISIBLE
+            findViewById<TextView>(R.id.tvApplyAllCount).text =
+                "(${pagePaths.size + 1} pages)"
+        }
 
         val path = intent.getStringExtra(EXTRA_IMAGE_PATH)
         if (path == null) {
@@ -70,13 +108,10 @@ class EnhanceActivity : AppCompatActivity() {
                         return@runOnUiThread
                     }
                     bitmap = bmp
+                    previewBitmap = downsample(bmp, 1200)
                     // Show the page at once, then swap in the
-                    // filtered version when it is ready — the
-                    // Enhance filter now sharpens (a ~2s job on a
-                    // full-resolution page), and the screen should
-                    // not sit empty while that runs.
+                    // filtered version when it is ready.
                     findViewById<ImageView>(R.id.ivPage).setImageBitmap(bmp)
-                    // Default filter is Enhance (the one CamScanner selects).
                     applyFilterToPreview(selectedFilter)
                     buildFilterThumbnails()
                 }
@@ -90,23 +125,108 @@ class EnhanceActivity : AppCompatActivity() {
 
         findViewById<LinearLayout>(R.id.btnRotateLeft).setOnClickListener { rotateLeft() }
         findViewById<ImageButton>(R.id.btnSave).setOnClickListener { save() }
+        findViewById<TextView>(R.id.btnAdjustReset).setOnClickListener { resetAdjustments() }
+        findViewById<TextView>(R.id.btnAdjustClose).setOnClickListener {
+            findViewById<View>(R.id.adjustPanel).visibility = View.GONE
+        }
+        setupAdjustSliders()
     }
 
+    /** A downsampled copy for the live preview — fast enough
+     *  that a filter tap or a slider move updates at once. */
+    private fun downsample(bitmap: Bitmap, maxSide: Int): Bitmap {
+        val max = maxOf(bitmap.width, bitmap.height)
+        if (max <= maxSide) return bitmap
+        val scale = maxSide.toFloat() / max
+        return Bitmap.createScaledBitmap(
+            bitmap,
+            (bitmap.width * scale).toInt(),
+            (bitmap.height * scale).toInt(),
+            true
+        )
+    }
+
+    /** Filter + adjustments, on the preview bitmap. */
     private fun applyFilterToPreview(filter: ImageEnhancer.Filter) {
-        val bmp = bitmap ?: return
+        val bmp = previewBitmap ?: return
         selectedFilter = filter
+        // The Adjust panel opens when a filter is tapped, the
+        // way professional apps do it.
+        findViewById<View>(R.id.adjustPanel).visibility = View.VISIBLE
+        val generation = ++previewGeneration
         Thread {
             try {
                 val filtered = ImageEnhancer.apply(bmp, filter)
+                val adjusted = ImageEnhancer.applyAdjustments(
+                    filtered, brightness, contrast, sharpness
+                )
+                if (adjusted != filtered) filtered.recycle()
                 runOnUiThread {
+                    // A newer tap already started its own pass —
+                    // this stale result must not overwrite it.
+                    if (generation != previewGeneration) {
+                        adjusted.recycle()
+                        return@runOnUiThread
+                    }
                     currentPreview?.recycle()
-                    currentPreview = filtered
-                    findViewById<ImageView>(R.id.ivPage).setImageBitmap(filtered)
+                    currentPreview = adjusted
+                    findViewById<ImageView>(R.id.ivPage).setImageBitmap(adjusted)
                     updateFilterSelection()
                 }
             } catch (_: Throwable) {
             }
         }.start()
+    }
+
+    /** Recompute the preview with the current filter +
+     *  adjustments (called when a slider is released). */
+    private fun refreshPreview() {
+        applyFilterToPreview(selectedFilter)
+    }
+
+    private fun setupAdjustSliders() {
+        val brightnessSeek = findViewById<SeekBar>(R.id.seekBrightness)
+        val contrastSeek = findViewById<SeekBar>(R.id.seekContrast)
+        val sharpnessSeek = findViewById<SeekBar>(R.id.seekSharpness)
+        val listener = object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                // The value labels update live; the image updates
+                // when the finger lifts (a full filter pass on
+                // every tick would stutter).
+                findViewById<TextView>(R.id.tvBrightnessValue).text =
+                    "${brightnessSeek.progress - 100}"
+                val contrastValue = 0.5f + contrastSeek.progress / 100f
+                findViewById<TextView>(R.id.tvContrastValue).text =
+                    String.format(Locale.US, "%.2f", contrastValue)
+                findViewById<TextView>(R.id.tvSharpnessValue).text =
+                    "${sharpnessSeek.progress}"
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar) {}
+
+            override fun onStopTrackingTouch(seekBar: SeekBar) {
+                brightness = (brightnessSeek.progress - 100).toFloat()
+                contrast = 0.5f + contrastSeek.progress / 100f
+                sharpness = sharpnessSeek.progress.toFloat()
+                refreshPreview()
+            }
+        }
+        brightnessSeek.setOnSeekBarChangeListener(listener)
+        contrastSeek.setOnSeekBarChangeListener(listener)
+        sharpnessSeek.setOnSeekBarChangeListener(listener)
+    }
+
+    private fun resetAdjustments() {
+        brightness = 0f
+        contrast = 1f
+        sharpness = 0f
+        findViewById<SeekBar>(R.id.seekBrightness).progress = 100
+        findViewById<SeekBar>(R.id.seekContrast).progress = 50
+        findViewById<SeekBar>(R.id.seekSharpness).progress = 0
+        findViewById<TextView>(R.id.tvBrightnessValue).text = "0"
+        findViewById<TextView>(R.id.tvContrastValue).text = "1.00"
+        findViewById<TextView>(R.id.tvSharpnessValue).text = "0"
+        refreshPreview()
     }
 
     private fun buildFilterThumbnails() {
@@ -158,14 +278,20 @@ class EnhanceActivity : AppCompatActivity() {
         matrix.postRotate(-90f)
         val rotated = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
         bitmap = rotated
+        previewBitmap = downsample(rotated, 1200)
         applyFilterToPreview(selectedFilter)
     }
 
     private fun save() {
         val bmp = bitmap ?: return
+        val applyAll = findViewById<CheckBox>(R.id.cbApplyAll).isChecked && pagePaths.isNotEmpty()
         Thread {
             try {
                 val filtered = ImageEnhancer.apply(bmp, selectedFilter)
+                val final = ImageEnhancer.applyAdjustments(
+                    filtered, brightness, contrast, sharpness
+                )
+                if (final != filtered) filtered.recycle()
                 val docName = findViewById<EditText>(R.id.etDocName).text.toString()
                     .trim().ifEmpty { "Hakunaa Scan" }
                 val safeName = docName.replace(Regex("[^A-Za-z0-9 _.-]"), "_")
@@ -173,9 +299,32 @@ class EnhanceActivity : AppCompatActivity() {
                 out.outputStream().use { stream ->
                     // Near-lossless (95) — the PDF tiers re-encode
                     // from this file, so it must keep full quality.
-                    filtered.compress(Bitmap.CompressFormat.JPEG, 95, stream)
+                    final.compress(Bitmap.CompressFormat.JPEG, 95, stream)
                 }
-                filtered.recycle()
+                final.recycle()
+                // Apply to all pages: the same filter +
+                // adjustments, re-encoded into each page's own
+                // file, so the whole document looks the same.
+                // A page that fails is left as it was — it must
+                // never block the save.
+                if (applyAll) {
+                    for (path in pagePaths) {
+                        try {
+                            val page = BitmapFactory.decodeFile(path) ?: continue
+                            val pageFiltered = ImageEnhancer.apply(page, selectedFilter)
+                            val pageFinal = ImageEnhancer.applyAdjustments(
+                                pageFiltered, brightness, contrast, sharpness
+                            )
+                            if (pageFinal != pageFiltered) pageFiltered.recycle()
+                            File(path).outputStream().use { stream ->
+                                pageFinal.compress(Bitmap.CompressFormat.JPEG, 95, stream)
+                            }
+                            page.recycle()
+                            pageFinal.recycle()
+                        } catch (_: Throwable) {
+                        }
+                    }
+                }
                 runOnUiThread {
                     val data = Intent()
                     data.putExtra(EXTRA_ENHANCED_PATH, out.absolutePath)
@@ -194,6 +343,7 @@ class EnhanceActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         bitmap?.recycle()
+        previewBitmap?.recycle()
         currentPreview?.recycle()
     }
 }

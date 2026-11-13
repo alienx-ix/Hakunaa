@@ -33,6 +33,8 @@ class CropActivity : AppCompatActivity() {
 
     private var bitmap: Bitmap? = null
     private var photoFile: File? = null
+    private var pagePaths: List<String> = emptyList()
+    private var scanFilterName: String? = null
 
     private val enhanceLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -62,6 +64,12 @@ class CropActivity : AppCompatActivity() {
             return
         }
         photoFile = File(path)
+        // Pass-through: the batch so far (for "Apply to all
+        // pages") and the scan filter chosen on the camera
+        // screen — both go on to Enhance.
+        pagePaths = intent.getStringArrayListExtra(EnhanceActivity.EXTRA_PAGE_PATHS)
+            ?: emptyList()
+        scanFilterName = intent.getStringExtra(EnhanceActivity.EXTRA_SCAN_FILTER)
         Thread {
             try {
                 val bmp = BitmapFactory.decodeFile(path)
@@ -140,6 +148,11 @@ class CropActivity : AppCompatActivity() {
                 runOnUiThread {
                     val intent = Intent(this, EnhanceActivity::class.java)
                     intent.putExtra(EnhanceActivity.EXTRA_IMAGE_PATH, out.absolutePath)
+                    intent.putStringArrayListExtra(
+                        EnhanceActivity.EXTRA_PAGE_PATHS,
+                        ArrayList(pagePaths)
+                    )
+                    intent.putExtra(EnhanceActivity.EXTRA_SCAN_FILTER, scanFilterName)
                     enhanceLauncher.launch(intent)
                 }
             } catch (_: Throwable) {

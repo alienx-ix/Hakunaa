@@ -25,6 +25,14 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- Rule-of-thirds grid — the framing aid, toggled from
+         the Grid button on the bottom row. Off by default. -->
+    <com.hakunaa.app.scanner.GridOverlayView
+        android:id="@+id/gridOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
     <!-- Tap-to-focus ring — appears at the tap point, fades.
          Positioned in code, centred on the tap. -->
     <ImageView
@@ -159,7 +167,12 @@
                 android:textSize="16sp" />
         </LinearLayout>
 
-        <!-- Capture row -->
+        <!-- Capture row: the necessary settings on the left
+             (Grid lines for framing, Filter for the scan look),
+             the capture button in the middle, Import Images on
+             the right. All Features is gone (it did nothing but
+             a "coming soon" toast) and Import Files is gone (it
+             opened the same image picker as Import Images). -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -169,23 +182,49 @@
             android:paddingEnd="24dp">
 
             <LinearLayout
-                android:id="@+id/btnAllFeatures"
+                android:id="@+id/btnGrid"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:gravity="center"
                 android:orientation="vertical">
 
                 <ImageView
+                    android:id="@+id/ivGridIcon"
                     android:layout_width="28dp"
                     android:layout_height="28dp"
                     android:src="@drawable/ic_grid"
                     android:tint="#FFFFFF" />
 
                 <TextView
+                    android:id="@+id/tvGridLabel"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
-                    android:text="All Features"
+                    android:text="Grid"
+                    android:textColor="#FFFFFF"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/btnFilter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <ImageView
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:src="@drawable/ic_filter"
+                    android:tint="#FFFFFF" />
+
+                <TextView
+                    android:id="@+id/tvFilterLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Enhance"
                     android:textColor="#FFFFFF"
                     android:textSize="11sp" />
             </LinearLayout>
@@ -241,29 +280,6 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
                     android:text="Import Images"
-                    android:textColor="#FFFFFF"
-                    android:textSize="11sp" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/btnImportFiles"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
-                android:gravity="center"
-                android:orientation="vertical">
-
-                <ImageView
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:src="@drawable/ic_import_file"
-                    android:tint="#FFFFFF" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="Import Files"
                     android:textColor="#FFFFFF"
                     android:textSize="11sp" />
             </LinearLayout>

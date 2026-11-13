@@ -629,24 +629,29 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   ValueAnimator on the UI thread (60 fps, vsync); full means
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
-- **v0.1.46 camera black screen + lag fix (same build).**
-  The camera went BLACK when returning to it — switch from
-  Book back to Single, or go to Pages and come back to
-  capture, and the preview never came back. Root cause: the
-  camera was bound once in onCreate and left to CameraX's
-  automatic rebind, which never re-attached the Preview to
-  the recreated surface on this phone. Now the camera is
-  managed explicitly: it is bound while the screen is visible
-  and released the moment it leaves (onPause unbinds), and a
-  fresh bind happens on every resume — with a guard so a late
-  provider result never grabs the camera in the background,
-  and a flag so onResume never double-binds. The lag is fixed
-  the same way: the live analysis ran at 640x480 every
-  150–200 ms, and the bitmap conversion + detection cost
-  enough CPU to drop preview frames. It now runs at 320x240
-  (4x fewer pixels) every 250 ms, so the preview stays
-  smooth; the steadiness threshold is halved to match the
-  smaller frame.
+- **v0.1.47 Enhance Adjust + Apply to all + Book Scan + scanner row (same build).**
+  Enhance screen: tapping a filter now opens an Adjust panel
+  below the filters (Brightness −100..100, Contrast 0.5–2.0,
+  Sharpness 0–100, with Reset and close), applied on top of
+  the chosen filter; the preview is a ≤1200 px copy so a
+  filter tap or a slider move updates at once, while the save
+  still uses the full-resolution page. "Apply to all pages"
+  appears when the batch already has other pages — on save,
+  the same filter + adjustments are re-encoded into every
+  page's file, so the whole document looks the same. Book
+  Scan: the capture button is now centred on the right, the
+  Torch is a proper round button, Single / Double are real
+  segmented buttons (the selected one is a teal pill), and the
+  left strip has a Filter button — the chosen filter is
+  applied to EVERY page captured (and remembered, shared with
+  the main scanner, so it is one setting). Main scanner
+  bottom row: All Features is gone (it did nothing) and
+  Import Files is gone (it opened the same picker as Import
+  Images); the left now holds the necessary settings — Grid
+  (rule-of-thirds lines over the preview, saved) and Filter
+  (the scan look, so every captured page opens in Enhance
+  with it already selected) — and Import Images stays on the
+  right.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

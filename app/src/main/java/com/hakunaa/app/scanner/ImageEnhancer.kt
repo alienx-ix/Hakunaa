@@ -193,6 +193,49 @@ object ImageEnhancer {
         return result
     }
 
+    /** Manual adjustments — the Enhance screen's Adjust panel
+     *  (brightness / contrast / sharpness), applied ON TOP of
+     *  the chosen filter. Brightness is -100..100 (added to
+     *  every channel), contrast is 0.5..2.0 (1 = the filter
+     *  as-is), sharpness is 0..100 (0 = no extra sharpening,
+     *  100 = a strong unsharp mask). All three at their
+     *  defaults return the input unchanged, so the filter
+     *  alone is never altered by accident. */
+    fun applyAdjustments(
+        bitmap: Bitmap,
+        brightness: Float,
+        contrast: Float,
+        sharpness: Float
+    ): Bitmap {
+        var result = bitmap
+        if (brightness != 0f || contrast != 1f) {
+            val adjusted = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(adjusted)
+            val paint = Paint()
+            val matrix = ColorMatrix(
+                floatArrayOf(
+                    contrast, 0f, 0f, 0f, brightness,
+                    0f, contrast, 0f, 0f, brightness,
+                    0f, 0f, contrast, 0f, brightness,
+                    0f, 0f, 0f, 1f, 0f
+                )
+            )
+            paint.colorFilter = ColorMatrixColorFilter(matrix)
+            canvas.drawBitmap(bitmap, 0f, 0f, paint)
+            result = adjusted
+        }
+        if (sharpness > 0.01f) {
+            // 0..100 maps to an unsharp amount of 0..1.8 — the
+            // ENHANCE filter's own sharpen is 0.9, so 50 is
+            // about the same strength again on top of it.
+            val amount = sharpness / 100f * 1.8f
+            val sharp = sharpen(result, amount)
+            if (result != bitmap) result.recycle()
+            result = sharp
+        }
+        return result
+    }
+
     /** Separable box blur on a single-channel int image
      *  (running sums, O(n) whatever the radius). The B&W filter
      *  uses it for the local background estimate. */
@@ -251,8 +294,11 @@ object ImageEnhancer {
      *  without changing colours. Pure Kotlin, separable box blur
      *  (radius 2, about the same as a Gaussian radius 2) so it
      *  stays fast even on full-resolution pages. Runs on a
-     *  background thread in the caller, never on the UI thread. */
-    private fun sharpen(bitmap: Bitmap): Bitmap {
+     *  background thread in the caller, never on the UI thread.
+     *  The amount is a parameter now (default 0.9, the ENHANCE
+     *  filter's strength) so the Adjust panel can add more or
+     *  less sharpening on top of any filter. */
+    private fun sharpen(bitmap: Bitmap, amount: Float = 0.9f): Bitmap {
         val w = bitmap.width
         val h = bitmap.height
         val src = IntArray(w * h)
@@ -268,9 +314,9 @@ object ImageEnhancer {
             val br = (b shr 16) and 0xFF
             val bg = (b shr 8) and 0xFF
             val bb = b and 0xFF
-            val r = (sr + 0.9f * (sr - br)).toInt().coerceIn(0, 255)
-            val g = (sg + 0.9f * (sg - bg)).toInt().coerceIn(0, 255)
-            val bl = (sb + 0.9f * (sb - bb)).toInt().coerceIn(0, 255)
+            val r = (sr + amount * (sr - br)).toInt().coerceIn(0, 255)
+            val g = (sg + amount * (sg - bg)).toInt().coerceIn(0, 255)
+            val bl = (sb + amount * (sb - bb)).toInt().coerceIn(0, 255)
             out[i] = (0xFF shl 24) or (r shl 16) or (g shl 8) or bl
         }
         val result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)

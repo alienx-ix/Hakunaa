@@ -126,6 +126,13 @@ class ScannerActivity : AppCompatActivity() {
     // for users who want smaller files.
     private var hdOn = true
     private var autoCaptureOn = true
+
+    // The scan filter — the enhancement every captured page
+    // opens with in Enhance (and, with "Apply to all pages",
+    // the whole batch). Shared with Book Scan through the same
+    // preference, so the filter is one setting, not two.
+    private var scanFilter = ImageEnhancer.Filter.ENHANCE
+    private var gridOn = false
     private var isCapturing = false
     // Auto-capture state: the last detected corners, when the
     // current steady hold started, and when the last capture
@@ -163,6 +170,8 @@ class ScannerActivity : AppCompatActivity() {
         private const val PREFS_NAME = "hakunaa_prefs"
         private const val PREF_AUTO_CAPTURE_DELAY_MS = "auto_capture_delay_ms"
         private const val PREF_EXPOSURE_INDEX = "exposure_index"
+        private const val PREF_SCAN_FILTER = "scan_filter"
+        private const val PREF_GRID_ON = "grid_on"
         private val DELAY_OPTIONS_MS = longArrayOf(2000L, 3000L, 5000L)
         private val DELAY_OPTIONS_LABELS = arrayOf("2 seconds", "3 seconds", "5 seconds")
     }
@@ -262,13 +271,12 @@ class ScannerActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.btnMenu).setOnClickListener {
             showDelayDialog()
         }
-        findViewById<LinearLayout>(R.id.btnAllFeatures).setOnClickListener {
-            Toast.makeText(this, "All Features coming soon", Toast.LENGTH_SHORT).show()
-        }
+        // Bottom row, left: the necessary capture settings.
+        // Grid lines for framing; Filter for the scan look
+        // (every captured page opens with it in Enhance).
+        findViewById<LinearLayout>(R.id.btnGrid).setOnClickListener { toggleGrid() }
+        findViewById<LinearLayout>(R.id.btnFilter).setOnClickListener { showFilterDialog() }
         findViewById<LinearLayout>(R.id.btnImportImages).setOnClickListener {
-            pickPhoto.launch("image/*")
-        }
-        findViewById<LinearLayout>(R.id.btnImportFiles).setOnClickListener {
             pickPhoto.launch("image/*")
         }
         findViewById<TextView>(R.id.tvModeSingle).setOnClickListener { setMode(Mode.SINGLE) }
@@ -293,6 +301,15 @@ class ScannerActivity : AppCompatActivity() {
         autoCaptureDelayMs = prefs().getLong(PREF_AUTO_CAPTURE_DELAY_MS, 3000L)
         // Saved brightness offset from the on-screen slider.
         exposureIndex = prefs().getInt(PREF_EXPOSURE_INDEX, 0)
+        // Saved scan filter + grid (the bottom-row settings).
+        try {
+            val filterName = prefs().getString(PREF_SCAN_FILTER, null)
+            if (filterName != null) scanFilter = ImageEnhancer.Filter.valueOf(filterName)
+        } catch (_: Throwable) {
+        }
+        gridOn = prefs().getBoolean(PREF_GRID_ON, false)
+        updateGridButton()
+        updateFilterButton()
         setupTapToFocus()
         updatePagesLabel()
     }
@@ -368,6 +385,46 @@ class ScannerActivity : AppCompatActivity() {
     /** Scanner menu: how long to hold the document steady
      *  before auto-capture fires (2 / 3 / 5 seconds). Saved,
      *  so it stays the next time the scanner opens. */
+    /** Grid lines on/off — the framing aid. The state is
+     *  saved, so it stays as the user left it. */
+    private fun toggleGrid() {
+        gridOn = !gridOn
+        prefs().edit().putBoolean(PREF_GRID_ON, gridOn).apply()
+        updateGridButton()
+    }
+
+    private fun updateGridButton() {
+        val overlay = findViewById<GridOverlayView>(R.id.gridOverlay)
+        overlay.visibility = if (gridOn) View.VISIBLE else View.GONE
+        val color = if (gridOn) getColor(R.color.hakunaa_teal) else getColor(android.R.color.white)
+        findViewById<ImageView>(R.id.ivGridIcon).setColorFilter(color)
+        findViewById<TextView>(R.id.tvGridLabel).setTextColor(color)
+    }
+
+    /** The scan filter — the enhancement every captured page
+     *  opens with in Enhance (and, with "Apply to all pages",
+     *  the whole batch). One setting for the whole app, shared
+     *  with Book Scan through the same preference. */
+    private fun showFilterDialog() {
+        val filters = ImageEnhancer.Filter.values()
+        val labels = filters.map { it.label }.toTypedArray()
+        val checked = filters.indexOf(scanFilter).coerceAtLeast(0)
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Scan filter")
+            .setSingleChoiceItems(labels, checked) { dialog, which ->
+                scanFilter = filters[which]
+                prefs().edit().putString(PREF_SCAN_FILTER, scanFilter.name).apply()
+                updateFilterButton()
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun updateFilterButton() {
+        findViewById<TextView>(R.id.tvFilterLabel).text = scanFilter.label
+    }
+
     private fun showDelayDialog() {
         val checked = DELAY_OPTIONS_MS.indexOf(autoCaptureDelayMs).coerceAtLeast(1)
         MaterialAlertDialogBuilder(this)
@@ -900,6 +957,13 @@ class ScannerActivity : AppCompatActivity() {
     private fun openCrop(photoFile: File) {
         val intent = Intent(this, CropActivity::class.java)
         intent.putExtra(CropActivity.EXTRA_PHOTO_PATH, photoFile.absolutePath)
+        // The batch so far (for "Apply to all pages") and the
+        // scan filter chosen on this screen.
+        intent.putStringArrayListExtra(
+            EnhanceActivity.EXTRA_PAGE_PATHS,
+            ArrayList(pages.map { it.absolutePath })
+        )
+        intent.putExtra(EnhanceActivity.EXTRA_SCAN_FILTER, scanFilter.name)
         cropLauncher.launch(intent)
     }
 

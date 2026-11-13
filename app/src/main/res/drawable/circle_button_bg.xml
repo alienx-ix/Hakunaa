@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Round dark button background — the torch and close buttons
+     in Book Scan sit on the preview as proper round buttons,
+     not bare icons. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#80000000" />
+</shape>

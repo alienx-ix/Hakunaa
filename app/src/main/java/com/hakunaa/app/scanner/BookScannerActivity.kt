@@ -2,6 +2,7 @@ package com.hakunaa.app.scanner
 
 import android.Manifest
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -25,6 +26,7 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.hakunaa.app.R
 import java.io.File
 import java.io.FileOutputStream
@@ -52,8 +54,9 @@ import java.util.concurrent.Executors
  *
  * Capture is MANUAL (a book's pages change while you flip, so
  * auto-capture would fire at the wrong moment). Each page is
- * auto-enhanced with the ENHANCE filter (the default, with
- * sharpening), so there is no per-page Crop/Enhance screen in
+ * auto-enhanced with the chosen scan filter (the Filter button
+ * on the left; Enhance by default), so the filter applies to
+ * ALL pages and there is no per-page Crop/Enhance screen in
  * the way — the flow stays fast. Review and reorder on the
  * Pages screen; save the whole book as one PDF.
  *
@@ -88,6 +91,16 @@ class BookScannerActivity : AppCompatActivity() {
     private var selectedSide = SpineLineView.SIDE_LEFT
     private var spineFraction = 0.5f
     private var smoothSpine: Float? = null
+
+    // The scan filter — the enhancement every captured page
+    // gets (Double: both pages, Single: the tapped page), so
+    // the filter applies to ALL pages, not one at a time.
+    // Shared with the main scanner through the same
+    // preference, so the filter is one setting, not two.
+    private var scanFilter = ImageEnhancer.Filter.ENHANCE
+
+    private fun prefs(): SharedPreferences =
+        getSharedPreferences("hakunaa_prefs", MODE_PRIVATE)
     private var lastDragMs = 0L
     private var lastAnalysisMs = 0L
 
@@ -148,8 +161,17 @@ class BookScannerActivity : AppCompatActivity() {
         cameraExecutor = Executors.newSingleThreadExecutor()
         docName = "Hakunaa Book " + SimpleDateFormat("dd-MM-yyyy HH.mm", Locale.US).format(Date())
 
+        try {
+            val filterName = prefs().getString("scan_filter", null)
+            if (filterName != null) scanFilter = ImageEnhancer.Filter.valueOf(filterName)
+        } catch (_: Throwable) {
+        }
+
         findViewById<ImageButton>(R.id.btnClose).setOnClickListener { finish() }
         findViewById<ImageButton>(R.id.btnTorch).setOnClickListener { toggleTorch() }
+        findViewById<com.google.android.material.button.MaterialButton>(R.id.btnFilter)
+            .setOnClickListener { showFilterDialog() }
+        updateFilterButton()
         findViewById<ImageButton>(R.id.btnCapture).setOnClickListener { captureBook() }
         findViewById<TextView>(R.id.tvSingle).setOnClickListener { setDoubleMode(false) }
         findViewById<TextView>(R.id.tvDouble).setOnClickListener { setDoubleMode(true) }
@@ -220,6 +242,30 @@ class BookScannerActivity : AppCompatActivity() {
         cameraExecutor?.shutdown()
     }
 
+    /** The scan filter — picked once, applied to every page
+     *  captured in this session (and remembered, so the main
+     *  scanner uses the same one). */
+    private fun showFilterDialog() {
+        val filters = ImageEnhancer.Filter.values()
+        val labels = filters.map { it.label }.toTypedArray()
+        val checked = filters.indexOf(scanFilter).coerceAtLeast(0)
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Scan filter")
+            .setSingleChoiceItems(labels, checked) { dialog, which ->
+                scanFilter = filters[which]
+                prefs().edit().putString("scan_filter", scanFilter.name).apply()
+                updateFilterButton()
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun updateFilterButton() {
+        findViewById<com.google.android.material.button.MaterialButton>(R.id.btnFilter).text =
+            scanFilter.label
+    }
+
     private fun setDoubleMode(double: Boolean) {
         doubleMode = double
         // (The locals are named *_view: a local called "double"
@@ -227,16 +273,20 @@ class BookScannerActivity : AppCompatActivity() {
         val singleView = findViewById<TextView>(R.id.tvSingle)
         val doubleView = findViewById<TextView>(R.id.tvDouble)
         if (double) {
-            doubleView.setTextColor(getColor(R.color.hakunaa_teal))
+            doubleView.background = getDrawable(R.drawable.mode_tab_selected)
+            doubleView.setTextColor(getColor(android.R.color.white))
             doubleView.setTypeface(null, android.graphics.Typeface.BOLD)
+            singleView.background = null
             singleView.setTextColor(getColor(android.R.color.white))
             singleView.setTypeface(null, android.graphics.Typeface.NORMAL)
             spineLine().selectedSide = SpineLineView.SIDE_NONE
             findViewById<TextView>(R.id.tvStatus).text =
                 "Double — both pages at once (A then B)"
         } else {
-            singleView.setTextColor(getColor(R.color.hakunaa_teal))
+            singleView.background = getDrawable(R.drawable.mode_tab_selected)
+            singleView.setTextColor(getColor(android.R.color.white))
             singleView.setTypeface(null, android.graphics.Typeface.BOLD)
+            doubleView.background = null
             doubleView.setTextColor(getColor(android.R.color.white))
             doubleView.setTypeface(null, android.graphics.Typeface.NORMAL)
             spineLine().selectedSide = selectedSide
@@ -465,14 +515,14 @@ class BookScannerActivity : AppCompatActivity() {
             val (left, right) = split
             val newPages = mutableListOf<File>()
             if (doubleMode || selectedSide == SpineLineView.SIDE_LEFT) {
-                val enhanced = ImageEnhancer.apply(left, ImageEnhancer.Filter.ENHANCE)
+                val enhanced = ImageEnhancer.apply(left, scanFilter)
                 val file = File(cacheDir, "book_page_${System.currentTimeMillis()}_a.jpg")
                 FileOutputStream(file).use { enhanced.compress(Bitmap.CompressFormat.JPEG, 95, it) }
                 enhanced.recycle()
                 newPages.add(file)
             }
             if (doubleMode || selectedSide == SpineLineView.SIDE_RIGHT) {
-                val enhanced = ImageEnhancer.apply(right, ImageEnhancer.Filter.ENHANCE)
+                val enhanced = ImageEnhancer.apply(right, scanFilter)
                 val file = File(cacheDir, "book_page_${System.currentTimeMillis()}_b.jpg")
                 FileOutputStream(file).use { enhanced.compress(Bitmap.CompressFormat.JPEG, 95, it) }
                 enhanced.recycle()

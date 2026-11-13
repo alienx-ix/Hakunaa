@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Selected Single / Double button — a teal pill, so the mode
+     reads as a real segmented button, not plain text. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="8dp" />
+    <solid android:color="#00BFA5" />
+</shape>
