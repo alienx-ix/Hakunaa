@@ -52,7 +52,7 @@ import java.util.concurrent.Executors
  *
  * Capture is MANUAL (a book's pages change while you flip, so
  * auto-capture would fire at the wrong moment). Each page is
- * auto-enhanced with the ENHANCE filter (the default, with
+ * auto-enhanced with the NO_SHADOW filter (the default, with
  * sharpening), so there is no per-page Crop/Enhance screen in
  * the way — the flow stays fast. Review and reorder on the
  * Pages screen; save the whole book as one PDF.
@@ -471,14 +471,14 @@ class BookScannerActivity : AppCompatActivity() {
             val (left, right) = split
             val newPages = mutableListOf<File>()
             if (doubleMode || selectedSide == SpineLineView.SIDE_LEFT) {
-                val enhanced = ImageEnhancer.apply(left, ImageEnhancer.Filter.ENHANCE)
+                val enhanced = ImageEnhancer.apply(left, ImageEnhancer.Filter.NO_SHADOW)
                 val file = File(cacheDir, "book_page_${System.currentTimeMillis()}_a.jpg")
                 FileOutputStream(file).use { enhanced.compress(Bitmap.CompressFormat.JPEG, 95, it) }
                 enhanced.recycle()
                 newPages.add(file)
             }
             if (doubleMode || selectedSide == SpineLineView.SIDE_RIGHT) {
-                val enhanced = ImageEnhancer.apply(right, ImageEnhancer.Filter.ENHANCE)
+                val enhanced = ImageEnhancer.apply(right, ImageEnhancer.Filter.NO_SHADOW)
                 val file = File(cacheDir, "book_page_${System.currentTimeMillis()}_b.jpg")
                 FileOutputStream(file).use { enhanced.compress(Bitmap.CompressFormat.JPEG, 95, it) }
                 enhanced.recycle()

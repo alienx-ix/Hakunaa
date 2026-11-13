@@ -64,7 +64,7 @@ class EnhanceActivity : AppCompatActivity() {
     private var bitmap: Bitmap? = null
     private var previewBitmap: Bitmap? = null
     private var imagePath: String? = null
-    private var selectedFilter = ImageEnhancer.Filter.ENHANCE
+    private var selectedFilter = ImageEnhancer.Filter.NO_SHADOW
     private var currentPreview: Bitmap? = null
     // A tap on a filter starts a background preview pass; a
     // fast second tap must not be overwritten by the first
@@ -80,7 +80,7 @@ class EnhanceActivity : AppCompatActivity() {
     // entry, so there is nothing to swipe.
     private var allPages: List<String> = emptyList()
     private var currentPageIndex = 0
-    // Each page keeps its own filter (default ENHANCE), so a
+    // Each page keeps its own filter (default NO_SHADOW), so a
     // filter picked on one page does not change the others.
     // "Apply to all pages", when ticked, overrides this on
     // save and puts the current page's filter on every page.
@@ -204,8 +204,8 @@ class EnhanceActivity : AppCompatActivity() {
                     currentPreview = null
                     bitmap = bmp
                     previewBitmap = downsample(bmp, 1200)
-                    // This page's own filter (default ENHANCE).
-                    selectedFilter = pageFilters[path] ?: ImageEnhancer.Filter.ENHANCE
+                    // This page's own filter (default NO_SHADOW).
+                    selectedFilter = pageFilters[path] ?: ImageEnhancer.Filter.NO_SHADOW
                     // Show the page at once, then swap in the
                     // filtered version when it is ready.
                     findViewById<ImageView>(R.id.ivPage).setImageBitmap(bmp)
@@ -523,7 +523,7 @@ class EnhanceActivity : AppCompatActivity() {
         // "Apply to all pages" ticked: the current page's
         // filter goes on every page. Unticked: each page keeps
         // the filter picked for it while swiping (default
-        // ENHANCE for a page never touched).
+        // NO_SHADOW for a page never touched).
         val applyAll = findViewById<CheckBox>(R.id.cbApplyAll).isChecked && allPages.size > 1
         val currentFilter = selectedFilter
         Thread {
@@ -557,7 +557,7 @@ class EnhanceActivity : AppCompatActivity() {
                     val pageFilter = if (applyAll) {
                         currentFilter
                     } else {
-                        pageFilters[path] ?: ImageEnhancer.Filter.ENHANCE
+                        pageFilters[path] ?: ImageEnhancer.Filter.NO_SHADOW
                     }
                     try {
                         val page = BitmapFactory.decodeFile(path) ?: continue

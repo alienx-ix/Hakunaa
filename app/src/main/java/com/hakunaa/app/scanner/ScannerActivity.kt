@@ -690,6 +690,15 @@ class ScannerActivity : AppCompatActivity() {
         view.findViewById<ImageButton>(R.id.btnCloseMoreSettings)
             .setOnClickListener { dialog.dismiss() }
         dialog.show()
+        // Wide dialog (v0.1.61): a plain Dialog defaults to a
+        // narrow width, which clipped the "More Settings" title
+        // and cut off "Full camera resolution" — the user
+        // reported both. 90% of the screen width gives every
+        // row room to fit on one line.
+        dialog.window?.setLayout(
+            (resources.displayMetrics.widthPixels * 0.9f).toInt(),
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+        )
     }
 
     private fun toggleHd() {
