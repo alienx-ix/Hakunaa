@@ -630,6 +630,10 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.72 — Book Capture now shows a preview (A top, B bottom)
+
+The user reported: pressing Capture in Book gave no sign the photo was taken. Instead of just an animation, Book now shows a preview after every capture — one screen, both pages: A on top, B on the bottom (Double); a Single capture shows just that one page, full height. Keep adds the pages to the book and goes back to the camera for the next spread; Retake (or Back) discards them and the user captures again. The preview is landscape like the Book camera, so the screen never rotates, and the images are downsampled so a full-resolution spread never blows up memory.
+
 ## v0.1.71 — Book Scan finally gets Filters and menus
 
 The user found the gap: in Book Scan, a captured page could never change its filter or be cropped / adjusted — capture went straight to Pages / Export with no Filter (Enhance) screen at all. Fixed, Book only: Pages and Save PDF now open the Filter screen first, exactly like a Batch Done — pick a filter per page (or one for all, pre-ticked), use the full bottom menu (Left / Markup / Crop / Sign / Adjust / green check), then the Preview (Pages) screen to reorder, rotate or delete, then Save → Export. Back from the Filter keeps the pages on the camera. Discard confirmed on the Export screen reached via the Preview now clears the book's pages too, so the camera comes back fresh. The capture itself is untouched: split the spread, auto-enhance NO_SHADOW, append A then B. Also in Book, the A/B spine line is now MANUAL only — the live spine auto-follow is removed entirely (no analysis stream, no CPU spent tracking the spine), the line never moves on its own, the user drags it to the fold, and it stays where it was put between spreads.

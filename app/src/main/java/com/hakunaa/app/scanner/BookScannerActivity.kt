@@ -48,12 +48,16 @@ import java.util.Locale
  * Capture is MANUAL (a book's pages change while you flip, so
  * auto-capture would fire at the wrong moment). Each page is
  * auto-enhanced with the NO_SHADOW filter at capture (the
- * default, with sharpening). When the user is done — Pages or
- * Save PDF — the book goes through the Filter (Enhance) screen
- * first, like a Batch (v0.1.71): pick a filter per page (or one
- * for all), crop or adjust a page, then the Preview (Pages)
- * screen to reorder, rotate or delete, then Export. Review and
- * reorder on the Pages screen; save the whole book as one PDF.
+ * default, with sharpening). After every capture the preview
+ * screen shows what was taken — A on top, B on the bottom
+ * (v0.1.72) — Keep adds the pages to the book, Retake discards
+ * them and the user captures again. When the user is done —
+ * Pages or Save PDF — the book goes through the Filter
+ * (Enhance) screen first, like a Batch (v0.1.71): pick a filter
+ * per page (or one for all), crop or adjust a page, then the
+ * Preview (Pages) screen to reorder, rotate or delete, then
+ * Export. Review and reorder on the Pages screen; save the
+ * whole book as one PDF.
  *
  * The camera permission is asked the same way as the main
  * scanner (it is normally already granted by then).
@@ -63,6 +67,11 @@ import java.util.Locale
 class BookScannerActivity : AppCompatActivity() {
 
     private val pages = mutableListOf<File>()
+    // Pages from the latest capture, waiting for the user to
+    // confirm them on the capture preview (v0.1.72). They join
+    // `pages` only on Keep; Retake deletes the files.
+    private var pendingPages = mutableListOf<File>()
+    private var pendingLabels = listOf<String>()
     private var docName: String? = null
     private var camera: Camera? = null
     private var imageCapture: ImageCapture? = null
@@ -120,6 +129,38 @@ class BookScannerActivity : AppCompatActivity() {
                 }
                 docName = result.data?.getStringExtra("doc_name") ?: docName
                 openPagesAfterEnhance()
+            }
+        }
+
+    // Capture preview result (v0.1.72): Keep adds the pending
+    // pages to the book; Retake (or Back) deletes their files
+    // and the user captures again. Either way the capture is
+    // finished here, so isCapturing is released.
+    private val capturePreviewLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val status = findViewById<TextView>(R.id.tvStatus)
+            if (result.resultCode == RESULT_OK) {
+                val count = pendingPages.size
+                pages.addAll(pendingPages)
+                pendingPages.clear()
+                pendingLabels = emptyList()
+                isCapturing = false
+                updateLabels()
+                status.text =
+                    if (count == 2) "2 pages added — flip the book and capture the next spread"
+                    else "1 page added — flip the book and capture the next spread"
+            } else {
+                for (file in pendingPages) {
+                    try {
+                        file.delete()
+                    } catch (_: Throwable) {
+                    }
+                }
+                pendingPages.clear()
+                pendingLabels = emptyList()
+                isCapturing = false
+                updateLabels()
+                status.text = "Retaken — point the camera at the book and capture again"
             }
         }
 
@@ -365,10 +406,12 @@ class BookScannerActivity : AppCompatActivity() {
         )
     }
 
-    /** Split the spread, enhance each page, and add them in
-     *  order (A then B in Double; the tapped side in Single).
-     *  Runs off the UI thread — the split + enhance of two
-     *  full-resolution pages takes a moment. */
+    /** Split the spread, enhance each page, and show them on
+     *  the capture preview (A on top, B on the bottom) for the
+     *  user to Keep or Retake (v0.1.72). The pages join the
+     *  book only on Keep — Retake deletes them. Runs off the
+     *  UI thread — the split + enhance of two full-resolution
+     *  pages takes a moment. */
     private fun processBookPhoto(photoFile: File) {
         try {
             val bitmap = BitmapFactory.decodeFile(photoFile.absolutePath)
@@ -390,12 +433,14 @@ class BookScannerActivity : AppCompatActivity() {
             }
             val (left, right) = split
             val newPages = mutableListOf<File>()
+            val newLabels = mutableListOf<String>()
             if (doubleMode || selectedSide == SpineLineView.SIDE_LEFT) {
                 val enhanced = ImageEnhancer.apply(left, ImageEnhancer.Filter.NO_SHADOW)
                 val file = File(cacheDir, "book_page_${System.currentTimeMillis()}_a.jpg")
                 FileOutputStream(file).use { enhanced.compress(Bitmap.CompressFormat.JPEG, 95, it) }
                 enhanced.recycle()
                 newPages.add(file)
+                newLabels.add("A")
             }
             if (doubleMode || selectedSide == SpineLineView.SIDE_RIGHT) {
                 val enhanced = ImageEnhancer.apply(right, ImageEnhancer.Filter.NO_SHADOW)
@@ -403,6 +448,7 @@ class BookScannerActivity : AppCompatActivity() {
                 FileOutputStream(file).use { enhanced.compress(Bitmap.CompressFormat.JPEG, 95, it) }
                 enhanced.recycle()
                 newPages.add(file)
+                newLabels.add("B")
             }
             left.recycle()
             right.recycle()
@@ -410,12 +456,22 @@ class BookScannerActivity : AppCompatActivity() {
             // The spine line stays where the user put it
             // (manual only) — it is not reset between spreads.
             runOnUiThread {
-                isCapturing = false
-                pages.addAll(newPages)
-                updateLabels()
-                findViewById<TextView>(R.id.tvStatus).text =
-                    if (newPages.size == 2) "2 pages added — flip the book and capture the next spread"
-                    else "1 page added — flip the book and capture the next spread"
+                // Hold the pages as pending — they join the book
+                // only when the user Keeps them on the preview.
+                // isCapturing stays true until the preview
+                // returns, so no second capture can start.
+                pendingPages = newPages
+                pendingLabels = newLabels
+                val intent = Intent(this, BookCapturePreviewActivity::class.java)
+                intent.putStringArrayListExtra(
+                    BookCapturePreviewActivity.EXTRA_PAGE_PATHS,
+                    ArrayList(newPages.map { it.absolutePath })
+                )
+                intent.putStringArrayListExtra(
+                    BookCapturePreviewActivity.EXTRA_LABELS,
+                    ArrayList(newLabels)
+                )
+                capturePreviewLauncher.launch(intent)
             }
         } catch (_: Throwable) {
             runOnUiThread {
