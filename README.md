@@ -477,6 +477,23 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   than the input — a file that cannot shrink at all is saved
   as-is. New: WhatsAppOptimizeActivity + VideoCompressor
   .compressForWhatsApp.
+- **v0.1.37 (2026-11-13): Excellent video compression.** The user
+  tested WhatsApp Optimize on an 11.7 MB video and got back
+  11.6 MB — 1% smaller, poor. Root cause: the ladder stopped at
+  the first attempt that was smaller at all. Fix: a rung only
+  wins if it saves at least 10% — a 1% saving is not excellent
+  compression, so the ladder keeps escalating (CRF 33, 38 at
+  original resolution) until a rung saves 10% or runs out; if none
+  does, the smallest smaller file is kept with an honest note.
+  Quality first: a video that already fits is NEVER downscaled —
+  720p/480p only when a video must fit WhatsApp's 16 MB limit
+  and CRF alone cannot do it. Video Compress (best) never
+  downscales on its own at all.
+  One shared runner (`runLadderAttempt`) now serves both Video
+  Compress (best) and WhatsApp Optimize, so both give excellent
+  results on already-compressed videos. Also fixed: a video with
+  no readable duration showed "0:00" (now hidden) and its
+  progress bar sat at 0 (now spins until real progress arrives).
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

@@ -112,7 +112,8 @@ class WhatsAppOptimizeActivity : AppCompatActivity() {
                     val durMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
                     val w = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH) ?: "?"
                     val h = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT) ?: "?"
-                    details.append(" • ${formatDuration(durMs)} • ${w}x$h")
+                    if (durMs > 0) details.append(" • ${formatDuration(durMs)}")
+                    details.append(" • ${w}x$h")
                     retriever.getFrameAtTime(1_000_000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)?.let {
                         preview.setImageBitmap(it)
                         preview.visibility = View.VISIBLE
@@ -165,7 +166,10 @@ class WhatsAppOptimizeActivity : AppCompatActivity() {
         findViewById<MaterialCardView>(R.id.cardResult).visibility = View.GONE
         val progress = findViewById<ProgressBar>(R.id.progressBar)
         progress.visibility = View.VISIBLE
-        progress.isIndeterminate = (kind != Kind.VIDEO)
+        // Indeterminate until the first real progress value arrives:
+        // some videos report no duration, so no progress values come
+        // at all — the bar must keep spinning instead of sitting at 0.
+        progress.isIndeterminate = true
         progress.progress = 0
         setStatus("Optimizing…")
         when (kind) {
@@ -184,7 +188,7 @@ class WhatsAppOptimizeActivity : AppCompatActivity() {
         val out = File(cacheDir, "wa_video_${System.currentTimeMillis()}.mp4")
         VideoCompressor.compressForWhatsApp(
             file.absolutePath, out.absolutePath, inputSize, VIDEO_TARGET_BYTES,
-            onProgress = { p -> runOnUiThread { findViewById<ProgressBar>(R.id.progressBar).progress = p } },
+            onProgress = { p -> runOnUiThread { findViewById<ProgressBar>(R.id.progressBar).apply { isIndeterminate = false; progress = p } } },
             onDone = { ok, note ->
                 runOnUiThread {
                     if (!ok) {
