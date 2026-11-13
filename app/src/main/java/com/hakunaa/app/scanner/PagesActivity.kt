@@ -12,6 +12,7 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.ItemTouchHelper
@@ -45,6 +46,27 @@ class PagesActivity : AppCompatActivity() {
     private val pages = mutableListOf<File>()
     private var docName: String? = null
     private lateinit var adapter: PagesAdapter
+
+    // Export is a separate screen; on save, report back to the
+    // camera with the saved file name, then close. On cancel,
+    // stay here with the pages kept.
+    private val exportLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) {
+                val fileName = result.data?.getStringExtra(PdfExportActivity.EXTRA_FILE_NAME)
+                    ?: "scan.pdf"
+                val sizeBytes = result.data?.getLongExtra(PdfExportActivity.EXTRA_SIZE_BYTES, 0L)
+                    ?: 0L
+                val size = FileUtils.formatSize(sizeBytes)
+                findViewById<TextView>(R.id.tvStatus).text =
+                    "Done — $fileName saved (${pages.size} page(s), $size)"
+                Toast.makeText(this, "PDF saved ($size)", Toast.LENGTH_LONG).show()
+                val data = Intent()
+                data.putExtra("saved_pdf", fileName)
+                setResult(RESULT_OK, data)
+                finish()
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -153,20 +175,15 @@ class PagesActivity : AppCompatActivity() {
             Toast.makeText(this, "No pages to save", Toast.LENGTH_SHORT).show()
             return
         }
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Preparing export options…"
+        // Export opens as its OWN SCREEN (PdfExportActivity).
         val name = docName ?: "Hakunaa Scan"
-        // The export dialog builds all three quality tiers, shows
-        // each with its real size, and saves the one the user picks.
-        PdfExportDialog.show(this, pages.toList(), name) { fileName, sizeBytes ->
-            val size = FileUtils.formatSize(sizeBytes)
-            status.text = "Done — $fileName saved (${pages.size} page(s), $size)"
-            Toast.makeText(this, "PDF saved ($size)", Toast.LENGTH_LONG).show()
-            val data = Intent()
-            data.putExtra("saved_pdf", fileName)
-            setResult(RESULT_OK, data)
-            finish()
-        }
+        val intent = Intent(this, PdfExportActivity::class.java)
+        intent.putStringArrayListExtra(
+            PdfExportActivity.EXTRA_PAGE_PATHS,
+            ArrayList(pages.map { it.absolutePath })
+        )
+        intent.putExtra(PdfExportActivity.EXTRA_DOC_NAME, name)
+        exportLauncher.launch(intent)
     }
 
     private class PagesAdapter(

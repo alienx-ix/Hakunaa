@@ -46,9 +46,19 @@ import java.util.concurrent.Executors
  *    to save the page.
  * 4. Back here: Single mode asks for the export quality after
  *    one page; Batch mode keeps capturing and asks when saving
- *    all pages as one PDF. The export dialog offers Original
- *    Quality (full camera resolution), Compressed (balanced)
- *    and Extreme Compress (smallest) — each with its real size.
+ *    all pages as one PDF. The export picker is its OWN SCREEN
+ *    (PdfExportActivity) — a dialog would leave the camera
+ *    running and auto-capturing behind it. While the export
+ *    screen is open this activity stops, CameraX releases the
+ *    camera, and no scan runs in the background. The picker
+ *    offers Original Quality (full camera resolution),
+ *    Compressed (balanced) and Extreme Compress (smallest) —
+ *    each with its real size.
+ *
+ * The edge frame is DYNAMIC: EdgeOverlayView draws the
+ * document's real detected corners live on the preview — the
+ * frame follows the book and disappears when no document is
+ * found. No fixed box.
  *
  * Camera quality: MAXIMIZE_QUALITY capture, JPEG 100, and the
  * sensor's full resolution while HD is on (HD off caps at
@@ -132,6 +142,31 @@ class ScannerActivity : AppCompatActivity() {
             // RESULT_ADD_PAGE or back: stay on the camera, pages kept.
         }
 
+    // Export is a separate screen: while it is open this
+    // activity stops and the camera is released — no scan runs
+    // in the background. On save, clear the pages; on cancel,
+    // keep them and leave the Save button visible so the user
+    // can open export again.
+    private val exportLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val status = findViewById<TextView>(R.id.tvStatus)
+            if (result.resultCode == RESULT_OK) {
+                val fileName = result.data?.getStringExtra(PdfExportActivity.EXTRA_FILE_NAME)
+                    ?: "scan.pdf"
+                val sizeBytes = result.data?.getLongExtra(PdfExportActivity.EXTRA_SIZE_BYTES, 0L)
+                    ?: 0L
+                val size = FileUtils.formatSize(sizeBytes)
+                status.text = "Done — scanned PDF saved to Documents/Hakunaa/$fileName (${pages.size} page(s), $size)"
+                Toast.makeText(this, "PDF saved ($size)", Toast.LENGTH_SHORT).show()
+                pages.clear()
+                docName = null
+                updatePagesLabel()
+            } else {
+                status.text = "Save cancelled — ${pages.size} page(s) ready, tap Save as PDF when ready"
+                updatePagesLabel()
+            }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_scanner)
@@ -165,7 +200,7 @@ class ScannerActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.tvModeSingle).setOnClickListener { setMode(Mode.SINGLE) }
         findViewById<TextView>(R.id.tvModeBatch).setOnClickListener { setMode(Mode.BATCH) }
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnSavePdf)
-            .setOnClickListener { openPages() }
+            .setOnClickListener { onSavePdfClicked() }
 
         // Ask for the camera permission the way every app does.
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
@@ -250,10 +285,11 @@ class ScannerActivity : AppCompatActivity() {
             try {
                 val cameraProvider = cameraProviderFuture.get()
                 val preview = Preview.Builder()
-                    // 16:9 fills the tall screen without cropping
-                    // the frame (the preview shows everything the
-                    // camera sees — no zoomed-in look).
-                    .setTargetAspectRatio(AspectRatio.RATIO_16_9)
+                    // The sensor's NATIVE 4:3 aspect — the widest
+                    // field of view, nothing cropped. A 16:9 target
+                    // crops the sensor's frame top and bottom, so
+                    // the screen still looked slightly zoomed in.
+                    .setTargetAspectRatio(AspectRatio.RATIO_4_3)
                     .build().also {
                     it.setSurfaceProvider(findViewById<PreviewView>(R.id.previewView).surfaceProvider)
                 }
@@ -271,9 +307,13 @@ class ScannerActivity : AppCompatActivity() {
                 imageCapture = captureBuilder.build().also {
                     it.flashMode = ImageCapture.FLASH_MODE_AUTO
                 }
-                // Real-time document detection for auto-capture:
-                // analyse a small frame a few times a second.
+                // Real-time document detection for auto-capture
+                // and for the dynamic edge overlay: analyse a
+                // small frame several times a second. 4:3, the
+                // same aspect as the preview, so the detected
+                // corners map exactly onto the preview.
                 val analysis = ImageAnalysis.Builder()
+                    .setTargetAspectRatio(AspectRatio.RATIO_4_3)
                     .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .build()
@@ -293,29 +333,28 @@ class ScannerActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
-    /** The frame guide is a DETECTION indicator, not decoration:
-     *  it appears only while a document's edges are actually found,
-     *  and hides the moment they are lost. A thin light line. */
-    private fun setFrameGuideVisible(visible: Boolean) {
-        runOnUiThread {
-            findViewById<View>(R.id.frameGuide).visibility =
-                if (visible) View.VISIBLE else View.GONE
-        }
-    }
+    /** The dynamic edge overlay lives here: the detected page's
+     *  real corners, drawn live on the preview. It follows the
+     *  book — move the phone and the frame moves with the page —
+     *  and disappears the moment no document is found. */
+    private fun edgeOverlay(): EdgeOverlayView =
+        findViewById(R.id.edgeOverlay)
 
-    /** Analyse one camera frame for auto-capture. Runs on a
-     *  background thread, throttled to about 3 frames a second.
-     *  When a document is detected and its corners stay still for
-     *  3 checks in a row, the page is held correctly — capture it
-     *  automatically, the way professional scanners do. */
+    /** Analyse one camera frame for auto-capture and for the
+     *  dynamic edge overlay. Runs on a background thread,
+     *  throttled to about 6 frames a second so the frame tracks
+     *  the page smoothly. When a document is detected and its
+     *  corners stay still for 3 checks in a row, the page is
+     *  held correctly — capture it automatically, the way
+     *  professional scanners do. */
     private fun analyzeFrame(imageProxy: ImageProxy) {
         try {
             if (!autoCaptureOn || isCapturing) {
-                setFrameGuideVisible(false)
+                edgeOverlay().clear()
                 return
             }
             val now = System.currentTimeMillis()
-            if (now - lastAnalysisMs < 350) return
+            if (now - lastAnalysisMs < 150) return
             if (now - lastCaptureMs < 3000) return
             lastAnalysisMs = now
             val bitmap = imageProxy.toBitmap()
@@ -324,11 +363,16 @@ class ScannerActivity : AppCompatActivity() {
             if (corners == null) {
                 stableFrames = 0
                 lastCorners = null
-                setFrameGuideVisible(false)
+                edgeOverlay().clear()
                 return
             }
-            // A document is in the frame — show the guide.
-            setFrameGuideVisible(true)
+            // A document is in the frame — draw its real edges.
+            edgeOverlay().updateCorners(
+                corners,
+                imageProxy.imageInfo.rotationDegrees,
+                imageProxy.width,
+                imageProxy.height
+            )
             val prev = lastCorners
             if (prev != null) {
                 // How far did the corners move since the last check?
@@ -378,7 +422,7 @@ class ScannerActivity : AppCompatActivity() {
         lastCaptureMs = System.currentTimeMillis()
         stableFrames = 0
         lastCorners = null
-        setFrameGuideVisible(false)
+        edgeOverlay().clear()
         val status = findViewById<TextView>(R.id.tvStatus)
         status.text = "Capturing…"
         val photoFile = File(cacheDir, "scan_capture_${System.currentTimeMillis()}.jpg")
@@ -423,8 +467,21 @@ class ScannerActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.tvPages).text =
             if (pages.isEmpty()) ""
             else "${pages.size} page(s) scanned"
+        // Visible in BOTH modes once a page exists: Batch opens
+        // the Pages screen, Single opens export directly — so
+        // after cancelling export the user can open it again.
         findViewById<View>(R.id.btnSavePdf).visibility =
-            if (pages.isNotEmpty() && mode == Mode.BATCH) View.VISIBLE else View.GONE
+            if (pages.isNotEmpty()) View.VISIBLE else View.GONE
+    }
+
+    /** Save button: Batch reviews pages first, Single goes
+     *  straight to the export screen. */
+    private fun onSavePdfClicked() {
+        if (pages.isEmpty()) {
+            Toast.makeText(this, "Scan at least one page first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (mode == Mode.BATCH) openPages() else saveAsPdf()
     }
 
     /** Batch mode: review, reorder and save all pages. */
@@ -447,18 +504,16 @@ class ScannerActivity : AppCompatActivity() {
             Toast.makeText(this, "Scan at least one page first", Toast.LENGTH_SHORT).show()
             return
         }
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Preparing export options…"
+        // Export opens as its OWN SCREEN (PdfExportActivity).
+        // While it is open this activity stops, CameraX releases
+        // the camera, and no scan runs in the background.
         val name = docName ?: "Hakunaa Scan"
-        // The export dialog builds all three quality tiers, shows
-        // each with its real size, and saves the one the user picks.
-        PdfExportDialog.show(this, pages.toList(), name) { fileName, sizeBytes ->
-            val size = FileUtils.formatSize(sizeBytes)
-            status.text = "Done — scanned PDF saved to Documents/Hakunaa/$fileName (${pages.size} page(s), $size)"
-            Toast.makeText(this, "PDF saved ($size)", Toast.LENGTH_SHORT).show()
-            pages.clear()
-            docName = null
-            updatePagesLabel()
-        }
+        val intent = Intent(this, PdfExportActivity::class.java)
+        intent.putStringArrayListExtra(
+            PdfExportActivity.EXTRA_PAGE_PATHS,
+            ArrayList(pages.map { it.absolutePath })
+        )
+        intent.putExtra(PdfExportActivity.EXTRA_DOC_NAME, name)
+        exportLauncher.launch(intent)
     }
 }

@@ -525,6 +525,24 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   shown, nothing cropped); the frame guide was a static bold box
   (now a thin 3dp light line, hidden until a document's edges
   are actually detected, then it appears).
+- **v0.1.40 (2026-11-13): Professional scanner, three fixes.**
+  (1) DYNAMIC edge frame: the fixed box is gone — new
+  EdgeOverlayView draws the document's REAL detected corners
+  live on the preview (thin teal lines + corner dots + light
+  fill), following the book as it moves; analysis runs ~6x/sec
+  for smooth tracking. Corners are mapped from the analysis
+  buffer (rotation + fitCenter rect). (2) Camera handled
+  correctly: preview + analysis now use the sensor's native
+  4:3 aspect (16:9 cropped the sensor frame, so the screen
+  still looked slightly zoomed) + fitCenter — widest field of
+  view, nothing cropped. (3) Export is now its OWN SCREEN
+  (PdfExportActivity): the v0.1.39 dialog left the camera
+  running and auto-capturing behind it. While the export
+  screen is open the scanner stops and CameraX releases the
+  camera — no background scan. Same 3 tiers with real sizes.
+  Cancel keeps the pages and the Save button stays visible so
+  export can be opened again. PdfExportDialog + its layout
+  deleted.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.
