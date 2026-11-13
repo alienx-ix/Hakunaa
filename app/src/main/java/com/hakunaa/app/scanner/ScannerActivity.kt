@@ -145,10 +145,11 @@ class ScannerActivity : AppCompatActivity() {
     // Full camera quality is the DEFAULT: HD on means the sensor's
     // full resolution, no artificial cap. HD off drops to 1920x1080
     // for users who want smaller files.
-    // Capture quality (v0.1.64, HD picker tiers): "max" =
-    // Full Sensor, no cap; "veryhigh" / "high" / "medium" /
-    // "low" = a 4:3 size from this phone's camera, resolved
-    // by qualityTiers() when the camera binds.
+    // Capture quality (v0.1.65, HD picker tiers): "max" =
+    // Full Sensor = the largest 4:3 size; "veryhigh" /
+    // "high" / "medium" / "low" = a 4:3 size from this
+    // phone's camera, resolved by qualityTiers() when the
+    // camera binds. Only the MP varies — never the aspect.
     private var captureRes = "max"
     private var autoCaptureOn = true
     private var gridOn = false
@@ -807,7 +808,8 @@ class ScannerActivity : AppCompatActivity() {
      *  looks small ("kutty") in the portrait Crop screen,
      *  which is what the user reported after picking a 16:9
      *  size, so 16:9 sizes are never offered here. Full
-     *  Sensor = the sensor's max (no cap). The other tiers
+     *  Sensor = the largest 4:3 size (v0.1.65 — the sensor's
+     *  absolute max can be wide). The other tiers
      *  spread across this phone's real 4:3 sizes by rank, so
      *  they are always distinct and sensibly spaced on any
      *  phone (8MP or 108MP). A tier with no distinct size is
@@ -817,12 +819,11 @@ class ScannerActivity : AppCompatActivity() {
     private data class QualityTier(
         val key: String,
         val name: String,
-        val size: android.util.Size?, // null = Full Sensor (no cap)
+        val size: android.util.Size?, // null = no cap (camera unreadable fallback)
         val best: Boolean = false
     )
 
     private fun qualityTiers(): List<QualityTier> {
-        val tiers = mutableListOf(QualityTier("max", "Full Sensor", null, true))
         val allSizes: List<android.util.Size> = try {
             val manager =
                 getSystemService(Context.CAMERA_SERVICE) as android.hardware.camera2.CameraManager
@@ -830,14 +831,15 @@ class ScannerActivity : AppCompatActivity() {
                 manager.getCameraCharacteristics(id).get(
                     android.hardware.camera2.CameraCharacteristics.LENS_FACING
                 ) == android.hardware.camera2.CameraCharacteristics.LENS_FACING_BACK
-            } ?: return tiers
+            } ?: return listOf(QualityTier("max", "Full Sensor", null, true))
             val chars = manager.getCameraCharacteristics(cameraId)
             val map = chars.get(
                 android.hardware.camera2.CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP
             )
-            map?.getOutputSizes(android.graphics.ImageFormat.JPEG)?.toList() ?: return tiers
+            map?.getOutputSizes(android.graphics.ImageFormat.JPEG)?.toList()
+                ?: return listOf(QualityTier("max", "Full Sensor", null, true))
         } catch (e: Exception) {
-            return tiers
+            return listOf(QualityTier("max", "Full Sensor", null, true))
         }
         // 4:3 only, at least 1280 wide, biggest first.
         val sizes43 = allSizes
@@ -847,12 +849,19 @@ class ScannerActivity : AppCompatActivity() {
             }
             .distinct()
             .sortedByDescending { it.width * it.height }
-        if (sizes43.isEmpty()) return tiers
-        // The sensor's max size: if it is 4:3 it IS Full
-        // Sensor, so keep it out of the tier picks — no
-        // duplicate row for the same size.
-        val maxSize = allSizes.maxByOrNull { it.width * it.height }
-        val avail = sizes43.filter { it != maxSize }
+        if (sizes43.isEmpty()) {
+            return listOf(QualityTier("max", "Full Sensor", null, true))
+        }
+        // Full Sensor = the LARGEST 4:3 size (v0.1.65). The
+        // sensor's absolute max can be a wide (16:9) size, and
+        // a wide photo looks small ("kutty") in the portrait
+        // Crop screen — the user measured it even in Full
+        // Sensor and said only the QUALITY should vary, never
+        // the framing. So every tier is 4:3; only the MP
+        // changes. (On most phones the largest 4:3 IS the
+        // sensor max, so nothing is lost there.)
+        val tiers = mutableListOf(QualityTier("max", "Full Sensor", sizes43[0], true))
+        val avail = sizes43.drop(1)
         if (avail.isEmpty()) return tiers
         // Spread the four tiers across the list by rank.
         fun at(frac: Double): android.util.Size {
@@ -936,23 +945,22 @@ class ScannerActivity : AppCompatActivity() {
                 // at the sensor's full resolution with full processing
                 // (MINIMIZE_LATENCY used the fast, lower-quality path),
                 // JPEG quality 100. The capture resolution comes
-                // from the HD picker (v0.1.64 quality tiers):
-                // "max" = no cap (Full Sensor), otherwise the
-                // tier's 4:3 size — applied as the target
-                // resolution. Unknown key = no cap (safe).
+                // from the HD picker (v0.1.65 quality tiers):
+                // every tier is a 4:3 size (Full Sensor = the
+                // largest 4:3) — applied as the target
+                // resolution. Unknown key / unreadable camera
+                // = no cap (safe fallback).
                 val captureBuilder = ImageCapture.Builder()
                     .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
                     .setJpegQuality(100)
                     .setTargetRotation(Surface.ROTATION_0)
-                when (captureRes) {
-                    "max" -> { /* no cap — full sensor */ }
-                    else -> {
-                        val size = qualityTiers()
-                            .firstOrNull { it.key == captureRes }?.size
-                        if (size != null) {
-                            captureBuilder.setTargetResolution(size)
-                        }
-                    }
+                // Every tier (incl. Full Sensor) resolves to its
+                // 4:3 size; a null size (camera unreadable) or
+                // an unknown key means no cap — safe fallback.
+                val tierSize = qualityTiers()
+                    .firstOrNull { it.key == captureRes }?.size
+                if (tierSize != null) {
+                    captureBuilder.setTargetResolution(tierSize)
                 }
                 imageCapture = captureBuilder.build().also {
                     it.flashMode = ImageCapture.FLASH_MODE_AUTO

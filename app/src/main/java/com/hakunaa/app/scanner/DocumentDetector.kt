@@ -161,14 +161,18 @@ object DocumentDetector {
         val rough = quadFromMask(textureMask, gray, w, h, threshold)
         if (rough != null) {
             val refined = snapQuadOutward(gray, w, h, rough)
-            if (refined != null && isRealDocument(gray, stdMap, w, h, refined, threshold)) {
+            if (refined != null && isConvexQuad(refined) &&
+                isRealDocument(gray, stdMap, w, h, refined, threshold)
+            ) {
                 return scaleQuad(refined, scale, bitmap.width, bitmap.height)
             }
         }
         // Fallback: the plain bright-mask detector (v0.1.41-53).
         val brightMask = BooleanArray(w * h) { i -> gray[i] > threshold }
         val quad = quadFromMask(brightMask, gray, w, h, threshold)
-        if (quad != null && isRealDocument(gray, stdMap, w, h, quad, threshold)) {
+        if (quad != null && isConvexQuad(quad) &&
+            isRealDocument(gray, stdMap, w, h, quad, threshold)
+        ) {
             return scaleQuad(quad, scale, bitmap.width, bitmap.height)
         }
         // Last fallback (v0.1.56): the HOUGH path for a coloured
@@ -177,10 +181,37 @@ object DocumentDetector {
         // boundary by its edges (colour-independent) and takes
         // the OUTERMOST strong lines as the border.
         val houghQuad = houghQuad(gray, w, h)
-        if (houghQuad != null) {
+        if (houghQuad != null && isConvexQuad(houghQuad)) {
             return scaleQuad(houghQuad, scale, bitmap.width, bitmap.height)
         }
         return null
+    }
+
+    /** A quad is valid only if it is convex: all four turns
+     *  go the same way. A crossed (bowtie) quad — which the
+     *  detector can produce on a busy patterned background
+     *  (the user hit one on a woven mat) — has mixed turn
+     *  signs and must be rejected, or the Crop frame is
+     *  undraggable nonsense. A cyclic order in either
+     *  direction passes, so real documents are unaffected. */
+    private fun isConvexQuad(pts: FloatArray): Boolean {
+        var sign = 0
+        for (i in 0 until 4) {
+            val x1 = pts[i * 2]; val y1 = pts[i * 2 + 1]
+            val x2 = pts[((i + 1) % 4) * 2]; val y2 = pts[((i + 1) % 4) * 2 + 1]
+            val x3 = pts[((i + 2) % 4) * 2]; val y3 = pts[((i + 2) % 4) * 2 + 1]
+            val cross = (x2 - x1) * (y3 - y2) - (y2 - y1) * (x3 - x2)
+            val s = when {
+                cross > 0 -> 1
+                cross < 0 -> -1
+                else -> 0
+            }
+            if (s != 0) {
+                if (sign == 0) sign = s
+                else if (sign != s) return false
+            }
+        }
+        return sign != 0
     }
 
     /** A quad is a real document only when BOTH hold: its interior

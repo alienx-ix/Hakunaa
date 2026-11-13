@@ -83,6 +83,12 @@ class CropView @JvmOverloads constructor(
     fun setCorners(c: FloatArray) {
         if (c.size != 8) return
         c.copyInto(corners)
+        // Order the corners TL / TR / BR / BL (v0.1.65): the
+        // detector can hand back a crossed (bowtie) quad on a
+        // busy patterned background, and a bowtie frame is
+        // undraggable nonsense — reordering the same four
+        // points by sum/difference always gives a valid quad.
+        orderCorners(corners)
         // Keep every handle on screen (v0.1.55, raised to 4%
         // in v0.1.58): a corner on the very edge of the photo
         // puts its circle half off the screen, where a finger
@@ -109,6 +115,27 @@ class CropView @JvmOverloads constructor(
     }
 
     fun getCorners(): FloatArray = corners.copyOf()
+
+    companion object {
+        /** Sort 4 points into TL, TR, BR, BL order (v0.1.65).
+         *  TL = smallest x+y, BR = largest x+y, TR = largest
+         *  x-y, BL = smallest x-y. Any 4 points reordered this
+         *  way form a non-crossing quad. */
+        fun orderCorners(pts: FloatArray) {
+            if (pts.size != 8) return
+            val tl = (0 until 4).minByOrNull { pts[it * 2] + pts[it * 2 + 1] }!!
+            val br = (0 until 4).maxByOrNull { pts[it * 2] + pts[it * 2 + 1] }!!
+            val tr = (0 until 4).maxByOrNull { pts[it * 2] - pts[it * 2 + 1] }!!
+            val bl = (0 until 4).minByOrNull { pts[it * 2] - pts[it * 2 + 1] }!!
+            val ordered = floatArrayOf(
+                pts[tl * 2], pts[tl * 2 + 1],
+                pts[tr * 2], pts[tr * 2 + 1],
+                pts[br * 2], pts[br * 2 + 1],
+                pts[bl * 2], pts[bl * 2 + 1]
+            )
+            ordered.copyInto(pts)
+        }
+    }
 
     private fun updateMatrix() {
         val bmp = bitmap ?: return
