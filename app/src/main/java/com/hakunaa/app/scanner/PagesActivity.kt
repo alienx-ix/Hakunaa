@@ -88,6 +88,7 @@ class PagesActivity : AppCompatActivity() {
 
         adapter = PagesAdapter(
             pages,
+            onOpen = { index -> openPreview(index) },
             onRotate = { index -> rotatePage(index) },
             onDelete = { index ->
                 try { pages[index].delete() } catch (_: Throwable) { }
@@ -148,6 +149,17 @@ class PagesActivity : AppCompatActivity() {
             (docName ?: "Scanned Pages") + " (${pages.size}) • ${FileUtils.formatSize(totalBytes)}"
     }
 
+    // Tap a page and it opens full-screen (pinch to zoom,
+    // double-tap to zoom in/out), so the user can read it and
+    // check the scan before saving the PDF.
+    private fun openPreview(index: Int) {
+        val file = pages[index]
+        val intent = Intent(this, PagePreviewActivity::class.java)
+        intent.putExtra(PagePreviewActivity.EXTRA_PAGE_PATH, file.absolutePath)
+        intent.putExtra(PagePreviewActivity.EXTRA_PAGE_LABEL, "Page ${index + 1}")
+        startActivity(intent)
+    }
+
     private fun rotatePage(index: Int) {
         val file = pages[index]
         Thread {
@@ -188,6 +200,7 @@ class PagesActivity : AppCompatActivity() {
 
     private class PagesAdapter(
         private val pages: List<File>,
+        private val onOpen: (Int) -> Unit,
         private val onRotate: (Int) -> Unit,
         private val onDelete: (Int) -> Unit
     ) : RecyclerView.Adapter<PagesAdapter.PageViewHolder>() {
@@ -218,6 +231,11 @@ class PagesActivity : AppCompatActivity() {
                 } catch (_: Throwable) {
                 }
             }.start()
+            // Tap the card (or its thumbnail) to preview it
+            // full-screen; the rotate/delete buttons keep their
+            // own actions (they consume the tap first).
+            holder.itemView.setOnClickListener { onOpen(holder.adapterPosition) }
+            holder.thumb.setOnClickListener { onOpen(holder.adapterPosition) }
             holder.btnRotate.setOnClickListener { onRotate(holder.adapterPosition) }
             holder.btnDelete.setOnClickListener { onDelete(holder.adapterPosition) }
         }

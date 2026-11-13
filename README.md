@@ -629,23 +629,25 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   ValueAnimator on the UI thread (60 fps, vsync); full means
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
-- **v0.1.44 camera + Pages fixes (same build).** Pages crashed
-  on open — Batch PDF save and the Book Scan Pages button both
-  hit it: R8 stripped RecyclerView's (Context, AttributeSet)
-  constructor (the one layout inflation uses), so PagesActivity
-  died with NoSuchMethodException on inflate. Fixed with a
-  keep rule for the whole RecyclerView package, in both
-  proguard copies — the same class of bug as PreviewView and
-  NestedScrollView before it. Book Scan is redesigned for
-  landscape: the controls (Close, Torch, Single/Double, the
-  capture button, Pages, Save) now live in a narrow strip on
-  the RIGHT side, so the preview fills the whole screen — no
-  top/bottom bars squeezing it into a small window, and
-  nothing overlaps the status bar. The status line is a small
-  overlay at the bottom of the preview. The A/B letters are
-  smaller and lighter (they were covering the book's text),
-  and the spine handle's grip is now two outward triangles
-  (the two bars read as a pause icon).
+- **v0.1.45 auto-capture hold + Book Scan two strips (same build).**
+  Auto capture fired too fast: the ring started the instant the
+  document looked stable, before the user had framed it. Now
+  the page must sit still for 1.5 s first (the steady hold),
+  and only then does the ring run for the chosen delay
+  (2 / 3 / 5 s). Book Scan is split into two side strips, so it
+  reads like a real camera app: the LEFT strip holds the file
+  actions (Close, Pages with the count, Save PDF) and the RIGHT
+  strip holds the shooting actions (Torch, Single / Double, the
+  big capture button). The strip buttons are wider now (140 dp)
+  with smaller text, so "Pages (0)" and "Save PDF" sit on one
+  line instead of wrapping. And a full-screen page preview:
+  tapping a page in the Pages screen (after capture, where
+  Page 1, 2, 3… are shown) now opens it full-screen, so the
+  user can read it and check the scan before saving the PDF —
+  pinch to zoom (up to 4x), drag to pan when zoomed,
+  double-tap to toggle between fit and 2x. The page is
+  downsampled to ~2048 px for the preview, so a full-res phone
+  photo never blows up memory, and it stays sharp at 2x.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

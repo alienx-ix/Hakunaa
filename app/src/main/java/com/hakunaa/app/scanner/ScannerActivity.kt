@@ -125,6 +125,11 @@ class ScannerActivity : AppCompatActivity() {
     private var lastAnalysisMs = 0L
     private var lastCaptureMs = 0L
     private var autoCaptureDelayMs = 3000L
+
+    // The document must sit still this long before the capture
+    // ring even starts — otherwise auto capture fires the
+    // moment the page appears, before the user has framed it.
+    private val STEADY_HOLD_MS = 1500L
     // Tap-to-focus + brightness: the exposure offset the user
     // set with the on-screen slider (saved, so it stays the
     // next time the scanner opens), and the pending hide
@@ -778,6 +783,16 @@ class ScannerActivity : AppCompatActivity() {
                 runOnUiThread {
                     findViewById<TextView>(R.id.tvStatus).text = "Document found — hold steady…"
                 }
+            }
+            // Still too soon: the page has only just stopped
+            // moving. Wait for the steady hold to pass before
+            // the ring starts, so the capture doesn't fire the
+            // instant the document appears. (The ring itself
+            // still runs for the chosen delay — 2 / 3 / 5 s —
+            // after the hold.)
+            if (now - steadyStartMs < STEADY_HOLD_MS) {
+                cancelCaptureRing()
+                return
             }
             // The ring fills smoothly on its own (a ValueAnimator
             // on the UI thread); full means capture. The analysis

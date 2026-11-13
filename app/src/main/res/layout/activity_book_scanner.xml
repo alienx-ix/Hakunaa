@@ -2,10 +2,15 @@
 <!-- Book Scan — landscape. The phone is held sideways so both
      pages of an open book fit side by side; the dashed spine
      line splits them into A (left) and B (right).
-     The controls live in a narrow strip on the RIGHT side
-     (capture button included), so the preview fills the whole
-     screen — no top/bottom bars squeezing it into a small
-     window, and nothing overlaps the status bar. -->
+     Two narrow control strips leave the preview filling the
+     whole screen — no top/bottom bars squeezing it, and
+     nothing overlaps the status bar.
+       LEFT strip — the file actions: Close, then Pages (with
+       the count) and Save PDF at the bottom.
+       RIGHT strip — the shooting actions: Torch, Single /
+       Double, then the big capture button at the bottom.
+     Both strips are transparent, so the preview shows through
+     around the buttons. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -40,15 +45,11 @@
         android:textColor="#FFFFFF"
         android:textSize="13sp" />
 
-    <!-- Right-side control strip — Close, Torch, Single/Double,
-         then the capture button, Pages and Save. Transparent,
-         so the preview shows through around the buttons. It
-         eats touches on its empty areas (clickable) so a stray
-         drag there never moves the spine line. -->
+    <!-- LEFT strip — file actions. -->
     <LinearLayout
-        android:layout_width="120dp"
+        android:layout_width="140dp"
         android:layout_height="match_parent"
-        android:layout_gravity="end"
+        android:layout_gravity="start"
         android:clickable="true"
         android:orientation="vertical"
         android:padding="12dp">
@@ -63,12 +64,42 @@
             android:src="@drawable/ic_arrow_back"
             android:tint="#FFFFFF" />
 
+        <View
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnPages"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="Pages (0)"
+            android:textSize="14sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnSavePdf"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:text="Save PDF"
+            android:textSize="14sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- RIGHT strip — shooting actions. -->
+    <LinearLayout
+        android:layout_width="140dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="end"
+        android:clickable="true"
+        android:orientation="vertical"
+        android:padding="12dp">
+
         <ImageButton
             android:id="@+id/btnTorch"
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:layout_gravity="center_horizontal"
-            android:layout_marginTop="12dp"
             android:background="@android:color/transparent"
             android:contentDescription="Torch"
             android:src="@drawable/ic_flash_off" />
@@ -124,21 +155,6 @@
             android:layout_gravity="center_horizontal"
             android:background="@drawable/capture_button"
             android:contentDescription="Capture" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnPages"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:layout_marginTop="12dp"
-            android:text="Pages (0)" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnSavePdf"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:layout_marginTop="8dp"
-            android:text="Save PDF"
-            android:visibility="gone" />
     </LinearLayout>
 
 </FrameLayout>
