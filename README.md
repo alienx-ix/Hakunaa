@@ -629,26 +629,15 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   ValueAnimator on the UI thread (60 fps, vsync); full means
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
-- **v0.1.49 professional batch workflow + professional++ polish (same build).**
-  Referenced CamScanner, Adobe Scan and Microsoft Lens: the
-  professional batch flow is capture → crop → next capture
-  with the camera staying live, and the filters picked once
-  at the end for the whole batch. That is now Hakunaa's
-  Batch flow: after the crop, the page goes straight back to
-  the camera for the next capture (no filter screen per
-  page); on Save, the Enhance screen opens for the first page
-  with "Apply to all pages" already ticked, so one filter
-  choice covers the whole batch, and then the export screen.
-  Single is unchanged (capture → crop → filter → save).
-  "Apply to all pages" is the CamScanner-style choice — one
-  page or all pages, decided by the checkbox — and the
-  current page is no longer encoded twice when it is ticked.
-  Professional++ look: the scanner's top-bar buttons are
-  proper round dark buttons (like Book Scan), the Single /
-  Batch mode tabs are real segmented pills (the selected one
-  is a teal pill with white text), and the Enhance bottom bar
-  is complete — Markup, Extract Text and Sign now have
-  matching greyed icons instead of bare grey text.
+- **v0.1.50 grid fixed (same build).** The grid was the
+  worst — the v0.1.48 fix had gone too far the other way:
+  every line was a thick dark bar (3.5dp black) with a white
+  stripe, plus a border around the whole area, so on a white
+  page it read as a heavy black table over the document. Now
+  the lines are hairlines — a faint dark under-stroke (just
+  enough to define the line on white paper) with a thin
+  white line on top — and the border is gone entirely, the
+  way CamScanner's grid reads: a framing aid, not a table.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

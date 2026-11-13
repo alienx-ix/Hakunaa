@@ -9,16 +9,21 @@ import android.view.View
 
 /**
  * Rule-of-thirds grid over the camera preview — the framing
- * aid professional camera apps have. Two vertical and two
- * horizontal lines, plus a border, drawn inside the preview's
- * 4:3 content rect (the fitCenter image area, not the black
- * bars around it), so the user can line the page up straight.
+ * aid professional camera apps have. Two thin vertical and
+ * two thin horizontal lines, drawn inside the preview's 4:3
+ * content rect (the fitCenter image area, not the black bars
+ * around it), so the user can line the page up straight.
  * Toggled from the Grid button; off by default.
  *
- * A plain white line is invisible on a white page, so every
- * line is drawn twice — a dark under-stroke, then a white
- * over-stroke on top. The grid stays visible on a bright
- * document and on a dark background alike.
+ * The lines must be THIN and subtle — a framing aid, not a
+ * table. The earlier version drew each line as a thick dark
+ * bar (3.5dp black) with a white stripe, plus a border
+ * around the whole area; on a white page that read as a
+ * heavy black grid, which the user called the worst. Now
+ * each line is a hairline: a faint dark under-stroke (just
+ * enough to define it on white paper) with a thin white
+ * line on top, and no border at all — the way CamScanner's
+ * grid reads.
  */
 class GridOverlayView @JvmOverloads constructor(
     context: Context,
@@ -29,14 +34,14 @@ class GridOverlayView @JvmOverloads constructor(
 
     private val darkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.BLACK
-        alpha = 170
-        strokeWidth = 3.5f * density
+        alpha = 80
+        strokeWidth = 1.5f * density
     }
 
     private val lightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
-        alpha = 235
-        strokeWidth = 1.5f * density
+        alpha = 200
+        strokeWidth = 1f * density
     }
 
     private fun line(canvas: Canvas, x1: Float, y1: Float, x2: Float, y2: Float) {
@@ -56,10 +61,8 @@ class GridOverlayView @JvmOverloads constructor(
         val top = (h - contentH) / 2f
         val right = left + contentW
         val bottom = top + contentH
-        // Border, so the framing area reads clearly.
-        canvas.drawRect(left, top, right, bottom, darkPaint)
-        canvas.drawRect(left, top, right, bottom, lightPaint)
-        // Thirds.
+        // Thirds only — no border. A border around the framing
+        // area made the grid read as a table over the page.
         val x1 = left + contentW / 3f
         val x2 = left + contentW * 2f / 3f
         val y1 = top + contentH / 3f
