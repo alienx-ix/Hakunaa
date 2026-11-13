@@ -113,6 +113,17 @@ class SpineLineView @JvmOverloads constructor(
         style = Paint.Style.FILL
     }
 
+    /** Corner brackets — the framing corners professional
+     *  scanners draw around the area the book should fill
+     *  (CamScanner's Book mode). Four white L-shapes at the
+     *  corners of the camera image, drawn on top. */
+    private val cornerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        style = Paint.Style.STROKE
+        strokeWidth = 3f * density
+        strokeCap = Paint.Cap.SQUARE
+    }
+
     private var downX = 0f
     private var downY = 0f
     private var dragging = false
@@ -218,5 +229,21 @@ class SpineLineView @JvmOverloads constructor(
         }
         canvas.drawPath(leftTri, gripPaint)
         canvas.drawPath(rightTri, gripPaint)
+        // Corner brackets at the four corners of the camera
+        // image — the framing corners.
+        val arm = 36f * density
+        val inset = 10f * density
+        fun corner(cx: Float, cy: Float, dx: Float, dy: Float) {
+            val path = Path().apply {
+                moveTo(cx + dx * arm, cy)
+                lineTo(cx, cy)
+                lineTo(cx, cy + dy * arm)
+            }
+            canvas.drawPath(path, cornerPaint)
+        }
+        corner(r.left + inset, r.top + inset, 1f, 1f)
+        corner(r.right - inset, r.top + inset, -1f, 1f)
+        corner(r.left + inset, r.bottom - inset, 1f, -1f)
+        corner(r.right - inset, r.bottom - inset, -1f, -1f)
     }
 }

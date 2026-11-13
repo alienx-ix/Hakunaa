@@ -51,6 +51,16 @@
         android:layout_height="200dp"
         android:visibility="gone" />
 
+    <!-- Spirit level — the bubble level, shown only when the
+         setting is on. Below the top bar, centred. -->
+    <com.hakunaa.app.scanner.SpiritLevelView
+        android:id="@+id/spiritLevel"
+        android:layout_width="200dp"
+        android:layout_height="28dp"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="72dp"
+        android:visibility="gone" />
+
     <!-- Top bar -->
     <LinearLayout
         android:layout_width="match_parent"

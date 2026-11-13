@@ -4,9 +4,17 @@ import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.Manifest
+import android.app.Dialog
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.graphics.RectF
 import android.net.Uri
 import android.os.Bundle
@@ -17,8 +25,11 @@ import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.switchmaterial.SwitchMaterial
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.Camera
@@ -33,7 +44,6 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlin.math.abs
 import com.hakunaa.app.R
 import com.hakunaa.app.core.FileUtils
@@ -165,8 +175,37 @@ class ScannerActivity : AppCompatActivity() {
         private const val PREF_AUTO_CAPTURE_DELAY_MS = "auto_capture_delay_ms"
         private const val PREF_EXPOSURE_INDEX = "exposure_index"
         private const val PREF_GRID_ON = "grid_on"
-        private val DELAY_OPTIONS_MS = longArrayOf(2000L, 3000L, 5000L)
-        private val DELAY_OPTIONS_LABELS = arrayOf("2 seconds", "3 seconds", "5 seconds")
+        private const val PREF_AUTO_CAPTURE_ON = "auto_capture_on"
+        private const val PREF_SOUND_ON = "sound_on"
+        private const val PREF_SPIRIT_LEVEL_ON = "spirit_level_on"
+        private const val PREF_ORIENTATION = "orientation"
+        private const val ORIENTATION_AUTO = "auto"
+        private const val ORIENTATION_LANDSCAPE = "landscape"
+        private const val ORIENTATION_PORTRAIT = "portrait"
+    }
+
+    // Settings (the CamScanner-style panel, opened from the
+    // top-bar menu): the shutter sound, the spirit level, and
+    // the screen orientation — all saved, so they stay.
+    private var soundOn = true
+    private var spiritLevelOn = false
+    private var orientation = ORIENTATION_AUTO
+    private var sensorManager: SensorManager? = null
+    private var levelSensor: Sensor? = null
+    private var smoothRoll = 0f
+    private val levelListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            val x = event.values[0]
+            val y = event.values[1]
+            val z = event.values[2]
+            val roll = SpiritLevelView.rollFromAccelerometer(x, y, z)
+            // Low-pass: the bubble must not jitter with every
+            // hand tremor.
+            smoothRoll += 0.25f * (roll - smoothRoll)
+            findViewById<SpiritLevelView>(R.id.spiritLevel).setRoll(smoothRoll)
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
     }
 
     private fun prefs(): SharedPreferences =
@@ -262,7 +301,7 @@ class ScannerActivity : AppCompatActivity() {
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnHd)
             .setOnClickListener { toggleHd() }
         findViewById<ImageButton>(R.id.btnMenu).setOnClickListener {
-            showDelayDialog()
+            showSettingsDialog()
         }
         // Bottom row, left: the Grid lines for framing.
         findViewById<LinearLayout>(R.id.btnGrid).setOnClickListener { toggleGrid() }
@@ -294,8 +333,36 @@ class ScannerActivity : AppCompatActivity() {
         // Saved grid state (the bottom-row setting).
         gridOn = prefs().getBoolean(PREF_GRID_ON, false)
         updateGridButton()
+        // Saved Settings-panel choices.
+        autoCaptureOn = prefs().getBoolean(PREF_AUTO_CAPTURE_ON, true)
+        updateAutoCaptureButton()
+        soundOn = prefs().getBoolean(PREF_SOUND_ON, true)
+        spiritLevelOn = prefs().getBoolean(PREF_SPIRIT_LEVEL_ON, false)
+        orientation = prefs().getString(PREF_ORIENTATION, ORIENTATION_AUTO) ?: ORIENTATION_AUTO
+        applyOrientation()
+        updateSpiritLevel()
+        // A rotation (or the system killing the activity) must
+        // not lose the pages already captured.
+        savedInstanceState?.getStringArrayList("page_paths")?.let { paths ->
+            pages.clear()
+            pages.addAll(paths.map { File(it) }.filter { it.exists() })
+        }
+        savedInstanceState?.getString("doc_name")?.let { docName = it }
+        savedInstanceState?.getString("mode")?.let {
+            try { mode = Mode.valueOf(it) } catch (_: Throwable) { }
+        }
+        if (pages.isNotEmpty()) setMode(mode)
         setupTapToFocus()
         updatePagesLabel()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putStringArrayList(
+            "page_paths", ArrayList(pages.map { it.absolutePath })
+        )
+        outState.putString("doc_name", docName)
+        outState.putString("mode", mode.name)
     }
 
     override fun onResume() {
@@ -306,6 +373,7 @@ class ScannerActivity : AppCompatActivity() {
         // recreated surface. Rebind fresh on every resume so
         // the camera always comes back.
         if (!cameraBound) startCamera()
+        startSpiritLevel()
     }
 
     override fun onPause() {
@@ -320,6 +388,43 @@ class ScannerActivity : AppCompatActivity() {
         try {
             cameraProvider?.unbindAll()
         } catch (_: Throwable) {
+        }
+        stopSpiritLevel()
+    }
+
+    /** The spirit level only listens while this screen is
+     *  visible and the setting is on — a sensor listener left
+     *  running in the background would burn battery. */
+    private fun startSpiritLevel() {
+        if (!spiritLevelOn) return
+        if (sensorManager == null) {
+            sensorManager = getSystemService(SENSOR_SERVICE) as? SensorManager
+            levelSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        }
+        val sensor = levelSensor ?: return
+        try {
+            sensorManager?.registerListener(
+                levelListener, sensor, SensorManager.SENSOR_DELAY_UI
+            )
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun stopSpiritLevel() {
+        try {
+            sensorManager?.unregisterListener(levelListener)
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun updateSpiritLevel() {
+        val view = findViewById<SpiritLevelView>(R.id.spiritLevel)
+        view.visibility = if (spiritLevelOn) View.VISIBLE else View.GONE
+        if (spiritLevelOn) {
+            smoothRoll = 0f
+            startSpiritLevel()
+        } else {
+            stopSpiritLevel()
         }
     }
 
@@ -373,15 +478,45 @@ class ScannerActivity : AppCompatActivity() {
             if (torchOn) "Torch on" else "Torch off"
     }
 
-    /** Scanner menu: how long to hold the document steady
-     *  before auto-capture fires (2 / 3 / 5 seconds). Saved,
-     *  so it stays the next time the scanner opens. */
-    /** Grid lines on/off — the framing aid. The state is
-     *  saved, so it stays as the user left it. */
-    private fun toggleGrid() {
-        gridOn = !gridOn
-        prefs().edit().putBoolean(PREF_GRID_ON, gridOn).apply()
+    /** Auto capture on/off. The top-bar AUTO button and the
+     *  Settings panel control the same state — it is saved,
+     *  so it stays as the user left it. */
+    private fun setAutoCapture(on: Boolean) {
+        autoCaptureOn = on
+        prefs().edit().putBoolean(PREF_AUTO_CAPTURE_ON, on).apply()
+        steadyStartMs = 0
+        lastCorners = null
+        smoothCorners = null
+        cancelCaptureRing()
+        updateAutoCaptureButton()
+    }
+
+    private fun updateAutoCaptureButton() {
+        val btn = findViewById<MaterialButton>(R.id.btnAuto)
+        btn.setTextColor(
+            if (autoCaptureOn) getColor(R.color.hakunaa_teal)
+            else getColor(android.R.color.white)
+        )
+        btn.strokeColor = android.content.res.ColorStateList.valueOf(
+            if (autoCaptureOn) getColor(R.color.hakunaa_teal)
+            else getColor(android.R.color.white)
+        )
+        findViewById<TextView>(R.id.tvStatus).text =
+            if (autoCaptureOn) "Auto capture on — hold the page steady"
+            else "Auto capture off — tap Capture yourself"
+    }
+
+    /** Grid lines on/off — the framing aid. The bottom-row
+     *  Grid button and the Settings panel control the same
+     *  state — it is saved, so it stays as the user left it. */
+    private fun setGrid(on: Boolean) {
+        gridOn = on
+        prefs().edit().putBoolean(PREF_GRID_ON, on).apply()
         updateGridButton()
+    }
+
+    private fun toggleGrid() {
+        setGrid(!gridOn)
     }
 
     private fun updateGridButton() {
@@ -392,38 +527,151 @@ class ScannerActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.tvGridLabel).setTextColor(color)
     }
 
-    private fun showDelayDialog() {
-        val checked = DELAY_OPTIONS_MS.indexOf(autoCaptureDelayMs).coerceAtLeast(1)
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Auto capture delay")
-            .setSingleChoiceItems(DELAY_OPTIONS_LABELS, checked) { dialog, which ->
-                autoCaptureDelayMs = DELAY_OPTIONS_MS[which]
-                prefs().edit().putLong(PREF_AUTO_CAPTURE_DELAY_MS, autoCaptureDelayMs).apply()
-                Toast.makeText(
-                    this,
-                    "Auto capture delay: ${DELAY_OPTIONS_LABELS[which]}",
-                    Toast.LENGTH_SHORT
-                ).show()
-                dialog.dismiss()
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+    private fun toggleAutoCapture() {
+        setAutoCapture(!autoCaptureOn)
     }
 
-    private fun toggleAutoCapture() {
-        autoCaptureOn = !autoCaptureOn
-        steadyStartMs = 0
-        lastCorners = null
-        smoothCorners = null
-        cancelCaptureRing()
-        val btn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnAuto)
-        btn.setTextColor(
-            if (autoCaptureOn) getColor(R.color.hakunaa_teal)
-            else getColor(android.R.color.white)
-        )
-        findViewById<TextView>(R.id.tvStatus).text =
-            if (autoCaptureOn) "Auto capture on — hold the page steady"
-            else "Auto capture off — tap Capture yourself"
+    /** The screen orientation from the Settings panel: Auto
+     *  (follow the phone), Landscape, or Portrait. Saved, so
+     *  it stays. Changing it recreates this screen — the
+     *  pages already captured are restored from the saved
+     *  state, so nothing is lost. */
+    private fun setOrientation(value: String) {
+        orientation = value
+        prefs().edit().putString(PREF_ORIENTATION, value).apply()
+        applyOrientation()
+    }
+
+    private fun applyOrientation() {
+        requestedOrientation = when (orientation) {
+            ORIENTATION_LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            ORIENTATION_PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            else -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+
+    /** The Settings panel — the CamScanner-style menu the
+     *  top-bar button opens: Auto Capture, Orientation, Grid,
+     *  Sound, Spirit Level, and More Settings. A dark rounded
+     *  card over the dimmed preview. Every row is a real
+     *  setting that takes effect at once. */
+    private fun showSettingsDialog() {
+        val view = layoutInflater.inflate(R.layout.dialog_scanner_settings, null)
+        val dialog = Dialog(this)
+        dialog.setContentView(view)
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        dialog.setCancelable(true)
+
+        val swAuto = view.findViewById<SwitchMaterial>(R.id.swAutoCapture)
+        val tvAutoState = view.findViewById<TextView>(R.id.tvAutoCaptureState)
+        val swGrid = view.findViewById<SwitchMaterial>(R.id.swGrid)
+        val tvGridState = view.findViewById<TextView>(R.id.tvGridState)
+        val swSound = view.findViewById<SwitchMaterial>(R.id.swSound)
+        val tvSoundState = view.findViewById<TextView>(R.id.tvSoundState)
+        val swLevel = view.findViewById<SwitchMaterial>(R.id.swSpiritLevel)
+        val tvLevelState = view.findViewById<TextView>(R.id.tvSpiritLevelState)
+        val tvOrientationState = view.findViewById<TextView>(R.id.tvOrientationState)
+        val btnAuto = view.findViewById<MaterialButton>(R.id.btnOrientationAuto)
+        val btnLandscape = view.findViewById<MaterialButton>(R.id.btnOrientationLandscape)
+        val btnPortrait = view.findViewById<MaterialButton>(R.id.btnOrientationPortrait)
+
+        fun refreshStates() {
+            swAuto.isChecked = autoCaptureOn
+            tvAutoState.text = if (autoCaptureOn) "On" else "Off"
+            swGrid.isChecked = gridOn
+            tvGridState.text = if (gridOn) "On" else "Off"
+            swSound.isChecked = soundOn
+            tvSoundState.text = if (soundOn) "On" else "Off"
+            swLevel.isChecked = spiritLevelOn
+            tvLevelState.text = if (spiritLevelOn) "On" else "Off"
+            tvOrientationState.text = when (orientation) {
+                ORIENTATION_LANDSCAPE -> "Landscape"
+                ORIENTATION_PORTRAIT -> "Portrait"
+                else -> "Auto"
+            }
+            val teal = getColor(R.color.hakunaa_teal)
+            val grey = getColor(android.R.color.darker_gray)
+            fun styleOrientationButton(btn: MaterialButton, selected: Boolean) {
+                btn.backgroundTintList =
+                    android.content.res.ColorStateList.valueOf(
+                        if (selected) teal else Color.parseColor("#33FFFFFF")
+                    )
+                btn.setTextColor(getColor(android.R.color.white))
+                btn.strokeColor = android.content.res.ColorStateList.valueOf(
+                    if (selected) teal else grey
+                )
+            }
+            styleOrientationButton(btnAuto, orientation == ORIENTATION_AUTO)
+            styleOrientationButton(btnLandscape, orientation == ORIENTATION_LANDSCAPE)
+            styleOrientationButton(btnPortrait, orientation == ORIENTATION_PORTRAIT)
+        }
+        refreshStates()
+
+        swAuto.setOnCheckedChangeListener { _, checked ->
+            setAutoCapture(checked)
+            refreshStates()
+        }
+        swGrid.setOnCheckedChangeListener { _, checked ->
+            setGrid(checked)
+            refreshStates()
+        }
+        swSound.setOnCheckedChangeListener { _, checked ->
+            soundOn = checked
+            prefs().edit().putBoolean(PREF_SOUND_ON, checked).apply()
+            refreshStates()
+        }
+        swLevel.setOnCheckedChangeListener { _, checked ->
+            spiritLevelOn = checked
+            prefs().edit().putBoolean(PREF_SPIRIT_LEVEL_ON, checked).apply()
+            updateSpiritLevel()
+            refreshStates()
+        }
+        btnAuto.setOnClickListener { setOrientation(ORIENTATION_AUTO); refreshStates() }
+        btnLandscape.setOnClickListener { setOrientation(ORIENTATION_LANDSCAPE); refreshStates() }
+        btnPortrait.setOnClickListener { setOrientation(ORIENTATION_PORTRAIT); refreshStates() }
+
+        view.findViewById<ImageButton>(R.id.btnCloseSettings)
+            .setOnClickListener { dialog.dismiss() }
+        view.findViewById<TextView>(R.id.tvMoreSettings).setOnClickListener {
+            dialog.dismiss()
+            showMoreSettingsDialog()
+        }
+        dialog.show()
+    }
+
+    /** More Settings — the second page of the Settings panel:
+     *  how long to hold the document steady before
+     *  auto-capture fires (2 / 3 / 5 seconds), and HD. */
+    private fun showMoreSettingsDialog() {
+        val view = layoutInflater.inflate(R.layout.dialog_more_settings, null)
+        val dialog = Dialog(this)
+        dialog.setContentView(view)
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        dialog.setCancelable(true)
+
+        val rgDelay = view.findViewById<RadioGroup>(R.id.rgDelay)
+        val checkedId = when (autoCaptureDelayMs) {
+            2000L -> R.id.rbDelay2
+            5000L -> R.id.rbDelay5
+            else -> R.id.rbDelay3
+        }
+        rgDelay.check(checkedId)
+        rgDelay.setOnCheckedChangeListener { _, id ->
+            autoCaptureDelayMs = when (id) {
+                R.id.rbDelay2 -> 2000L
+                R.id.rbDelay5 -> 5000L
+                else -> 3000L
+            }
+            prefs().edit().putLong(PREF_AUTO_CAPTURE_DELAY_MS, autoCaptureDelayMs).apply()
+        }
+        val swHd = view.findViewById<SwitchMaterial>(R.id.swHd)
+        swHd.isChecked = hdOn
+        swHd.setOnCheckedChangeListener { _, checked ->
+            if (checked != hdOn) toggleHd()
+        }
+        view.findViewById<ImageButton>(R.id.btnCloseMoreSettings)
+            .setOnClickListener { dialog.dismiss() }
+        dialog.show()
     }
 
     private fun toggleHd() {
@@ -904,6 +1152,8 @@ class ScannerActivity : AppCompatActivity() {
         status.text = "Capturing…"
         val photoFile = File(cacheDir, "scan_capture_${System.currentTimeMillis()}.jpg")
         val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+        // The shutter click — only when the Sound setting is on.
+        ShutterSound.play(this)
         capture.takePicture(
             outputOptions,
             ContextCompat.getMainExecutor(this),

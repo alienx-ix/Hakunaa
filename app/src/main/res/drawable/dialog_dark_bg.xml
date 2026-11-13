@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dark rounded card for the scanner's Settings / More
+     Settings dialogs — the CamScanner-style panel. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#E6222222" />
+    <corners android:radius="16dp" />
+</shape>

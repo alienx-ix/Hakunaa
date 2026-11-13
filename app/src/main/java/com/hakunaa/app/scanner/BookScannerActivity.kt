@@ -427,6 +427,8 @@ class BookScannerActivity : AppCompatActivity() {
         status.text = "Capturing…"
         val photoFile = File(cacheDir, "book_capture_${System.currentTimeMillis()}.jpg")
         val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+        // The shutter click — only when the Sound setting is on.
+        ShutterSound.play(this)
         capture.takePicture(
             outputOptions,
             ContextCompat.getMainExecutor(this),

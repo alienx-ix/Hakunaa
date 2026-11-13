@@ -629,15 +629,23 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   ValueAnimator on the UI thread (60 fps, vsync); full means
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
-- **v0.1.50 grid fixed (same build).** The grid was the
-  worst — the v0.1.48 fix had gone too far the other way:
-  every line was a thick dark bar (3.5dp black) with a white
-  stripe, plus a border around the whole area, so on a white
-  page it read as a heavy black table over the document. Now
-  the lines are hairlines — a faint dark under-stroke (just
-  enough to define the line on white paper) with a thin
-  white line on top — and the border is gone entirely, the
-  way CamScanner's grid reads: a framing aid, not a table.
+- **v0.1.51 CamScanner-style Settings panel + Book corner brackets + shutter sound (same build).**
+  The top-bar menu now opens a proper Settings panel (a
+  dark rounded card, like CamScanner's): Auto Capture, Grid,
+  Sound and Spirit Level are real toggles, Orientation is
+  Auto / Landscape / Portrait, and More Settings holds the
+  auto-capture delay (2 / 3 / 5 seconds) and HD. The Sound
+  toggle plays the camera shutter click on every capture
+  (main scanner and Book Scan); off means silent. The Spirit
+  Level shows a bubble level over the preview — the bubble
+  slides with the phone's tilt and turns teal when the phone
+  is level (within 2 degrees), so the page is framed
+  straight. Changing the orientation recreates the screen,
+  but the pages already captured are restored, so nothing is
+  lost. Book Scan is more professional now: four white
+  corner brackets frame the book area, the way CamScanner's
+  Book mode does. The grid is already the CamScanner style
+  from v0.1.50 (thin hairlines, no border).
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.
