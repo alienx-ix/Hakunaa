@@ -167,12 +167,13 @@
                 android:textSize="16sp" />
         </LinearLayout>
 
-        <!-- Capture row: the necessary settings on the left
-             (Grid lines for framing, Filter for the scan look),
-             the capture button in the middle, Import Images on
-             the right. All Features is gone (it did nothing but
-             a "coming soon" toast) and Import Files is gone (it
-             opened the same image picker as Import Images). -->
+        <!-- Capture row: Grid lines on the left (the framing
+             aid), the capture button in the middle, Import Images
+             on the right. All Features is gone (it did nothing
+             but a "coming soon" toast), Import Files is gone (it
+             opened the same image picker as Import Images), and
+             the scan filter is gone (unwanted — the filter is
+             picked in Enhance, after the capture). -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -201,30 +202,6 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
                     android:text="Grid"
-                    android:textColor="#FFFFFF"
-                    android:textSize="11sp" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/btnFilter"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
-                android:gravity="center"
-                android:orientation="vertical">
-
-                <ImageView
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:src="@drawable/ic_filter"
-                    android:tint="#FFFFFF" />
-
-                <TextView
-                    android:id="@+id/tvFilterLabel"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="Enhance"
                     android:textColor="#FFFFFF"
                     android:textSize="11sp" />
             </LinearLayout>

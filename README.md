@@ -629,29 +629,22 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   ValueAnimator on the UI thread (60 fps, vsync); full means
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
-- **v0.1.47 Enhance Adjust + Apply to all + Book Scan + scanner row (same build).**
-  Enhance screen: tapping a filter now opens an Adjust panel
-  below the filters (Brightness −100..100, Contrast 0.5–2.0,
-  Sharpness 0–100, with Reset and close), applied on top of
-  the chosen filter; the preview is a ≤1200 px copy so a
-  filter tap or a slider move updates at once, while the save
-  still uses the full-resolution page. "Apply to all pages"
-  appears when the batch already has other pages — on save,
-  the same filter + adjustments are re-encoded into every
-  page's file, so the whole document looks the same. Book
-  Scan: the capture button is now centred on the right, the
-  Torch is a proper round button, Single / Double are real
-  segmented buttons (the selected one is a teal pill), and the
-  left strip has a Filter button — the chosen filter is
-  applied to EVERY page captured (and remembered, shared with
-  the main scanner, so it is one setting). Main scanner
-  bottom row: All Features is gone (it did nothing) and
-  Import Files is gone (it opened the same picker as Import
-  Images); the left now holds the necessary settings — Grid
-  (rule-of-thirds lines over the preview, saved) and Filter
-  (the scan look, so every captured page opens in Enhance
-  with it already selected) — and Import Images stays on the
-  right.
+- **v0.1.48 scan filter removed + Adjust behind a menu + better grid (same build).**
+  The scan filter is gone — it was unwanted: the Filter
+  button is removed from the scanner's bottom row and from
+  Book Scan's left strip, and the filter is picked only in
+  Enhance, after the capture (the default is still Enhance).
+  The Adjust panel NEVER opens on its own now: after a
+  capture the Enhance screen looks like CamScanner's (filter
+  strip + bottom bar only), and an Adjust menu button (a
+  sliders icon) in the bottom bar opens the panel — it turns
+  teal while the panel is open, and the panel's close button
+  hides it again. The grid is fixed so it can actually be
+  seen: a plain white line was invisible on white paper, so
+  every line is now drawn twice — a dark under-stroke, then a
+  white over-stroke — plus a border around the framing area,
+  so the grid reads on a bright document and on a dark
+  background alike.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

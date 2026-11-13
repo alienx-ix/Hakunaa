@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sliders / tune icon — the Adjust menu button in the
+     Enhance screen. Three lines, each with a knob. (Vector
+     drawables only support <path>, so the knobs are circle
+     paths, not <circle> elements.) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M3,7h18v2H3z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M3,12h18v2H3z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M3,17h18v2H3z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M11.4,8a2.6,2.6 0 1,0 5.2,0a2.6,2.6 0 1,0 -5.2,0" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M6.4,13a2.6,2.6 0 1,0 5.2,0a2.6,2.6 0 1,0 -5.2,0" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M13.4,18a2.6,2.6 0 1,0 5.2,0a2.6,2.6 0 1,0 -5.2,0" />
+</vector>

@@ -48,7 +48,6 @@ class EnhanceActivity : AppCompatActivity() {
         const val EXTRA_IMAGE_PATH = "image_path"
         const val EXTRA_ENHANCED_PATH = "enhanced_path"
         const val EXTRA_PAGE_PATHS = "page_paths"
-        const val EXTRA_SCAN_FILTER = "scan_filter"
     }
 
     private var bitmap: Bitmap? = null
@@ -76,15 +75,6 @@ class EnhanceActivity : AppCompatActivity() {
         val name = "Hakunaa " + SimpleDateFormat("dd-MM-yyyy HH.mm", Locale.getDefault()).format(Date())
         findViewById<EditText>(R.id.etDocName).setText(name)
 
-        // The scan filter chosen on the camera screen (if any) —
-        // every captured page opens with it already selected.
-        try {
-            val filterName = intent.getStringExtra(EXTRA_SCAN_FILTER)
-            if (filterName != null) {
-                selectedFilter = ImageEnhancer.Filter.valueOf(filterName)
-            }
-        } catch (_: Throwable) {
-        }
         pagePaths = intent.getStringArrayListExtra(EXTRA_PAGE_PATHS) ?: emptyList()
         if (pagePaths.isNotEmpty()) {
             findViewById<View>(R.id.applyAllRow).visibility = View.VISIBLE
@@ -125,9 +115,13 @@ class EnhanceActivity : AppCompatActivity() {
 
         findViewById<LinearLayout>(R.id.btnRotateLeft).setOnClickListener { rotateLeft() }
         findViewById<ImageButton>(R.id.btnSave).setOnClickListener { save() }
+        // Adjust opens ONLY from its menu button — never on its
+        // own after a capture. The panel stays hidden until the
+        // user asks for it.
+        findViewById<LinearLayout>(R.id.btnAdjust).setOnClickListener { toggleAdjustPanel() }
         findViewById<TextView>(R.id.btnAdjustReset).setOnClickListener { resetAdjustments() }
         findViewById<TextView>(R.id.btnAdjustClose).setOnClickListener {
-            findViewById<View>(R.id.adjustPanel).visibility = View.GONE
+            setAdjustPanelVisible(false)
         }
         setupAdjustSliders()
     }
@@ -150,9 +144,9 @@ class EnhanceActivity : AppCompatActivity() {
     private fun applyFilterToPreview(filter: ImageEnhancer.Filter) {
         val bmp = previewBitmap ?: return
         selectedFilter = filter
-        // The Adjust panel opens when a filter is tapped, the
-        // way professional apps do it.
-        findViewById<View>(R.id.adjustPanel).visibility = View.VISIBLE
+        // The Adjust panel does NOT open here — a filter tap
+        // only changes the filter. The panel opens only from
+        // its own menu button.
         val generation = ++previewGeneration
         Thread {
             try {
@@ -176,6 +170,22 @@ class EnhanceActivity : AppCompatActivity() {
             } catch (_: Throwable) {
             }
         }.start()
+    }
+
+    /** Show or hide the Adjust panel, and tint its menu
+     *  button teal while it is open. */
+    private fun setAdjustPanelVisible(visible: Boolean) {
+        findViewById<View>(R.id.adjustPanel).visibility =
+            if (visible) View.VISIBLE else View.GONE
+        val color = if (visible) getColor(R.color.hakunaa_teal)
+            else getColor(android.R.color.white)
+        findViewById<ImageView>(R.id.ivAdjustIcon).setColorFilter(color)
+        findViewById<TextView>(R.id.tvAdjustLabel).setTextColor(color)
+    }
+
+    private fun toggleAdjustPanel() {
+        val panel = findViewById<View>(R.id.adjustPanel)
+        setAdjustPanelVisible(panel.visibility != View.VISIBLE)
     }
 
     /** Recompute the preview with the current filter +

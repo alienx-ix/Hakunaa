@@ -5,9 +5,8 @@
      Two narrow control strips leave the preview filling the
      whole screen — no top/bottom bars squeezing it, and
      nothing overlaps the status bar.
-       LEFT strip — the file actions: Close, Filter (the scan
-       look, applied to every page), then Pages (with the
-       count) and Save PDF at the bottom.
+       LEFT strip — the file actions: Close, then Pages (with
+       the count) and Save PDF at the bottom.
        RIGHT strip — the shooting actions: Torch as a proper
        round button, Single / Double as real segmented
        buttons, then the big capture button at the centre. -->
@@ -63,14 +62,6 @@
             android:contentDescription="Close"
             android:src="@drawable/ic_arrow_back"
             android:tint="#FFFFFF" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnFilter"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:layout_marginTop="12dp"
-            android:text="Enhance"
-            android:textSize="12sp" />
 
         <View
             android:layout_width="0dp"
