@@ -1,5 +1,8 @@
 package com.hakunaa.app.scanner
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
 import android.Manifest
 import android.content.Intent
 import android.content.SharedPreferences
@@ -9,6 +12,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.MotionEvent
 import android.view.View
+import android.view.animation.LinearInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
@@ -47,8 +51,8 @@ import java.util.concurrent.TimeUnit
  *    Images / Import Files. AUTO capture: when a document is held
  *    steady in the frame, the app captures it by itself — the way
  *    professional scanners do it (toggle AUTO in the top bar).
- *    While it is held steady a countdown bar on the side fills
- *    like a charge; full means capture. The hold time is
+ *    While it is held steady a ring around the capture button
+ *    fills smoothly; full means capture. The hold time is
  *    adjustable in the menu (2 / 3 / 5 seconds, default 3).
  *    The live edge frame (EdgeOverlayView) draws the document's
  *    real detected corners on the preview, following the page.
@@ -344,7 +348,7 @@ class ScannerActivity : AppCompatActivity() {
         steadyStartMs = 0
         lastCorners = null
         smoothCorners = null
-        countdownBar().setProgress(-1f)
+        cancelCaptureRing()
         val btn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnAuto)
         btn.setTextColor(
             if (autoCaptureOn) getColor(R.color.hakunaa_teal)
@@ -485,8 +489,50 @@ class ScannerActivity : AppCompatActivity() {
     /** The countdown bar lives here: it fills like a charge
      *  while the document is held steady, and hides when there
      *  is nothing to count down. */
-    private fun countdownBar(): CountdownBarView =
-        findViewById(R.id.countdownBar)
+    private fun captureRing(): CaptureRingView =
+        findViewById(R.id.captureRing)
+
+    /** The auto-capture ring, driven by a smooth animator
+     *  (not by the analysis): when the hold starts, the ring
+     *  fills over the user's delay; full means capture. The
+     *  animator runs on the UI thread (60 fps, vsync), so the
+     *  ring moves smoothly — the old bar was driven by the
+     *  analysis ~6 times a second, which is why it lagged. */
+    private var captureAnimator: ValueAnimator? = null
+    private var ringCancelled = false
+
+    private fun startCaptureRing() {
+        runOnUiThread {
+            if (captureAnimator?.isRunning == true) return@runOnUiThread
+            val animator = ValueAnimator.ofFloat(0f, 1f)
+            animator.duration = autoCaptureDelayMs
+            animator.interpolator = LinearInterpolator()
+            animator.addUpdateListener {
+                captureRing().setProgress(it.animatedValue as Float)
+            }
+            animator.addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    // A cancelled ring (the hold broke) must not fire.
+                    if (!ringCancelled) {
+                        findViewById<TextView>(R.id.tvStatus).text = "Document found — capturing…"
+                        capturePhoto()
+                    }
+                }
+            })
+            ringCancelled = false
+            captureAnimator = animator
+            animator.start()
+        }
+    }
+
+    private fun cancelCaptureRing() {
+        runOnUiThread {
+            ringCancelled = true
+            captureAnimator?.cancel()
+            captureAnimator = null
+            captureRing().setProgress(-1f)
+        }
+    }
 
 
     /** Tap to focus, the way a real camera works: tap anywhere
@@ -644,16 +690,19 @@ class ScannerActivity : AppCompatActivity() {
      *  dynamic edge overlay. Runs on a background thread,
      *  throttled to about 6 frames a second so the frame tracks
      *  the page smoothly. When a document is detected and its
-     *  corners stay still, the countdown bar fills over the
-     *  user's hold time (menu: 2 / 3 / 5 seconds); full means
-     *  the page is held correctly — capture it automatically,
-     *  the way professional scanners do. */
+     *  corners stay still, the capture ring around the capture
+     *  button fills smoothly over the user's hold time (menu:
+     *  2 / 3 / 5 seconds); full means the page is held
+     *  correctly — capture it automatically, the way
+     *  professional scanners do. The ring is driven by a
+     *  ValueAnimator, so the analysis only starts and stops
+     *  it — it never drives a frame. */
     private fun analyzeFrame(imageProxy: ImageProxy) {
         try {
             if (!autoCaptureOn || isCapturing) {
                 smoothCorners = null
                 edgeOverlay().clear()
-                countdownBar().setProgress(-1f)
+                cancelCaptureRing()
                 return
             }
             val now = System.currentTimeMillis()
@@ -673,7 +722,7 @@ class ScannerActivity : AppCompatActivity() {
                 lastCorners = null
                 smoothCorners = null
                 edgeOverlay().clear()
-                countdownBar().setProgress(-1f)
+                cancelCaptureRing()
                 return
             }
             lastDetectMs = now
@@ -718,30 +767,23 @@ class ScannerActivity : AppCompatActivity() {
                 stable = maxMove < 25f
             }
             if (!stable) {
-                // Moved — the hold starts over, the bar empties.
+                // Moved — the hold starts over, the ring empties.
                 steadyStartMs = 0
-                countdownBar().setProgress(0f)
+                cancelCaptureRing()
                 return
             }
             val justStarted = steadyStartMs == 0L
-            if (justStarted) steadyStartMs = now
-            val progress = ((now - steadyStartMs).toFloat() / autoCaptureDelayMs)
-                .coerceIn(0f, 1f)
-            countdownBar().setProgress(progress)
             if (justStarted) {
+                steadyStartMs = now
                 runOnUiThread {
                     findViewById<TextView>(R.id.tvStatus).text = "Document found — hold steady…"
                 }
             }
-            if (progress >= 1f) {
-                steadyStartMs = 0
-                lastCorners = null
-                countdownBar().setProgress(-1f)
-                runOnUiThread {
-                    findViewById<TextView>(R.id.tvStatus).text = "Document found — capturing…"
-                    capturePhoto()
-                }
-            }
+            // The ring fills smoothly on its own (a ValueAnimator
+            // on the UI thread); full means capture. The analysis
+            // only starts it — it never drives a frame, so the
+            // old bar's lag is gone.
+            startCaptureRing()
         } catch (_: Throwable) {
             // Analysis must never crash the camera.
         } finally {
@@ -763,7 +805,7 @@ class ScannerActivity : AppCompatActivity() {
         lastCorners = null
         smoothCorners = null
         edgeOverlay().clear()
-        countdownBar().setProgress(-1f)
+        cancelCaptureRing()
         hideFocusUi()
         val status = findViewById<TextView>(R.id.tvStatus)
         status.text = "Capturing…"

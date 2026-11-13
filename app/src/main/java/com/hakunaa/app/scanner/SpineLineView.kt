@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.DashPathEffect
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.util.AttributeSet
@@ -92,16 +93,16 @@ class SpineLineView @JvmOverloads constructor(
 
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
-        alpha = 80
-        textSize = 110f * density
+        alpha = 60
+        textSize = 72f * density
         textAlign = Paint.Align.CENTER
         typeface = Typeface.DEFAULT_BOLD
     }
 
     private val labelSelectedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#00BFA5")
-        alpha = 170
-        textSize = 110f * density
+        alpha = 140
+        textSize = 72f * density
         textAlign = Paint.Align.CENTER
         typeface = Typeface.DEFAULT_BOLD
     }
@@ -198,10 +199,24 @@ class SpineLineView @JvmOverloads constructor(
         val hy = r.centerY()
         canvas.drawCircle(sx, hy, handleR, handlePaint)
         canvas.drawCircle(sx, hy, handleR, handleRingPaint)
-        val barW = 3f * density
-        val barH = 18f * density
-        val gap = 5f * density
-        canvas.drawRect(sx - gap - barW, hy - barH / 2f, sx - gap, hy + barH / 2f, gripPaint)
-        canvas.drawRect(sx + gap, hy - barH / 2f, sx + gap + barW, hy + barH / 2f, gripPaint)
+        // Grip: two small triangles pointing outward — the
+        // handle drags the split sideways. (Two bars read as a
+        // pause icon.)
+        val tri = 6f * density
+        val gap = 4f * density
+        val leftTri = Path().apply {
+            moveTo(sx - gap - tri, hy)
+            lineTo(sx - gap, hy - tri)
+            lineTo(sx - gap, hy + tri)
+            close()
+        }
+        val rightTri = Path().apply {
+            moveTo(sx + gap + tri, hy)
+            lineTo(sx + gap, hy - tri)
+            lineTo(sx + gap, hy + tri)
+            close()
+        }
+        canvas.drawPath(leftTri, gripPaint)
+        canvas.drawPath(rightTri, gripPaint)
     }
 }

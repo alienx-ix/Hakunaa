@@ -48,6 +48,15 @@
 # .NestedScrollView"). Same class of bug as PreviewView.
 # Keep the whole widget package; it is small.
 -keep class androidx.core.widget.** { *; }
+# RecyclerView — the Pages screen's list is referenced from
+# activity_pages.xml. R8 cannot see XML references, so it
+# removed RecyclerView's (Context, AttributeSet) constructor
+# and opening Pages crashed with NoSuchMethodException on
+# inflate (v0.1.43: "Error inflating class
+# androidx.recyclerview.widget.RecyclerView"). Same class of
+# bug as PreviewView and NestedScrollView.
+-keep class androidx.recyclerview.widget.** { *; }
+
 
 # The app's own code — all of it.
 -keep class com.hakunaa.app.** { *; }

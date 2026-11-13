@@ -25,17 +25,6 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Auto-capture countdown bar — fills like a charge while
-         the document is held steady; full means capture. Shown
-         only while a document is detected and AUTO is on. -->
-    <com.hakunaa.app.scanner.CountdownBarView
-        android:id="@+id/countdownBar"
-        android:layout_width="12dp"
-        android:layout_height="180dp"
-        android:layout_gravity="center_vertical|end"
-        android:layout_marginEnd="16dp"
-        android:visibility="gone" />
-
     <!-- Tap-to-focus ring — appears at the tap point, fades.
          Positioned in code, centred on the tap. -->
     <ImageView
@@ -82,8 +71,7 @@
             android:layout_height="40dp"
             android:background="@android:color/transparent"
             android:contentDescription="Flash"
-            android:src="@drawable/ic_flash_off"
-            android:tint="#FFFFFF" />
+            android:src="@drawable/ic_flash_off" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnAuto"
@@ -207,13 +195,28 @@
                 android:layout_height="0dp"
                 android:layout_weight="1" />
 
-            <!-- Big round capture button -->
-            <ImageButton
-                android:id="@+id/btnCapture"
-                android:layout_width="72dp"
-                android:layout_height="72dp"
-                android:background="@drawable/capture_button"
-                android:contentDescription="Capture" />
+            <!-- Big round capture button, with the auto-capture
+                 ring around it (fills smoothly while the page is
+                 held steady; full means capture). -->
+            <FrameLayout
+                android:layout_width="96dp"
+                android:layout_height="96dp"
+                android:layout_gravity="center">
+
+                <com.hakunaa.app.scanner.CaptureRingView
+                    android:id="@+id/captureRing"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:visibility="gone" />
+
+                <ImageButton
+                    android:id="@+id/btnCapture"
+                    android:layout_width="72dp"
+                    android:layout_height="72dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/capture_button"
+                    android:contentDescription="Capture" />
+            </FrameLayout>
 
             <View
                 android:layout_width="0dp"

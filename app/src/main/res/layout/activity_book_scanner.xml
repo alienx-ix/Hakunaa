@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Book Scan — landscape. The phone is held sideways so both
      pages of an open book fit side by side; the dashed spine
-     line splits them into A (left) and B (right). -->
+     line splits them into A (left) and B (right).
+     The controls live in a narrow strip on the RIGHT side
+     (capture button included), so the preview fills the whole
+     screen — no top/bottom bars squeezing it into a small
+     window, and nothing overlaps the status bar. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -20,57 +24,68 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Top bar -->
-    <LinearLayout
-        android:layout_width="match_parent"
+    <!-- Status line — overlaid at the bottom of the preview,
+         so it never covers the book or squeezes the screen. -->
+    <TextView
+        android:id="@+id/tvStatus"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="top"
-        android:orientation="horizontal"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="16dp"
+        android:shadowColor="#CC000000"
+        android:shadowDx="0"
+        android:shadowDy="1"
+        android:shadowRadius="4"
+        android:text="Point the camera at an open book — both pages at once"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp" />
+
+    <!-- Right-side control strip — Close, Torch, Single/Double,
+         then the capture button, Pages and Save. Transparent,
+         so the preview shows through around the buttons. It
+         eats touches on its empty areas (clickable) so a stray
+         drag there never moves the spine line. -->
+    <LinearLayout
+        android:layout_width="120dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="end"
+        android:clickable="true"
+        android:orientation="vertical"
         android:padding="12dp">
 
         <ImageButton
             android:id="@+id/btnClose"
             android:layout_width="40dp"
             android:layout_height="40dp"
+            android:layout_gravity="center_horizontal"
             android:background="@android:color/transparent"
             android:contentDescription="Close"
             android:src="@drawable/ic_arrow_back"
             android:tint="#FFFFFF" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center_vertical"
-            android:layout_marginStart="12dp"
-            android:text="Book Scan"
-            android:textColor="#FFFFFF"
-            android:textSize="18sp"
-            android:textStyle="bold" />
-
-        <View
-            android:layout_width="0dp"
-            android:layout_height="0dp"
-            android:layout_weight="1" />
-
         <ImageButton
             android:id="@+id/btnTorch"
             android:layout_width="40dp"
             android:layout_height="40dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="12dp"
             android:background="@android:color/transparent"
             android:contentDescription="Torch"
-            android:src="@drawable/ic_flash_off"
-            android:tint="#FFFFFF" />
+            android:src="@drawable/ic_flash_off" />
 
-        <!-- Single / Double toggle — Double captures both pages
-             at once (A then B), Single captures one tapped page. -->
+        <!-- Single / Double — stacked, so it fits the strip.
+             Double captures both pages at once (A then B),
+             Single captures one tapped page. -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="center_vertical"
-            android:layout_marginStart="8dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="12dp"
             android:background="@drawable/mode_tabs_bg"
             android:gravity="center"
-            android:orientation="horizontal"
+            android:orientation="vertical"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
             android:paddingTop="8dp"
             android:paddingBottom="8dp">
 
@@ -78,8 +93,8 @@
                 android:id="@+id/tvSingle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
                 android:text="Single"
                 android:textColor="#FFFFFF"
                 android:textSize="16sp" />
@@ -88,83 +103,42 @@
                 android:id="@+id/tvDouble"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
                 android:text="Double"
                 android:textColor="#00BFA5"
                 android:textSize="16sp"
                 android:textStyle="bold" />
         </LinearLayout>
-    </LinearLayout>
 
-    <!-- Bottom bar -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:background="#000000"
-        android:orientation="vertical"
-        android:paddingBottom="12dp">
+        <View
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
 
-        <TextView
-            android:id="@+id/tvStatus"
+        <!-- Big round capture button -->
+        <ImageButton
+            android:id="@+id/btnCapture"
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:layout_gravity="center_horizontal"
+            android:background="@drawable/capture_button"
+            android:contentDescription="Capture" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnPages"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center"
-            android:text="Point the camera at an open book — both pages at once"
-            android:textColor="#B0B0B0"
-            android:textSize="13sp" />
+            android:layout_height="48dp"
+            android:layout_marginTop="12dp"
+            android:text="Pages (0)" />
 
-        <LinearLayout
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnSavePdf"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="48dp"
             android:layout_marginTop="8dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingStart="24dp"
-            android:paddingEnd="24dp">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnPages"
-                android:layout_width="wrap_content"
-                android:layout_height="48dp"
-                android:text="Pages (0)" />
-
-            <View
-                android:layout_width="0dp"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
-
-            <!-- Big round capture button -->
-            <ImageButton
-                android:id="@+id/btnCapture"
-                android:layout_width="72dp"
-                android:layout_height="72dp"
-                android:background="@drawable/capture_button"
-                android:contentDescription="Capture" />
-
-            <View
-                android:layout_width="0dp"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnSavePdf"
-                android:layout_width="wrap_content"
-                android:layout_height="48dp"
-                android:text="Save PDF"
-                android:visibility="gone" />
-        </LinearLayout>
-
-        <TextView
-            android:id="@+id/tvPages"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center"
-            android:text=""
-            android:textColor="#00BFA5"
-            android:textSize="13sp"
-            android:textStyle="bold" />
+            android:text="Save PDF"
+            android:visibility="gone" />
     </LinearLayout>
 
 </FrameLayout>

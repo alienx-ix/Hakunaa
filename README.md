@@ -617,6 +617,35 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   phone — global support. Torch, tap-to-focus and brightness
   are also guarded now: a phone that does not support one just
   skips it instead of breaking the camera.
+- **v0.1.44 (2026-11-13): proper torch icon + smooth capture
+  ring (replaces the lagging bar).** The torch icon was wrong
+  — it was a CAMERA body, not a torch. It is now a real
+  flashlight: white when off, teal with light rays when on
+  (both scanner screens). The auto-capture countdown bar is
+  GONE — it lagged because the analysis drove it ~6 times a
+  second, so it moved in jerky steps and made the whole
+  scanner feel laggy. Its alternate: a smooth ring around the
+  big capture button (camera-timer style), driven by a
+  ValueAnimator on the UI thread (60 fps, vsync); full means
+  capture. The analysis only starts and stops the ring — it
+  never drives a frame. CountdownBarView is deleted.
+- **v0.1.44 camera + Pages fixes (same build).** Pages crashed
+  on open — Batch PDF save and the Book Scan Pages button both
+  hit it: R8 stripped RecyclerView's (Context, AttributeSet)
+  constructor (the one layout inflation uses), so PagesActivity
+  died with NoSuchMethodException on inflate. Fixed with a
+  keep rule for the whole RecyclerView package, in both
+  proguard copies — the same class of bug as PreviewView and
+  NestedScrollView before it. Book Scan is redesigned for
+  landscape: the controls (Close, Torch, Single/Double, the
+  capture button, Pages, Save) now live in a narrow strip on
+  the RIGHT side, so the preview fills the whole screen — no
+  top/bottom bars squeezing it into a small window, and
+  nothing overlaps the status bar. The status line is a small
+  overlay at the bottom of the preview. The A/B letters are
+  smaller and lighter (they were covering the book's text),
+  and the spine handle's grip is now two outward triangles
+  (the two bars read as a pause icon).
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

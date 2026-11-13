@@ -1,10 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Torch ON — a teal flashlight with light rays. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M7,2v2H4c-1.1,0 -2,0.9 -2,2v12c0,1.1 0.9,2 2,2h16c1.1,0 2,-0.9 2,-2V6c0,-1.1 -0.9,-2 -2,-2h-3V2H7zM12,17c-2.76,0 -5,-2.24 -5,-5s2.24,-5 5,-5 5,2.24 5,5 -2.24,5 -5,5zM12,11c-1.1,0 -2,0.9 -2,2s0.9,2 2,2 2,-0.9 2,-2 -0.9,-2 -2,-2zM17,2v2h-2V2h2z" />
+        android:fillColor="#00BFA5"
+        android:pathData="M8,6 L16,6 L15,12 L9,12 Z" />
+    <path
+        android:fillColor="#00BFA5"
+        android:pathData="M10,12 h4 v9 a1,1 0 0 1 -1,1 h-2 a1,1 0 0 1 -1,-1 z" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#00BFA5"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:pathData="M12,4.5 L12,1.5" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#00BFA5"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:pathData="M8.5,4.5 L6.5,2" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#00BFA5"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:pathData="M15.5,4.5 L17.5,2" />
 </vector>

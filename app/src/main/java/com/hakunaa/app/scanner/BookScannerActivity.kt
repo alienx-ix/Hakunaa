@@ -449,9 +449,6 @@ class BookScannerActivity : AppCompatActivity() {
     }
 
     private fun updateLabels() {
-        findViewById<TextView>(R.id.tvPages).text =
-            if (pages.isEmpty()) ""
-            else "${pages.size} page(s) scanned"
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnPages).text =
             "Pages (${pages.size})"
         findViewById<View>(R.id.btnSavePdf).visibility =
