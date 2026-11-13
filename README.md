@@ -629,22 +629,26 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   ValueAnimator on the UI thread (60 fps, vsync); full means
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
-- **v0.1.48 scan filter removed + Adjust behind a menu + better grid (same build).**
-  The scan filter is gone — it was unwanted: the Filter
-  button is removed from the scanner's bottom row and from
-  Book Scan's left strip, and the filter is picked only in
-  Enhance, after the capture (the default is still Enhance).
-  The Adjust panel NEVER opens on its own now: after a
-  capture the Enhance screen looks like CamScanner's (filter
-  strip + bottom bar only), and an Adjust menu button (a
-  sliders icon) in the bottom bar opens the panel — it turns
-  teal while the panel is open, and the panel's close button
-  hides it again. The grid is fixed so it can actually be
-  seen: a plain white line was invisible on white paper, so
-  every line is now drawn twice — a dark under-stroke, then a
-  white over-stroke — plus a border around the framing area,
-  so the grid reads on a bright document and on a dark
-  background alike.
+- **v0.1.49 professional batch workflow + professional++ polish (same build).**
+  Referenced CamScanner, Adobe Scan and Microsoft Lens: the
+  professional batch flow is capture → crop → next capture
+  with the camera staying live, and the filters picked once
+  at the end for the whole batch. That is now Hakunaa's
+  Batch flow: after the crop, the page goes straight back to
+  the camera for the next capture (no filter screen per
+  page); on Save, the Enhance screen opens for the first page
+  with "Apply to all pages" already ticked, so one filter
+  choice covers the whole batch, and then the export screen.
+  Single is unchanged (capture → crop → filter → save).
+  "Apply to all pages" is the CamScanner-style choice — one
+  page or all pages, decided by the checkbox — and the
+  current page is no longer encoded twice when it is ticked.
+  Professional++ look: the scanner's top-bar buttons are
+  proper round dark buttons (like Book Scan), the Single /
+  Batch mode tabs are real segmented pills (the selected one
+  is a teal pill with white text), and the Enhance bottom bar
+  is complete — Markup, Extract Text and Sign now have
+  matching greyed icons instead of bare grey text.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

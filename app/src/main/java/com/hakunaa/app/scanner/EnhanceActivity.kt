@@ -48,10 +48,15 @@ class EnhanceActivity : AppCompatActivity() {
         const val EXTRA_IMAGE_PATH = "image_path"
         const val EXTRA_ENHANCED_PATH = "enhanced_path"
         const val EXTRA_PAGE_PATHS = "page_paths"
+        // Start with "Apply to all pages" already ticked — the
+        // batch end step, where one filter choice covers the
+        // whole batch.
+        const val EXTRA_APPLY_ALL_CHECKED = "apply_all_checked"
     }
 
     private var bitmap: Bitmap? = null
     private var previewBitmap: Bitmap? = null
+    private var imagePath: String? = null
     private var selectedFilter = ImageEnhancer.Filter.ENHANCE
     private var currentPreview: Bitmap? = null
     // A tap on a filter starts a background preview pass; a
@@ -76,10 +81,17 @@ class EnhanceActivity : AppCompatActivity() {
         findViewById<EditText>(R.id.etDocName).setText(name)
 
         pagePaths = intent.getStringArrayListExtra(EXTRA_PAGE_PATHS) ?: emptyList()
+        imagePath = intent.getStringExtra(EXTRA_IMAGE_PATH)
         if (pagePaths.isNotEmpty()) {
             findViewById<View>(R.id.applyAllRow).visibility = View.VISIBLE
             findViewById<TextView>(R.id.tvApplyAllCount).text =
                 "(${pagePaths.size + 1} pages)"
+            // The batch end step starts with "Apply to all
+            // pages" already ticked — one filter choice covers
+            // the whole batch.
+            if (intent.getBooleanExtra(EXTRA_APPLY_ALL_CHECKED, false)) {
+                findViewById<CheckBox>(R.id.cbApplyAll).isChecked = true
+            }
         }
 
         val path = intent.getStringExtra(EXTRA_IMAGE_PATH)
@@ -319,6 +331,10 @@ class EnhanceActivity : AppCompatActivity() {
                 // never block the save.
                 if (applyAll) {
                     for (path in pagePaths) {
+                        // The current page is saved separately
+                        // below — encoding it here too would
+                        // filter it twice.
+                        if (path == imagePath) continue
                         try {
                             val page = BitmapFactory.decodeFile(path) ?: continue
                             val pageFiltered = ImageEnhancer.apply(page, selectedFilter)

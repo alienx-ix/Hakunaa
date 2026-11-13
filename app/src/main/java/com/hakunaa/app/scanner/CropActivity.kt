@@ -22,18 +22,26 @@ import java.io.File
  * - Auto Detect: finds the document edges and snaps the frame.
  * - Left / Right: rotate the photo 90 degrees.
  * - Next: straightens the page (perspective correction) and
- *   opens the Enhance screen.
+ *   opens the Enhance screen — except in Batch mode, where it
+ *   returns the cropped page straight to the camera so the
+ *   next capture can start at once.
  */
 class CropActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_PHOTO_PATH = "photo_path"
         const val EXTRA_CROPPED_PATH = "cropped_path"
+        // Batch mode: after the crop, go straight back to the
+        // camera for the next capture — do NOT open Enhance.
+        // The filters are picked at the end, for the whole
+        // batch at once (the professional batch workflow).
+        const val EXTRA_SKIP_ENHANCE = "skip_enhance"
     }
 
     private var bitmap: Bitmap? = null
     private var photoFile: File? = null
     private var pagePaths: List<String> = emptyList()
+    private var skipEnhance = false
 
     private val enhanceLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -63,6 +71,7 @@ class CropActivity : AppCompatActivity() {
             return
         }
         photoFile = File(path)
+        skipEnhance = intent.getBooleanExtra(EXTRA_SKIP_ENHANCE, false)
         // Pass-through: the batch so far (for "Apply to all
         // pages") — it goes on to Enhance.
         pagePaths = intent.getStringArrayListExtra(EnhanceActivity.EXTRA_PAGE_PATHS)
@@ -143,6 +152,17 @@ class CropActivity : AppCompatActivity() {
                 }
                 if (straightened != bmp) straightened.recycle()
                 runOnUiThread {
+                    if (skipEnhance) {
+                        // Batch: the crop is done — back to the
+                        // camera for the next capture. No filter
+                        // screen here; the filters are picked at
+                        // the end, for the whole batch.
+                        val data = Intent()
+                        data.putExtra(EXTRA_CROPPED_PATH, out.absolutePath)
+                        setResult(RESULT_OK, data)
+                        finish()
+                        return@runOnUiThread
+                    }
                     val intent = Intent(this, EnhanceActivity::class.java)
                     intent.putExtra(EnhanceActivity.EXTRA_IMAGE_PATH, out.absolutePath)
                     intent.putStringArrayListExtra(

@@ -332,14 +332,21 @@ class ScannerActivity : AppCompatActivity() {
         mode = newMode
         val single = findViewById<TextView>(R.id.tvModeSingle)
         val batch = findViewById<TextView>(R.id.tvModeBatch)
+        // The selected mode is a teal pill with white text; the
+        // other is plain white text — a real segmented control,
+        // the way Book Scan's Single / Double reads.
         if (newMode == Mode.SINGLE) {
-            single.setTextColor(getColor(R.color.hakunaa_teal))
+            single.background = getDrawable(R.drawable.mode_tab_selected)
+            single.setTextColor(getColor(android.R.color.white))
             single.setTypeface(null, android.graphics.Typeface.BOLD)
+            batch.background = null
             batch.setTextColor(getColor(android.R.color.white))
             batch.setTypeface(null, android.graphics.Typeface.NORMAL)
         } else {
-            batch.setTextColor(getColor(R.color.hakunaa_teal))
+            batch.background = getDrawable(R.drawable.mode_tab_selected)
+            batch.setTextColor(getColor(android.R.color.white))
             batch.setTypeface(null, android.graphics.Typeface.BOLD)
+            single.background = null
             single.setTextColor(getColor(android.R.color.white))
             single.setTypeface(null, android.graphics.Typeface.NORMAL)
         }
@@ -917,6 +924,10 @@ class ScannerActivity : AppCompatActivity() {
     private fun openCrop(photoFile: File) {
         val intent = Intent(this, CropActivity::class.java)
         intent.putExtra(CropActivity.EXTRA_PHOTO_PATH, photoFile.absolutePath)
+        // Batch: after the crop, back to the camera for the
+        // next capture — no filter screen per page. The filters
+        // are picked at the end, for the whole batch.
+        intent.putExtra(CropActivity.EXTRA_SKIP_ENHANCE, mode == Mode.BATCH)
         // The batch so far (for "Apply to all pages").
         intent.putStringArrayListExtra(
             EnhanceActivity.EXTRA_PAGE_PATHS,
@@ -971,6 +982,10 @@ class ScannerActivity : AppCompatActivity() {
             ArrayList(pages.map { it.absolutePath })
         )
         intent.putExtra(PagesActivity.EXTRA_DOC_NAME, docName)
+        // A Batch from this scanner picks its filters at the
+        // end (on Save, in the Pages screen); a Book Scan batch
+        // is already enhanced at capture, so it does not.
+        intent.putExtra(PagesActivity.EXTRA_BATCH_ENHANCE, true)
         pagesLauncher.launch(intent)
     }
 

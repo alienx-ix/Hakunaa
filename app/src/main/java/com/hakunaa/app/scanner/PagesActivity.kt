@@ -34,18 +34,53 @@ import java.util.Collections
  * - Add more pages (back to the camera)
  * - Save all pages as one optimized PDF (downscaled + JPEG,
  *   about 1 MB for 2 pages instead of 22 MB)
+ * A Batch picks its filters at the end: on Save, the Enhance
+ * screen opens for the first page with "Apply to all pages"
+ * already ticked, so one filter choice covers the whole
+ * batch — the professional batch workflow (CamScanner,
+ * Adobe Scan, Microsoft Lens all work this way).
  */
 class PagesActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_PAGE_PATHS = "page_paths"
         const val EXTRA_DOC_NAME = "doc_name"
+        // True when this batch comes from the main scanner in
+        // Batch mode: its filters are picked at the end, on
+        // Save. A Book Scan batch is already enhanced at
+        // capture, so it skips this step.
+        const val EXTRA_BATCH_ENHANCE = "batch_enhance"
         const val RESULT_ADD_PAGE = 2
     }
 
     private val pages = mutableListOf<File>()
     private var docName: String? = null
     private lateinit var adapter: PagesAdapter
+    private var batchEnhance = false
+    private var batchEnhanced = false
+
+    // The filters-at-the-end step: the Enhance screen for the
+    // first page, with "Apply to all pages" already ticked, so
+    // the chosen filter goes to the whole batch at once.
+    // Back from Enhance cancels the save — the pages stay.
+    private val enhanceLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) {
+                val enhancedPath =
+                    result.data?.getStringExtra(EnhanceActivity.EXTRA_ENHANCED_PATH)
+                if (enhancedPath != null && pages.isNotEmpty()) {
+                    val file = File(enhancedPath)
+                    if (file.exists()) {
+                        pages[0] = file
+                        adapter.notifyItemChanged(0)
+                    }
+                }
+                docName = result.data?.getStringExtra("doc_name") ?: docName
+                updateTitle()
+                batchEnhanced = true
+                openExport()
+            }
+        }
 
     // Export is a separate screen; on save, report back to the
     // camera with the saved file name, then close. On cancel,
@@ -76,6 +111,7 @@ class PagesActivity : AppCompatActivity() {
 
         val paths = intent.getStringArrayListExtra(EXTRA_PAGE_PATHS)
         docName = intent.getStringExtra(EXTRA_DOC_NAME)
+        batchEnhance = intent.getBooleanExtra(EXTRA_BATCH_ENHANCE, false)
         if (paths.isNullOrEmpty()) {
             Toast.makeText(this, "No pages", Toast.LENGTH_SHORT).show()
             finish()
@@ -182,11 +218,31 @@ class PagesActivity : AppCompatActivity() {
         }.start()
     }
 
+    /** Save: a Batch picks its filters at the end — the
+     *  Enhance screen for the first page, with "Apply to all
+     *  pages" already ticked — and only then the export
+     *  screen. A batch that already went through this step
+     *  exports straight away. */
     private fun saveAsPdf() {
         if (pages.isEmpty()) {
             Toast.makeText(this, "No pages to save", Toast.LENGTH_SHORT).show()
             return
         }
+        if (batchEnhance && !batchEnhanced) {
+            val intent = Intent(this, EnhanceActivity::class.java)
+            intent.putExtra(EnhanceActivity.EXTRA_IMAGE_PATH, pages[0].absolutePath)
+            intent.putStringArrayListExtra(
+                EnhanceActivity.EXTRA_PAGE_PATHS,
+                ArrayList(pages.map { it.absolutePath })
+            )
+            intent.putExtra(EnhanceActivity.EXTRA_APPLY_ALL_CHECKED, true)
+            enhanceLauncher.launch(intent)
+            return
+        }
+        openExport()
+    }
+
+    private fun openExport() {
         // Export opens as its OWN SCREEN (PdfExportActivity).
         val name = docName ?: "Hakunaa Scan"
         val intent = Intent(this, PdfExportActivity::class.java)
