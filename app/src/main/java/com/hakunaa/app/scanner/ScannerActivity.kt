@@ -285,6 +285,16 @@ class ScannerActivity : AppCompatActivity() {
                 updatePagesLabel()
                 findViewById<TextView>(R.id.tvStatus).text =
                     "Done — PDF saved. Scan another document when ready"
+            } else if (result.resultCode == PdfExportActivity.RESULT_DISCARD) {
+                // Discard confirmed on the export screen reached
+                // via the Preview (v0.1.69): drop every page so
+                // the camera comes back fresh.
+                pages.clear()
+                docName = null
+                updatePagesLabel()
+                findViewById<TextView>(R.id.tvStatus).text =
+                    "Discarded — point the camera at a document and tap Capture"
+                Toast.makeText(this, "Discarded", Toast.LENGTH_SHORT).show()
             }
             // RESULT_ADD_PAGE or back: stay on the camera, pages kept.
         }
@@ -299,7 +309,13 @@ class ScannerActivity : AppCompatActivity() {
     // filter per page, or un-tick it). Back from Enhance
     // cancels — the pages stay on the camera. On save, the
     // first page is replaced by the enhanced file and the
-    // export screen opens.
+    // PREVIEW screen (Pages) opens (v0.1.69): the user pointed
+    // out that after choosing filters no Preview came and no
+    // reorder was possible — it went straight to export. So
+    // now Enhance → Preview (thumbnails, drag reorder,
+    // rotate, delete, full-screen preview) → Save → Export.
+    // Single mode never uses this launcher (its Enhance runs
+    // from the Crop screen), so Single is untouched.
     private val enhanceLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) {
@@ -310,7 +326,7 @@ class ScannerActivity : AppCompatActivity() {
                     if (file.exists()) pages[0] = file
                 }
                 docName = result.data?.getStringExtra("doc_name") ?: docName
-                saveAsPdf()
+                openPagesAfterEnhance()
             }
         }
 
@@ -1580,6 +1596,28 @@ class ScannerActivity : AppCompatActivity() {
         // end (on Save, in the Pages screen); a Book Scan batch
         // is already enhanced at capture, so it does not.
         intent.putExtra(PagesActivity.EXTRA_BATCH_ENHANCE, true)
+        pagesLauncher.launch(intent)
+    }
+
+    /** Batch after Enhance (v0.1.69): the Preview screen.
+     *  Filters are already picked, so EXTRA_BATCH_ENHANCE is
+     *  false — Save in the Preview goes straight to Export
+     *  instead of opening Enhance again. The user reorders
+     *  (long-press drag), rotates, deletes, or taps a page for
+     *  full-screen preview, then Saves. Back keeps the pages
+     *  on the camera. */
+    private fun openPagesAfterEnhance() {
+        if (pages.isEmpty()) {
+            Toast.makeText(this, "Scan at least one page first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val intent = Intent(this, PagesActivity::class.java)
+        intent.putStringArrayListExtra(
+            PagesActivity.EXTRA_PAGE_PATHS,
+            ArrayList(pages.map { it.absolutePath })
+        )
+        intent.putExtra(PagesActivity.EXTRA_DOC_NAME, docName)
+        intent.putExtra(PagesActivity.EXTRA_BATCH_ENHANCE, false)
         pagesLauncher.launch(intent)
     }
 

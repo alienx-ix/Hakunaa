@@ -84,7 +84,9 @@ class PagesActivity : AppCompatActivity() {
 
     // Export is a separate screen; on save, report back to the
     // camera with the saved file name, then close. On cancel,
-    // stay here with the pages kept.
+    // stay here with the pages kept. On discard (user confirmed
+    // on the export screen, v0.1.67), report it up so the
+    // camera drops the pages too (v0.1.69, Batch Preview flow).
     private val exportLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) {
@@ -99,6 +101,9 @@ class PagesActivity : AppCompatActivity() {
                 val data = Intent()
                 data.putExtra("saved_pdf", fileName)
                 setResult(RESULT_OK, data)
+                finish()
+            } else if (result.resultCode == PdfExportActivity.RESULT_DISCARD) {
+                setResult(PdfExportActivity.RESULT_DISCARD)
                 finish()
             }
         }

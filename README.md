@@ -630,6 +630,10 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.69 — Batch now goes Enhance → Preview (reorder) → Export
+
+The user tested Batch and reported: after taking captures and choosing filters, no Preview came and no reorder was possible — it went straight to export. Fixed, Batch only: after Enhance (green check) the Preview screen (Pages) now opens — every page as a thumbnail, long-press drag to reorder, rotate, delete, tap a page for full-screen preview — and Save there goes to Export. Single mode is untouched (its Enhance runs from the Crop screen, straight to Export as before), and so is the Book flow. Also, a Discard confirmed on the export screen reached via the Preview now propagates back correctly (Preview closes, camera drops the pages and comes back fresh) instead of landing back in the Preview with the pages still there.
+
 ## v0.1.68 — Batch default now actually SHOWS (the v0.1.67 fix was half-done)
 
 The user tested v0.1.67 and Single was still highlighted on open — "Okthan But, Batch Default a Mathu". Honest root cause: v0.1.67 only changed the mode FIELD to BATCH, but the tab UI never synced on a fresh launch — setMode(mode) ran only when pages already existed, and the layout hard-coded Single as the selected tab (teal pill + bold). So the mode WAS Batch internally, but the screen still SHOWED Single. Fixed: setMode(mode) now runs on EVERY launch (fresh or restored), and the layout no longer hard-codes Single as selected — the tabs always match the real mode, so Batch is highlighted on open.
