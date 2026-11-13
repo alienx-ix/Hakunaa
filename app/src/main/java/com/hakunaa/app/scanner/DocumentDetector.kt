@@ -330,6 +330,158 @@ object DocumentDetector {
         return out
     }
 
+    /** The book's spine as a column, found as a valley in the
+     *  column-mean brightness profile — the same valley
+     *  findSpineSplit uses, but WITHOUT the split decision: a
+     *  full two-page spread is a valley too, and Book mode wants
+     *  its position. Returns the valley column, or null. */
+    private fun findSpineValleyX(gray: FloatArray, w: Int, h: Int, threshold: Float): Int? {
+        // Column means over the middle rows.
+        val y0 = h / 4
+        val y1 = 3 * h / 4
+        val rows = (y1 - y0).coerceAtLeast(1)
+        val colMean = FloatArray(w)
+        for (x in 0 until w) {
+            var sum = 0f
+            for (y in y0 until y1) sum += gray[y * w + x]
+            colMean[x] = sum / rows
+        }
+        // Smooth (moving average, window 5).
+        val sm = FloatArray(w)
+        for (x in 0 until w) {
+            var sum = 0f
+            var n = 0
+            for (k in -2..2) {
+                val xx = x + k
+                if (xx in 0 until w) {
+                    sum += colMean[xx]
+                    n++
+                }
+            }
+            sm[x] = sum / n
+        }
+        // Deepest valley between two bright plateaus.
+        var bestX = -1
+        var bestDepth = 0f
+        val xStart = (w * 0.08f).toInt()
+        val xEnd = (w * 0.92f).toInt()
+        for (x in xStart..xEnd) {
+            var leftPlateau = sm[x]
+            for (k in x - 60..x - 8) {
+                if (k in 0 until w) leftPlateau = max(leftPlateau, sm[k])
+            }
+            var rightPlateau = sm[x]
+            for (k in x + 8..x + 60) {
+                if (k in 0 until w) rightPlateau = max(rightPlateau, sm[k])
+            }
+            val depth = min(leftPlateau, rightPlateau) - sm[x]
+            if (depth < 20f) continue
+            if (min(leftPlateau, rightPlateau) < threshold + 20f) continue
+            if (depth > bestDepth) {
+                bestDepth = depth
+                bestX = x
+            }
+        }
+        return if (bestX < 0) null else bestX
+    }
+
+    /** The spine's horizontal position in [bitmap] as a fraction
+     *  (0..1) of its width — for the Book mode's spine line.
+     *  Null when no spine valley is visible. */
+    fun spineFraction(bitmap: Bitmap): Float? {
+        return try {
+            val maxSide = 800
+            val scale = min(1f, maxSide.toFloat() / max(bitmap.width, bitmap.height).toFloat())
+            val smallW = (bitmap.width * scale).toInt().coerceAtLeast(1)
+            val smallH = (bitmap.height * scale).toInt().coerceAtLeast(1)
+            val small = Bitmap.createScaledBitmap(bitmap, smallW, smallH, true)
+            val w = small.width
+            val h = small.height
+            val pixels = IntArray(w * h)
+            small.getPixels(pixels, 0, w, 0, 0, w, h)
+            small.recycle()
+            var gray = FloatArray(w * h)
+            for (i in pixels.indices) {
+                val p = pixels[i]
+                gray[i] = 0.299f * ((p shr 16) and 0xFF) +
+                    0.587f * ((p shr 8) and 0xFF) +
+                    0.114f * (p and 0xFF)
+            }
+            gray = boxBlurGray(gray, w, h, 1)
+            val threshold = otsuThreshold(gray)
+            val valleyX = findSpineValleyX(gray, w, h, threshold) ?: return null
+            valleyX.toFloat() / w
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /** Split an open-book photo into its two pages (A = left,
+     *  B = right), each perspective-corrected. [spineFrac] is
+     *  the spine's position (0..1 of the width) — the live line
+     *  the user dragged, or null to auto-detect it. The spine's
+     *  top and bottom points are interpolated along the spread's
+     *  top and bottom edges, so a tilted book still splits along
+     *  its real spine. Falls back to a plain vertical cut when
+     *  the spread's corners can't be found, or when the detector
+     *  kept one page only (centre the spread in the frame).
+     *  Verified on the user's two-page notes photo: the split
+     *  gives two clean, complete, readable pages. */
+    fun splitSpread(bitmap: Bitmap, spineFrac: Float?): Pair<Bitmap, Bitmap>? {
+        return try {
+            val w = bitmap.width
+            val h = bitmap.height
+            val frac = spineFrac ?: spineFraction(bitmap) ?: 0.5f
+            val spineX = (frac * w).coerceIn(1f, (w - 1).toFloat())
+            val corners = detectCorners(bitmap)
+            val span = if (corners == null) 0f else {
+                val xs = listOf(corners[0], corners[2], corners[4], corners[6])
+                xs.max() - xs.min()
+            }
+            if (corners == null || span < w * 0.7f) {
+                val left = Bitmap.createBitmap(bitmap, 0, 0, spineX.toInt(), h)
+                val right = Bitmap.createBitmap(bitmap, spineX.toInt(), 0, w - spineX.toInt(), h)
+                return Pair(left, right)
+            }
+            val tl = Pair(corners[0], corners[1])
+            val tr = Pair(corners[2], corners[3])
+            val br = Pair(corners[4], corners[5])
+            val bl = Pair(corners[6], corners[7])
+            val spineTop = pointOnEdge(tl, tr, spineX)
+            val spineBottom = pointOnEdge(bl, br, spineX)
+            val leftCorners = floatArrayOf(
+                tl.first, tl.second,
+                spineTop.first, spineTop.second,
+                spineBottom.first, spineBottom.second,
+                bl.first, bl.second
+            )
+            val rightCorners = floatArrayOf(
+                spineTop.first, spineTop.second,
+                tr.first, tr.second,
+                br.first, br.second,
+                spineBottom.first, spineBottom.second
+            )
+            val left = warpToRectangle(bitmap, leftCorners)
+            val right = warpToRectangle(bitmap, rightCorners)
+            if (left == null || right == null) {
+                val l = Bitmap.createBitmap(bitmap, 0, 0, spineX.toInt(), h)
+                val r = Bitmap.createBitmap(bitmap, spineX.toInt(), 0, w - spineX.toInt(), h)
+                return Pair(l, r)
+            }
+            Pair(left, right)
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /** The point on the straight edge p1->p2 whose x is [x]. */
+    private fun pointOnEdge(p1: Pair<Float, Float>, p2: Pair<Float, Float>, x: Float): Pair<Float, Float> {
+        val t = if (p2.first != p1.first) {
+            ((x - p1.first) / (p2.first - p1.first)).coerceIn(0f, 1f)
+        } else 0f
+        return Pair(x, p1.second + t * (p2.second - p1.second))
+    }
+
     /** Otsu's method: the threshold that best separates the bright
      *  paper from the darker background, computed from the
      *  brightness histogram. Adapts to dim light, bright light

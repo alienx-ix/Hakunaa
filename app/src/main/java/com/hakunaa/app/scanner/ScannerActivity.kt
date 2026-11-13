@@ -251,6 +251,11 @@ class ScannerActivity : AppCompatActivity() {
         }
         findViewById<TextView>(R.id.tvModeSingle).setOnClickListener { setMode(Mode.SINGLE) }
         findViewById<TextView>(R.id.tvModeBatch).setOnClickListener { setMode(Mode.BATCH) }
+        // Book mode is its own landscape screen (two pages at
+        // once, A then B) — it opens from this tab.
+        findViewById<TextView>(R.id.tvModeBook).setOnClickListener {
+            startActivity(Intent(this, BookScannerActivity::class.java))
+        }
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnSavePdf)
             .setOnClickListener { onSavePdfClicked() }
 
@@ -301,7 +306,11 @@ class ScannerActivity : AppCompatActivity() {
      *  when the photo is taken.) */
     private fun toggleTorch() {
         torchOn = !torchOn
-        camera?.cameraControl?.enableTorch(torchOn)
+        // A phone without a torch must not crash the scanner.
+        try {
+            camera?.cameraControl?.enableTorch(torchOn)
+        } catch (_: Throwable) {
+        }
         findViewById<ImageButton>(R.id.btnFlash).setImageResource(
             if (torchOn) R.drawable.ic_flash_on else R.drawable.ic_flash_off
         )
@@ -387,39 +396,83 @@ class ScannerActivity : AppCompatActivity() {
                 imageCapture = captureBuilder.build().also {
                     it.flashMode = ImageCapture.FLASH_MODE_AUTO
                 }
-                // Real-time document detection for auto-capture
-                // and for the dynamic edge overlay: analyse a
-                // small frame several times a second. 4:3, the
-                // same aspect as the preview, so the detected
-                // corners map exactly onto the preview.
-                val analysis = ImageAnalysis.Builder()
-                    .setTargetAspectRatio(AspectRatio.RATIO_4_3)
-                    // Small analysis frames (640x480): the detector
-                    // only needs a small image, and a full-size frame
-                    // made toBitmap + detection slow enough to lag
-                    // the app while the bar runs. 640x480 is 4:3,
-                    // so the overlay mapping is unchanged.
-                    .setTargetResolution(android.util.Size(640, 480))
-                    .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
-                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                    .build()
-                analysis.setAnalyzer(cameraExecutor!!, ::analyzeFrame)
+                // AUTO-RESOLVE camera binding — global support.
+                // Not every phone supports the same stream
+                // combination: the fixed 640x480 analysis stream
+                // black-screened one phone (the camera never
+                // opened at all — bindToLifecycle threw, so
+                // nothing was bound). So try the fast setup
+                // first, and fall back step by step until the
+                // camera opens on ANY phone: fixed analysis size
+                // -> CameraX picks the size -> no analysis at
+                // all (manual capture still works, auto-capture
+                // and the edge overlay just stay off). The
+                // preview + capture are never sacrificed.
                 val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-                cameraProvider.unbindAll()
-                camera = cameraProvider.bindToLifecycle(
-                    this, cameraSelector, preview, imageCapture, analysis
-                )
-                if (torchOn) camera?.cameraControl?.enableTorch(true)
+                var analysisOn = true
+                camera = try {
+                    val analysis = buildAnalysis(fixedResolution = true)
+                    cameraProvider.unbindAll()
+                    cameraProvider.bindToLifecycle(
+                        this, cameraSelector, preview, imageCapture, analysis
+                    )
+                } catch (_: Throwable) {
+                    try {
+                        val analysis = buildAnalysis(fixedResolution = false)
+                        cameraProvider.unbindAll()
+                        cameraProvider.bindToLifecycle(
+                            this, cameraSelector, preview, imageCapture, analysis
+                        )
+                    } catch (_: Throwable) {
+                        analysisOn = false
+                        cameraProvider.unbindAll()
+                        cameraProvider.bindToLifecycle(
+                            this, cameraSelector, preview, imageCapture
+                        )
+                    }
+                }
+                // Torch / brightness must never break the camera:
+                // a phone that does not support them just skips
+                // them (applyExposure guards itself the same way).
+                try {
+                    if (torchOn) camera?.cameraControl?.enableTorch(true)
+                } catch (_: Throwable) {
+                }
                 // Restore the user's brightness offset (the
                 // on-screen slider), clamped to this camera's range.
                 applyExposure(exposureIndex)
                 findViewById<TextView>(R.id.tvStatus).text =
-                    "Point the camera at a document and tap Capture"
+                    if (analysisOn) "Point the camera at a document and tap Capture"
+                    else "Camera ready — tap Capture yourself (auto-capture isn't supported on this phone)"
             } catch (_: Throwable) {
                 findViewById<TextView>(R.id.tvStatus).text =
                     "Couldn't start the camera — try picking a photo from the gallery instead"
             }
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    /** The live-detection stream. A fixed 640x480 is fastest
+     *  (small frames, no lag), but some phones reject that exact
+     *  combination — then CameraX picks the size itself (auto
+     *  resolve), which works everywhere. */
+    private fun buildAnalysis(fixedResolution: Boolean): ImageAnalysis {
+        val builder = ImageAnalysis.Builder()
+            // 4:3, the same aspect as the preview, so the
+            // detected corners map exactly onto the preview.
+            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+        if (fixedResolution) {
+            // Small analysis frames (640x480): the detector only
+            // needs a small image, and a full-size frame made
+            // toBitmap + detection slow enough to lag the app
+            // while the bar runs. 640x480 is 4:3, so the overlay
+            // mapping is unchanged.
+            builder.setTargetResolution(android.util.Size(640, 480))
+        }
+        return builder.build().also {
+            it.setAnalyzer(cameraExecutor!!, ::analyzeFrame)
+        }
     }
 
     /** The dynamic edge overlay lives here: the detected page's
@@ -481,14 +534,20 @@ class ScannerActivity : AppCompatActivity() {
     }
 
     private fun focusAt(x: Float, y: Float) {
-        val cam = camera ?: return
-        val previewView = findViewById<PreviewView>(R.id.previewView)
-        val point = previewView.meteringPointFactory.createPoint(x, y)
-        val action = FocusMeteringAction.Builder(
-            point,
-            FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE
-        ).setAutoCancelDuration(3, TimeUnit.SECONDS).build()
-        cam.cameraControl.startFocusAndMetering(action)
+        // A phone without focus metering must not crash the
+        // scanner — a tap then simply does nothing.
+        try {
+            val cam = camera ?: return
+            val previewView = findViewById<PreviewView>(R.id.previewView)
+            val point = previewView.meteringPointFactory.createPoint(x, y)
+            val action = FocusMeteringAction.Builder(
+                point,
+                FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE
+            ).setAutoCancelDuration(3, TimeUnit.SECONDS).build()
+            cam.cameraControl.startFocusAndMetering(action)
+        } catch (_: Throwable) {
+            return
+        }
         showFocusUi(x, y)
     }
 
@@ -565,12 +624,17 @@ class ScannerActivity : AppCompatActivity() {
      *  this camera's exposure range, applied at once, saved so
      *  it stays the next time the scanner opens. */
     private fun applyExposure(index: Int) {
-        val cam = camera ?: return
-        val range = cam.cameraInfo.exposureState.exposureCompensationRange
-        val clamped = index.coerceIn(range.lower, range.upper)
-        exposureIndex = clamped
-        cam.cameraControl.setExposureCompensationIndex(clamped)
-        prefs().edit().putInt(PREF_EXPOSURE_INDEX, clamped).apply()
+        // A phone that does not support exposure compensation
+        // must never break the camera — skip it silently.
+        try {
+            val cam = camera ?: return
+            val range = cam.cameraInfo.exposureState.exposureCompensationRange
+            val clamped = index.coerceIn(range.lower, range.upper)
+            exposureIndex = clamped
+            cam.cameraControl.setExposureCompensationIndex(clamped)
+            prefs().edit().putInt(PREF_EXPOSURE_INDEX, clamped).apply()
+        } catch (_: Throwable) {
+        }
     }
 
     private fun exposureSlider(): ExposureSliderView =

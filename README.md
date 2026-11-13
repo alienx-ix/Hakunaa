@@ -587,6 +587,36 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   user's photo — 100% black page); it is now adaptive, each
   pixel against its local background, so text stays readable
   under uneven light.
+- **v0.1.43 (2026-11-13): Book Scan mode.** The scanner's mode
+  tabs gain a third tab, Book, which opens a landscape screen:
+  hold the phone sideways, both pages of an open book fit side
+  by side, and a dashed spine line splits them into A (left
+  page, 1st) and B (right page, 2nd). The line follows the
+  book's real fold automatically (the spine valley, smoothed)
+  and can be dragged to the fold by hand. Double (default) —
+  one capture takes BOTH pages at once, A first then B, each
+  perspective-corrected and auto-enhanced on its own; flip the
+  book, capture again, pages keep appending in order — next,
+  next, a whole book. Single — tap the page to scan (A or B),
+  capture takes only that page. Capture is manual (pages change
+  while you flip); review on the Pages screen, save the whole
+  book as one PDF. The split is the spine valley + interpolation
+  along the spread's top/bottom edges, verified on the user's
+  two-page notes photo: two clean, complete, readable pages.
+  Falls back to a plain vertical cut when the spread's corners
+  can't be found.
+- **v0.1.43 camera fix (same build): the camera black screen.**
+  v0.1.42's camera never opened on the user's phone — black
+  screen. Cause: the fixed 640x480 analysis stream made the
+  whole use-case combination unsupported on that phone, so
+  bindToLifecycle threw and NOTHING was bound (no preview at
+  all). Fix — AUTO-RESOLVE binding, in both the main scanner
+  and Book Scan: try the fast setup first (640x480 analysis),
+  then CameraX picks the size itself, then no analysis at all
+  (manual capture still works). The camera must open on ANY
+  phone — global support. Torch, tap-to-focus and brightness
+  are also guarded now: a phone that does not support one just
+  skips it instead of breaking the camera.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.
