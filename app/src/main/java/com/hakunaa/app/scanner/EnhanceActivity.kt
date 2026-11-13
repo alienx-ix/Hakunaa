@@ -188,7 +188,7 @@ class EnhanceActivity : AppCompatActivity() {
      *  once, then swap in the filtered version when ready.
      *  Used for the first page, for a swipe to another page,
      *  and after a re-crop. */
-    private fun loadPageBitmap(path: String) {
+    private fun loadPageBitmap(path: String, onReady: (() -> Unit)? = null) {
         Thread {
             try {
                 val bmp = BitmapFactory.decodeFile(path)
@@ -212,6 +212,7 @@ class EnhanceActivity : AppCompatActivity() {
                     applyFilterToPreview(selectedFilter)
                     buildFilterThumbnails()
                     updatePageIndicator()
+                    onReady?.invoke()
                 }
             } catch (_: Throwable) {
                 runOnUiThread {
@@ -271,17 +272,51 @@ class EnhanceActivity : AppCompatActivity() {
         }
     }
 
-    /** Show page [index] (clamped, wraps at the ends). */
+    /** Show page [index] (clamped). Only the PAGE slides — a
+     *  smooth slide animation on ivPage alone, the way a
+     *  gallery does it. The filter strip, the top bar and the
+     *  bottom bar never move. (The old code swapped the bitmap
+     *  instantly and rebuilt the whole filter row on every
+     *  swipe, so the entire screen shook.) A swipe during the
+     *  slide is ignored, so two slides never overlap. */
+    private var pageAnimating = false
+
     private fun showPage(index: Int) {
-        if (allPages.isEmpty()) return
+        if (allPages.isEmpty() || pageAnimating) return
         val next = index.coerceIn(0, allPages.size - 1)
         if (next == currentPageIndex) return
+        val pageView = findViewById<ImageView>(R.id.ivPage)
+        val width = pageView.width.toFloat()
         // Keep the filter picked for the page being left.
         val current = imagePath
         if (current != null) pageFilters[current] = selectedFilter
+        val direction = if (next > currentPageIndex) -1f else 1f
         currentPageIndex = next
         imagePath = allPages[next]
-        imagePath?.let { loadPageBitmap(it) }
+        if (width <= 0f) {
+            // Not laid out yet — just load, no animation.
+            imagePath?.let { loadPageBitmap(it) }
+            return
+        }
+        pageAnimating = true
+        // Slide the old page out toward the swipe, then slide
+        // the new page in from the other side.
+        pageView.animate()
+            .translationX(direction * width)
+            .setDuration(180)
+            .withEndAction {
+                imagePath?.let { path ->
+                    loadPageBitmap(path) {
+                        pageView.translationX = -direction * width
+                        pageView.animate()
+                            .translationX(0f)
+                            .setDuration(250)
+                            .withEndAction { pageAnimating = false }
+                            .start()
+                    }
+                } ?: run { pageAnimating = false }
+            }
+            .start()
     }
 
     /** Re-crop the current page: the Crop screen opens for
@@ -419,24 +454,36 @@ class EnhanceActivity : AppCompatActivity() {
         val thumb = Bitmap.createScaledBitmap(bmp, 160, (160f * bmp.height / bmp.width).toInt(), true)
         val filters = ImageEnhancer.Filter.values()
         val row = findViewById<LinearLayout>(R.id.filterRow)
-        // Rebuilt on every page switch, so the thumbnails show
-        // the page being viewed — clear the old ones first.
-        row.removeAllViews()
+        // The thumbnail items are built ONCE. On a page switch
+        // the row already has its items — only the thumbnail
+        // images change, in place, so the strip never moves or
+        // flickers. (The old code removed every view and
+        // rebuilt the row on every swipe, which made the whole
+        // filter strip shake together with the page.)
+        val firstBuild = row.childCount != filters.size
+        if (firstBuild) row.removeAllViews()
         Thread {
-            for (filter in filters) {
+            for ((index, filter) in filters.withIndex()) {
                 try {
                     val filtered = ImageEnhancer.apply(thumb, filter)
                     runOnUiThread {
-                        val item = layoutInflater.inflate(R.layout.item_filter, row, false)
-                        val image = item.findViewById<ImageView>(R.id.ivFilterThumb)
-                        val label = item.findViewById<TextView>(R.id.tvFilterLabel)
-                        image.setImageBitmap(filtered)
-                        label.text = filter.label
-                        item.tag = filter
-                        item.setOnClickListener {
-                            applyFilterToPreview(filter)
+                        if (firstBuild) {
+                            val item = layoutInflater.inflate(R.layout.item_filter, row, false)
+                            val image = item.findViewById<ImageView>(R.id.ivFilterThumb)
+                            val label = item.findViewById<TextView>(R.id.tvFilterLabel)
+                            image.setImageBitmap(filtered)
+                            label.text = filter.label
+                            item.tag = filter
+                            item.setOnClickListener {
+                                applyFilterToPreview(filter)
+                            }
+                            row.addView(item)
+                        } else if (index < row.childCount) {
+                            // Update the existing thumbnail in place.
+                            row.getChildAt(index)
+                                .findViewById<ImageView>(R.id.ivFilterThumb)
+                                .setImageBitmap(filtered)
                         }
-                        row.addView(item)
                     }
                 } catch (_: Throwable) {
                 }

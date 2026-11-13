@@ -6,20 +6,22 @@
     android:background="#000000">
 
     <!-- Full-screen live camera preview — FIT_CENTER shows the
-         whole camera frame, centred. The preview uses the
-         sensor's native 4:3 aspect — the widest field of view,
-         nothing cropped, no zoomed-in look. Centred is what the
-         user wants (v0.1.59): a little black bar on top with the
-         menus, the capture area in the middle, the mode tabs and
-         capture button below it — no pushing the image up (the
-         120dp bottom margin tried that and left too much space
-         above the Single button) and no top-alignment (FIT_START
-         put the image at the very top, which the user did not
-         like either). -->
+         whole camera frame, centred in a slightly shortened
+         view. A 160dp bottom margin (v0.1.60) lifts the centred
+         image up about 80dp: the top black bar shrinks to a
+         little black (just the top bar with the menus), the way
+         the user wants it, while the capture area still sits
+         near the centre and there is no big empty gap above
+         the Single button. (Centred with no margin left a lot
+         of empty black at the top; FIT_START put the image at
+         the very top with no black at all — both were wrong.)
+         The edge/grid overlays carry the same bottom margin,
+         so the frame and grid still sit exactly on the image. -->
     <androidx.camera.view.PreviewView
         android:id="@+id/previewView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:layout_marginBottom="160dp"
         app:scaleType="fitCenter" />
 
     <!-- Dynamic document-edge overlay — draws the detected page's
@@ -29,7 +31,8 @@
     <com.hakunaa.app.scanner.EdgeOverlayView
         android:id="@+id/edgeOverlay"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent"
+        android:layout_marginBottom="160dp" />
 
     <!-- Rule-of-thirds grid — the framing aid, toggled from
          the Grid button on the bottom row. Off by default. -->
@@ -37,6 +40,7 @@
         android:id="@+id/gridOverlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:layout_marginBottom="160dp"
         android:visibility="gone" />
 
     <!-- Tap-to-focus ring — appears at the tap point, fades.
