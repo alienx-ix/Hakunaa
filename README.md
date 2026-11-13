@@ -629,23 +629,23 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   ValueAnimator on the UI thread (60 fps, vsync); full means
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
-- **v0.1.51 CamScanner-style Settings panel + Book corner brackets + shutter sound (same build).**
-  The top-bar menu now opens a proper Settings panel (a
-  dark rounded card, like CamScanner's): Auto Capture, Grid,
-  Sound and Spirit Level are real toggles, Orientation is
-  Auto / Landscape / Portrait, and More Settings holds the
-  auto-capture delay (2 / 3 / 5 seconds) and HD. The Sound
-  toggle plays the camera shutter click on every capture
-  (main scanner and Book Scan); off means silent. The Spirit
-  Level shows a bubble level over the preview — the bubble
-  slides with the phone's tilt and turns teal when the phone
-  is level (within 2 degrees), so the page is framed
-  straight. Changing the orientation recreates the screen,
-  but the pages already captured are restored, so nothing is
-  lost. Book Scan is more professional now: four white
-  corner brackets frame the book area, the way CamScanner's
-  Book mode does. The grid is already the CamScanner style
-  from v0.1.50 (thin hairlines, no border).
+- **v0.1.52 orientation turns the image only + Spirit Level in the bottom row (same build).**
+  Two fixes from live testing. (1) Orientation: Landscape
+  used to rotate the ENTIRE screen (the whole UI flipped),
+  which was wrong. Now the scanner is locked to portrait —
+  the buttons, mode tabs and capture row never move — and
+  the Orientation setting turns only the camera image:
+  Portrait is a tall preview, Landscape is a wide preview,
+  Auto follows the phone, and the saved photo matches the
+  preview in every case. The edge frame, grid and tap-to-
+  focus all follow the image, so they stay on the page in
+  either orientation. (2) The separate Grid button is gone
+  from the bottom row — the Grid is still in the Settings
+  panel — and the Spirit Level is in its place instead: a
+  compact level bar with a bubble that glides smoothly
+  (eased animation, not a jump) and turns teal when level.
+  Tap it to turn the level on / off; the Settings toggle
+  controls the same state.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

@@ -31,7 +31,12 @@ class SpiritLevelView @JvmOverloads constructor(
 
     private val density = resources.displayMetrics.density
 
-    /** Tilt in degrees; 0 = level. Clamped to +-15 for display. */
+    /** Tilt in degrees; 0 = level. Clamped to +-15 for display.
+     *  [targetRoll] is what the sensor reports; [roll] is what
+     *  is drawn, eased toward the target a little every frame
+     *  — so the bubble glides smoothly instead of jumping with
+     *  every sensor sample. */
+    private var targetRoll = 0f
     private var roll = 0f
 
     private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -56,11 +61,13 @@ class SpiritLevelView @JvmOverloads constructor(
         style = Paint.Style.FILL
     }
 
-    /** The tilt, in degrees. Call from the sensor listener. */
+    /** The tilt, in degrees. Call from the sensor listener.
+     *  The bubble eases toward it (see onDraw) — smooth
+     *  animation, not a jump. */
     fun setRoll(degrees: Float) {
         val clamped = degrees.coerceIn(-15f, 15f)
-        if (abs(clamped - roll) > 0.05f) {
-            roll = clamped
+        if (abs(clamped - targetRoll) > 0.05f) {
+            targetRoll = clamped
             invalidate()
         }
     }
@@ -70,6 +77,15 @@ class SpiritLevelView @JvmOverloads constructor(
         val w = width.toFloat()
         val h = height.toFloat()
         if (w == 0f || h == 0f) return
+        // Ease the drawn bubble toward the target — a little
+        // closer every frame, so it glides. Keep animating
+        // until it has settled on the target.
+        roll += (targetRoll - roll) * 0.25f
+        if (abs(targetRoll - roll) > 0.05f) {
+            postInvalidateOnAnimation()
+        } else {
+            roll = targetRoll
+        }
         val cy = h / 2f
         val trackH = 6f * density
         val track = RectF(0f, cy - trackH / 2f, w, cy + trackH / 2f)

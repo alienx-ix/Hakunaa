@@ -32,7 +32,8 @@
         <activity android:name=".image.CollageActivity" android:exported="false" />
         <activity android:name=".video.VideoCompressActivity" android:exported="false" />
         <activity android:name=".whatsapp.WhatsAppOptimizeActivity" android:exported="false" />
-        <activity android:name=".scanner.ScannerActivity" android:exported="false" />
+        <activity android:name=".scanner.ScannerActivity" android:exported="false"
+            android:screenOrientation="portrait" />
         <activity
             android:name=".scanner.BookScannerActivity"
             android:exported="false"

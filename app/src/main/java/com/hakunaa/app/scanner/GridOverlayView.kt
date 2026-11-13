@@ -30,6 +30,18 @@ class GridOverlayView @JvmOverloads constructor(
     attrs: AttributeSet? = null
 ) : View(context, attrs) {
 
+    /** The preview's display rotation (a Surface rotation).
+     *  0 / 180 = a tall (portrait) preview; 90 / 270 = a wide
+     *  (landscape) preview. The grid follows the preview, so
+     *  the thirds always sit on the camera image. */
+    var displayRotation: Int = android.view.Surface.ROTATION_0
+        set(value) {
+            if (field != value) {
+                field = value
+                invalidate()
+            }
+        }
+
     private val density = resources.displayMetrics.density
 
     private val darkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -54,9 +66,20 @@ class GridOverlayView @JvmOverloads constructor(
         val w = width.toFloat()
         val h = height.toFloat()
         if (w == 0f || h == 0f) return
-        // The 4:3 preview, fitCenter inside this view.
-        val contentW = minOf(w, h * 4f / 3f)
-        val contentH = contentW * 3f / 4f
+        // The 4:3 preview, fitCenter inside this view — tall
+        // when the preview is portrait, wide when it is
+        // landscape (the Orientation setting).
+        val isLandscape = displayRotation == android.view.Surface.ROTATION_90 ||
+            displayRotation == android.view.Surface.ROTATION_270
+        val contentW: Float
+        val contentH: Float
+        if (isLandscape) {
+            contentW = minOf(w, h * 4f / 3f)
+            contentH = contentW * 3f / 4f
+        } else {
+            contentH = minOf(h, w * 4f / 3f)
+            contentW = contentH * 3f / 4f
+        }
         val left = (w - contentW) / 2f
         val top = (h - contentH) / 2f
         val right = left + contentW

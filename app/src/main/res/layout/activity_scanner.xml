@@ -51,16 +51,6 @@
         android:layout_height="200dp"
         android:visibility="gone" />
 
-    <!-- Spirit level — the bubble level, shown only when the
-         setting is on. Below the top bar, centred. -->
-    <com.hakunaa.app.scanner.SpiritLevelView
-        android:id="@+id/spiritLevel"
-        android:layout_width="200dp"
-        android:layout_height="28dp"
-        android:layout_gravity="top|center_horizontal"
-        android:layout_marginTop="72dp"
-        android:visibility="gone" />
-
     <!-- Top bar -->
     <LinearLayout
         android:layout_width="match_parent"
@@ -184,13 +174,15 @@
                 android:textSize="16sp" />
         </LinearLayout>
 
-        <!-- Capture row: Grid lines on the left (the framing
-             aid), the capture button in the middle, Import Images
-             on the right. All Features is gone (it did nothing
-             but a "coming soon" toast), Import Files is gone (it
-             opened the same image picker as Import Images), and
-             the scan filter is gone (unwanted — the filter is
-             picked in Enhance, after the capture). -->
+        <!-- Capture row: the Spirit Level on the left (the
+             bubble level, in the Grid button's place — the Grid
+             itself is in the Settings panel now), the capture
+             button in the middle, Import Images on the right.
+             All Features is gone (it did nothing but a "coming
+             soon" toast), Import Files is gone (it opened the
+             same image picker as Import Images), and the scan
+             filter is gone (unwanted — the filter is picked in
+             Enhance, after the capture). -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -200,25 +192,24 @@
             android:paddingEnd="24dp">
 
             <LinearLayout
-                android:id="@+id/btnGrid"
+                android:id="@+id/btnLevel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:alpha="0.4"
                 android:gravity="center"
                 android:orientation="vertical">
 
-                <ImageView
-                    android:id="@+id/ivGridIcon"
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:src="@drawable/ic_grid"
-                    android:tint="#FFFFFF" />
+                <com.hakunaa.app.scanner.SpiritLevelView
+                    android:id="@+id/levelView"
+                    android:layout_width="88dp"
+                    android:layout_height="20dp" />
 
                 <TextView
-                    android:id="@+id/tvGridLabel"
+                    android:id="@+id/tvLevelLabel"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
-                    android:text="Grid"
+                    android:text="Level"
                     android:textColor="#FFFFFF"
                     android:textSize="11sp" />
             </LinearLayout>
