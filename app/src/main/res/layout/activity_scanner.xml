@@ -30,10 +30,28 @@
          only while a document is detected and AUTO is on. -->
     <com.hakunaa.app.scanner.CountdownBarView
         android:id="@+id/countdownBar"
-        android:layout_width="10dp"
+        android:layout_width="12dp"
         android:layout_height="180dp"
         android:layout_gravity="center_vertical|end"
         android:layout_marginEnd="16dp"
+        android:visibility="gone" />
+
+    <!-- Tap-to-focus ring — appears at the tap point, fades.
+         Positioned in code, centred on the tap. -->
+    <ImageView
+        android:id="@+id/focusRing"
+        android:layout_width="80dp"
+        android:layout_height="80dp"
+        android:src="@drawable/focus_ring"
+        android:visibility="gone" />
+
+    <!-- On-screen brightness slider — appears beside the focus
+         ring when the user taps; drag up for brighter, down for
+         darker. Positioned in code, next to the tap. -->
+    <com.hakunaa.app.scanner.ExposureSliderView
+        android:id="@+id/exposureSlider"
+        android:layout_width="36dp"
+        android:layout_height="200dp"
         android:visibility="gone" />
 
     <!-- Top bar -->

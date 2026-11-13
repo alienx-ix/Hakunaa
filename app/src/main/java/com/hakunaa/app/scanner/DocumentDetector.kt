@@ -79,13 +79,19 @@ object DocumentDetector {
         small.recycle()
 
         // Grayscale.
-        val gray = FloatArray(w * h)
+        var gray = FloatArray(w * h)
         for (i in pixels.indices) {
             val p = pixels[i]
             gray[i] = 0.299f * ((p shr 16) and 0xFF) +
                 0.587f * ((p shr 8) and 0xFF) +
                 0.114f * (p and 0xFF)
         }
+        // NEW (v0.1.42) — soften sensor noise before
+        // thresholding. A 3x3 blur on the small image costs
+        // almost nothing and stops single noisy pixels from
+        // wobbling the detected edges frame to frame (the
+        // shaking box).
+        gray = boxBlurGray(gray, w, h, 1)
         // Otsu's threshold: the optimal split between bright paper
         // and darker background, from the actual histogram.
         val threshold = otsuThreshold(gray)
@@ -270,6 +276,58 @@ object DocumentDetector {
         // Both sides comparable = a real two-page spread: keep it.
         if (min(leftPart, rightPart) >= 0.5f * max(leftPart, rightPart)) return null
         return SpineSplit(bestX, leftPart < rightPart)
+    }
+
+    /** Separable box blur on a single-channel float image
+     *  (running sums, O(n) whatever the radius). Used to soften
+     *  sensor noise before thresholding. */
+    private fun boxBlurGray(src: FloatArray, w: Int, h: Int, r: Int): FloatArray {
+        val tmp = FloatArray(w * h)
+        val out = FloatArray(w * h)
+        for (y in 0 until h) {
+            val row = y * w
+            var sum = 0f
+            var count = 0
+            for (k in 0..r) {
+                sum += src[row + k]
+                count++
+            }
+            for (x in 0 until w) {
+                tmp[row + x] = sum / count
+                val addX = x + r + 1
+                if (addX < w) {
+                    sum += src[row + addX]
+                    count++
+                }
+                val remX = x - r
+                if (remX >= 0) {
+                    sum -= src[row + remX]
+                    count--
+                }
+            }
+        }
+        for (x in 0 until w) {
+            var sum = 0f
+            var count = 0
+            for (k in 0..r) {
+                sum += tmp[k * w + x]
+                count++
+            }
+            for (y in 0 until h) {
+                out[y * w + x] = sum / count
+                val addY = y + r + 1
+                if (addY < h) {
+                    sum += tmp[addY * w + x]
+                    count++
+                }
+                val remY = y - r
+                if (remY >= 0) {
+                    sum -= tmp[remY * w + x]
+                    count--
+                }
+            }
+        }
+        return out
     }
 
     /** Otsu's method: the threshold that best separates the bright

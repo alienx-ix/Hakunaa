@@ -4,10 +4,14 @@ import android.Manifest
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.graphics.RectF
 import android.net.Uri
 import android.os.Bundle
+import android.view.MotionEvent
 import android.view.View
+import android.widget.FrameLayout
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -15,6 +19,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.AspectRatio
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
@@ -31,6 +36,7 @@ import com.hakunaa.app.core.FileUtils
 import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * PDF Scanner — professional document scanner, 100% on-device.
@@ -49,6 +55,12 @@ import java.util.concurrent.Executors
  *    Single-page detection: in an open book the detector splits
  *    at the spine and keeps only the biggest page — unless both
  *    pages form a full spread, which it keeps whole.
+ * Tap to focus, the way a real camera works: tap anywhere on
+ *    the preview and the camera focuses there and meters the
+ *    light there — tap a dark corner and it brightens, tap a
+ *    bright page and it darkens. A focus ring marks the spot
+ *    and a brightness slider appears right beside it (drag up
+ *    for brighter, down for darker); no separate settings.
  * 2. Crop (CropActivity): draggable teal corner handles, Auto
  *    Detect, rotate Left / Right, Next.
  * 3. Enhance (EnhanceActivity): filters Original / Lighten /
@@ -109,10 +121,26 @@ class ScannerActivity : AppCompatActivity() {
     private var lastAnalysisMs = 0L
     private var lastCaptureMs = 0L
     private var autoCaptureDelayMs = 3000L
+    // Tap-to-focus + brightness: the exposure offset the user
+    // set with the on-screen slider (saved, so it stays the
+    // next time the scanner opens), and the pending hide
+    // timers for the focus ring and the slider.
+    private var exposureIndex = 0
+    private var focusHideRunnable: Runnable? = null
+    private var sliderHideRunnable: Runnable? = null
+    // Live edge stability: the raw detected corners jitter a
+    // few pixels every frame (sensor noise + hand shake), so the
+    // box shakes and the hold never looks steady — the bar kept
+    // resetting. The corners are smoothed (exponential moving
+    // average) and the overlay + the steadiness check use the
+    // smoothed corners only.
+    private var smoothCorners: FloatArray? = null
+    private var lastDetectMs = 0L
 
     companion object {
         private const val PREFS_NAME = "hakunaa_prefs"
         private const val PREF_AUTO_CAPTURE_DELAY_MS = "auto_capture_delay_ms"
+        private const val PREF_EXPOSURE_INDEX = "exposure_index"
         private val DELAY_OPTIONS_MS = longArrayOf(2000L, 3000L, 5000L)
         private val DELAY_OPTIONS_LABELS = arrayOf("2 seconds", "3 seconds", "5 seconds")
     }
@@ -236,6 +264,9 @@ class ScannerActivity : AppCompatActivity() {
         }
         // Auto-capture hold time from the saved menu setting.
         autoCaptureDelayMs = prefs().getLong(PREF_AUTO_CAPTURE_DELAY_MS, 3000L)
+        // Saved brightness offset from the on-screen slider.
+        exposureIndex = prefs().getInt(PREF_EXPOSURE_INDEX, 0)
+        setupTapToFocus()
         updatePagesLabel()
     }
 
@@ -303,6 +334,7 @@ class ScannerActivity : AppCompatActivity() {
         autoCaptureOn = !autoCaptureOn
         steadyStartMs = 0
         lastCorners = null
+        smoothCorners = null
         countdownBar().setProgress(-1f)
         val btn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnAuto)
         btn.setTextColor(
@@ -362,6 +394,12 @@ class ScannerActivity : AppCompatActivity() {
                 // corners map exactly onto the preview.
                 val analysis = ImageAnalysis.Builder()
                     .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+                    // Small analysis frames (640x480): the detector
+                    // only needs a small image, and a full-size frame
+                    // made toBitmap + detection slow enough to lag
+                    // the app while the bar runs. 640x480 is 4:3,
+                    // so the overlay mapping is unchanged.
+                    .setTargetResolution(android.util.Size(640, 480))
                     .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .build()
@@ -372,6 +410,9 @@ class ScannerActivity : AppCompatActivity() {
                     this, cameraSelector, preview, imageCapture, analysis
                 )
                 if (torchOn) camera?.cameraControl?.enableTorch(true)
+                // Restore the user's brightness offset (the
+                // on-screen slider), clamped to this camera's range.
+                applyExposure(exposureIndex)
                 findViewById<TextView>(R.id.tvStatus).text =
                     "Point the camera at a document and tap Capture"
             } catch (_: Throwable) {
@@ -394,6 +435,147 @@ class ScannerActivity : AppCompatActivity() {
     private fun countdownBar(): CountdownBarView =
         findViewById(R.id.countdownBar)
 
+
+    /** Tap to focus, the way a real camera works: tap anywhere
+     *  on the preview and the camera focuses there and meters
+     *  the light there (AF + AE at the tapped point) — tap a
+     *  dark corner and it brightens, tap a bright page and it
+     *  darkens. A focus ring marks the spot and a brightness
+     *  slider appears right beside it, so brightness is adjusted
+     *  on the screen itself, with no separate settings. */
+    private fun setupTapToFocus() {
+        val previewView = findViewById<PreviewView>(R.id.previewView)
+        previewView.setOnTouchListener { _, event ->
+            if (event.action == MotionEvent.ACTION_UP) {
+                val rect = previewContentRect()
+                if (rect.contains(event.x, event.y)) {
+                    focusAt(event.x, event.y)
+                }
+            }
+            true
+        }
+        exposureSlider().onValueChanged = { value01 ->
+            val range = camera?.cameraInfo?.exposureState?.exposureCompensationRange
+            if (range != null && range.upper > range.lower) {
+                val index = range.lower + (value01 * (range.upper - range.lower)).toInt()
+                if (index != exposureIndex) applyExposure(index)
+            }
+        }
+    }
+
+    /** The preview is 4:3 fitCenter inside the full-screen
+     *  PreviewView, so the top and bottom are black bars. Only
+     *  taps inside the actual camera image focus the camera. */
+    private fun previewContentRect(): RectF {
+        val previewView = findViewById<PreviewView>(R.id.previewView)
+        val w = previewView.width.toFloat()
+        val h = previewView.height.toFloat()
+        // Portrait preview: 3 wide, 4 tall.
+        val contentH = w * 4f / 3f
+        return if (contentH <= h) {
+            RectF(0f, (h - contentH) / 2f, w, (h + contentH) / 2f)
+        } else {
+            val contentW = h * 3f / 4f
+            RectF((w - contentW) / 2f, 0f, (w + contentW) / 2f, h)
+        }
+    }
+
+    private fun focusAt(x: Float, y: Float) {
+        val cam = camera ?: return
+        val previewView = findViewById<PreviewView>(R.id.previewView)
+        val point = previewView.meteringPointFactory.createPoint(x, y)
+        val action = FocusMeteringAction.Builder(
+            point,
+            FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE
+        ).setAutoCancelDuration(3, TimeUnit.SECONDS).build()
+        cam.cameraControl.startFocusAndMetering(action)
+        showFocusUi(x, y)
+    }
+
+    /** Focus ring at the tap point + brightness slider right
+     *  beside it. The ring fades after a moment; the slider
+     *  stays a few seconds so it can be dragged, then fades. */
+    private fun showFocusUi(x: Float, y: Float) {
+        val density = resources.displayMetrics.density
+        val ringSize = (80f * density).toInt()
+        val ring = findViewById<ImageView>(R.id.focusRing)
+        val ringParams = FrameLayout.LayoutParams(ringSize, ringSize)
+        ringParams.leftMargin = (x - ringSize / 2f).toInt()
+        ringParams.topMargin = (y - ringSize / 2f).toInt()
+        ring.layoutParams = ringParams
+        ring.animate().cancel()
+        ring.alpha = 1f
+        ring.visibility = View.VISIBLE
+        focusHideRunnable?.let { ring.removeCallbacks(it) }
+        focusHideRunnable = Runnable {
+            ring.animate().alpha(0f).setDuration(400).withEndAction {
+                ring.visibility = View.GONE
+            }.start()
+        }.also { ring.postDelayed(it, 1200) }
+
+        // Slider beside the ring — right side, unless the tap is
+        // near the right edge, then the left side. Kept inside
+        // the preview image.
+        val slider = exposureSlider()
+        val range = camera?.cameraInfo?.exposureState?.exposureCompensationRange
+        if (range == null || range.upper <= range.lower) {
+            slider.visibility = View.GONE
+            return
+        }
+        val sliderW = (36f * density).toInt()
+        val sliderH = (200f * density).toInt()
+        val rect = previewContentRect()
+        val gap = (12f * density).toInt()
+        var sliderX = x + ringSize / 2f + gap
+        if (sliderX + sliderW > rect.right - gap) {
+            sliderX = x - ringSize / 2f - gap - sliderW
+        }
+        sliderX = sliderX.coerceIn(rect.left + gap, rect.right - gap - sliderW)
+        var sliderY = y - sliderH / 2f
+        sliderY = sliderY.coerceIn(rect.top + gap, rect.bottom - gap - sliderH)
+        val sliderParams = FrameLayout.LayoutParams(sliderW, sliderH)
+        sliderParams.leftMargin = sliderX.toInt()
+        sliderParams.topMargin = sliderY.toInt()
+        slider.layoutParams = sliderParams
+        slider.setValue((exposureIndex - range.lower).toFloat() / (range.upper - range.lower))
+        slider.animate().cancel()
+        slider.alpha = 1f
+        slider.visibility = View.VISIBLE
+        resetSliderHideTimer()
+    }
+
+    private fun resetSliderHideTimer() {
+        val slider = exposureSlider()
+        sliderHideRunnable?.let { slider.removeCallbacks(it) }
+        sliderHideRunnable = Runnable {
+            slider.animate().alpha(0f).setDuration(400).withEndAction {
+                slider.visibility = View.GONE
+            }.start()
+        }.also { slider.postDelayed(it, 4000) }
+    }
+
+    private fun hideFocusUi() {
+        focusHideRunnable?.let { findViewById<View>(R.id.focusRing).removeCallbacks(it) }
+        sliderHideRunnable?.let { exposureSlider().removeCallbacks(it) }
+        findViewById<View>(R.id.focusRing).visibility = View.GONE
+        exposureSlider().visibility = View.GONE
+    }
+
+    /** Brightness offset from the on-screen slider: clamped to
+     *  this camera's exposure range, applied at once, saved so
+     *  it stays the next time the scanner opens. */
+    private fun applyExposure(index: Int) {
+        val cam = camera ?: return
+        val range = cam.cameraInfo.exposureState.exposureCompensationRange
+        val clamped = index.coerceIn(range.lower, range.upper)
+        exposureIndex = clamped
+        cam.cameraControl.setExposureCompensationIndex(clamped)
+        prefs().edit().putInt(PREF_EXPOSURE_INDEX, clamped).apply()
+    }
+
+    private fun exposureSlider(): ExposureSliderView =
+        findViewById(R.id.exposureSlider)
+
     /** Analyse one camera frame for auto-capture and for the
      *  dynamic edge overlay. Runs on a background thread,
      *  throttled to about 6 frames a second so the frame tracks
@@ -405,6 +587,7 @@ class ScannerActivity : AppCompatActivity() {
     private fun analyzeFrame(imageProxy: ImageProxy) {
         try {
             if (!autoCaptureOn || isCapturing) {
+                smoothCorners = null
                 edgeOverlay().clear()
                 countdownBar().setProgress(-1f)
                 return
@@ -417,33 +600,54 @@ class ScannerActivity : AppCompatActivity() {
             val corners = DocumentDetector.detectCorners(bitmap)
             bitmap.recycle()
             if (corners == null) {
+                // One missed frame must not wipe the box and the
+                // bar — detection flickers for a frame now and
+                // then (a hand, a glare). Keep the last frame for
+                // a short grace; only a real loss resets.
+                if (now - lastDetectMs < 600) return
                 steadyStartMs = 0
                 lastCorners = null
+                smoothCorners = null
                 edgeOverlay().clear()
                 countdownBar().setProgress(-1f)
                 return
             }
+            lastDetectMs = now
+            // Smooth the corners: the raw detection jitters a
+            // few pixels every frame, which made the box shake
+            // and the hold never look steady (the bar kept
+            // resetting). An exponential moving average settles
+            // the frame; the overlay and the steadiness check
+            // both use the smoothed corners.
+            val prevSmooth = smoothCorners
+            val smoothed = if (prevSmooth == null) {
+                corners.copyOf()
+            } else {
+                FloatArray(8) { i -> prevSmooth[i] + 0.35f * (corners[i] - prevSmooth[i]) }
+            }
+            smoothCorners = smoothed
             // A document is in the frame — draw its real edges.
             edgeOverlay().updateCorners(
-                corners,
+                smoothed,
                 imageProxy.imageInfo.rotationDegrees,
                 imageProxy.width,
                 imageProxy.height
             )
             val prev = lastCorners
             val firstSeen = prev == null
-            lastCorners = corners
+            lastCorners = smoothed
             if (firstSeen) {
                 runOnUiThread {
                     findViewById<TextView>(R.id.tvStatus).text = "Document found — hold steady…"
                 }
             }
-            // How far did the corners move since the last check?
+            // How far did the (smoothed) corners move since
+            // the last check?
             var stable = false
             if (prev != null) {
                 var maxMove = 0f
-                for (i in corners.indices) {
-                    maxMove = maxOf(maxMove, abs(corners[i] - prev[i]))
+                for (i in smoothed.indices) {
+                    maxMove = maxOf(maxMove, abs(smoothed[i] - prev[i]))
                 }
                 // The analysis frame is small; 25 px of movement
                 // means the phone or the page is still moving.
@@ -493,8 +697,10 @@ class ScannerActivity : AppCompatActivity() {
         lastCaptureMs = System.currentTimeMillis()
         steadyStartMs = 0
         lastCorners = null
+        smoothCorners = null
         edgeOverlay().clear()
         countdownBar().setProgress(-1f)
+        hideFocusUi()
         val status = findViewById<TextView>(R.id.tvStatus)
         status.text = "Capturing…"
         val photoFile = File(cacheDir, "scan_capture_${System.currentTimeMillis()}.jpg")

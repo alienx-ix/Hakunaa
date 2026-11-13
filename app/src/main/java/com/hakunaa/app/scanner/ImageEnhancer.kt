@@ -5,6 +5,8 @@ import android.graphics.Canvas
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
+import kotlin.math.max
+import kotlin.math.min
 
 /**
  * Scan enhancement filters — the CamScanner-style filter row.
@@ -96,25 +98,36 @@ object ImageEnhancer {
                 canvas.drawBitmap(bitmap, 0f, 0f, paint)
             }
             Filter.BW -> {
-                // Grayscale, then threshold to pure black / white.
-                val gray = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
-                val grayCanvas = Canvas(gray)
-                val grayPaint = Paint()
-                val matrix = ColorMatrix()
-                matrix.setSaturation(0f)
-                grayPaint.colorFilter = ColorMatrixColorFilter(matrix)
-                grayCanvas.drawBitmap(bitmap, 0f, 0f, grayPaint)
-                val pixels = IntArray(gray.width * gray.height)
-                gray.getPixels(pixels, 0, gray.width, 0, 0, gray.width, gray.height)
+                // ADAPTIVE black & white. A fixed threshold (the
+                // old 160) fails the moment the light is uneven:
+                // shadowed paper drops below 160 and the whole
+                // shadow turns solid black, eating the text — the
+                // user's screenshot was exactly that (top of the
+                // page black, only the bright bottom strip left).
+                // So each pixel is compared with its LOCAL
+                // background (a wide blur of the page): text is
+                // darker than the paper around it whatever the
+                // light there, and paper is never darker than its
+                // own background. Verified on the user's photo:
+                // fixed 160 gave a 100% black page, adaptive
+                // gives white paper with black text throughout.
+                val w = bitmap.width
+                val h = bitmap.height
+                val pixels = IntArray(w * h)
+                bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
+                val gray = IntArray(w * h)
                 for (i in pixels.indices) {
                     val p = pixels[i]
-                    val lum = (0.299 * ((p shr 16) and 0xFF) +
+                    gray[i] = (0.299 * ((p shr 16) and 0xFF) +
                         0.587 * ((p shr 8) and 0xFF) +
                         0.114 * (p and 0xFF)).toInt()
-                    pixels[i] = if (lum < 160) -0x1000000 else -0x1
                 }
-                result.setPixels(pixels, 0, result.width, 0, 0, result.width, result.height)
-                gray.recycle()
+                val radius = max(10, min(w, h) / 20)
+                val bg = boxBlurGray(gray, w, h, radius)
+                for (i in pixels.indices) {
+                    pixels[i] = if (gray[i] < bg[i] - 15) -0x1000000 else -0x1
+                }
+                result.setPixels(pixels, 0, w, 0, 0, w, h)
             }
             Filter.SOFT -> {
                 // Soft: gentle look — slightly less contrast, a touch
@@ -178,6 +191,58 @@ object ImageEnhancer {
             }
         }
         return result
+    }
+
+    /** Separable box blur on a single-channel int image
+     *  (running sums, O(n) whatever the radius). The B&W filter
+     *  uses it for the local background estimate. */
+    private fun boxBlurGray(src: IntArray, w: Int, h: Int, r: Int): IntArray {
+        val tmp = IntArray(w * h)
+        val out = IntArray(w * h)
+        for (y in 0 until h) {
+            val row = y * w
+            var sum = 0
+            var count = 0
+            for (k in 0..r) {
+                sum += src[row + k]
+                count++
+            }
+            for (x in 0 until w) {
+                tmp[row + x] = sum / count
+                val addX = x + r + 1
+                if (addX < w) {
+                    sum += src[row + addX]
+                    count++
+                }
+                val remX = x - r
+                if (remX >= 0) {
+                    sum -= src[row + remX]
+                    count--
+                }
+            }
+        }
+        for (x in 0 until w) {
+            var sum = 0
+            var count = 0
+            for (k in 0..r) {
+                sum += tmp[k * w + x]
+                count++
+            }
+            for (y in 0 until h) {
+                out[y * w + x] = sum / count
+                val addY = y + r + 1
+                if (addY < h) {
+                    sum += tmp[addY * w + x]
+                    count++
+                }
+                val remY = y - r
+                if (remY >= 0) {
+                    sum -= tmp[remY * w + x]
+                    count--
+                }
+            }
+        }
+        return out
     }
 
     /** Unsharp mask — the "clear scan" step. A blurred copy is

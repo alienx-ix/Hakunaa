@@ -562,6 +562,31 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   countdown bar on the side fills like a charge while the page
   is held steady — full means capture. Hold time is now the
   menu setting (2 / 3 / 5 seconds, default 3 s, saved).
+- **v0.1.42 (2026-11-13): Tap to focus + on-screen brightness.**
+  A real camera works by tapping the screen: tap anywhere on
+  the preview and the camera focuses there and meters the light
+  there (AF + AE) — tap a dark corner and it brightens, tap a
+  bright page and it darkens. A teal focus ring marks the spot
+  and fades; a brightness slider appears right beside the ring
+  (drag up for brighter, down for darker, sun on top) — the
+  adjustment lives on the screen itself, no separate settings.
+  The brightness offset is saved and restored when the scanner
+  reopens, clamped to the phone's exposure range (the slider is
+  hidden on phones that don't support it). Taps only count
+  inside the actual camera image (4:3 fitCenter); taps on the
+  black bars or controls do nothing. PLUS stability fixes from
+  the user's live test: the countdown bar never filled and the
+  box shook because the raw detected corners jitter a few
+  pixels every frame — corners are now smoothed (exponential
+  moving average) and the bar + frame use the smoothed corners,
+  a missed frame gets a 600 ms grace instead of wiping the box,
+  and analysis runs at 640x480 (the lag while the bar ran came
+  from full-size frames); the detector also blurs sensor noise
+  before thresholding. B&W filter fixed too: the fixed 160
+  threshold turned shadowed paper solid black (verified on the
+  user's photo — 100% black page); it is now adaptive, each
+  pixel against its local background, so text stays readable
+  under uneven light.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.
