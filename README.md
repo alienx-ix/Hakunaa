@@ -629,23 +629,25 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   ValueAnimator on the UI thread (60 fps, vsync); full means
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
-- **v0.1.52 orientation turns the image only + Spirit Level in the bottom row (same build).**
-  Two fixes from live testing. (1) Orientation: Landscape
-  used to rotate the ENTIRE screen (the whole UI flipped),
-  which was wrong. Now the scanner is locked to portrait —
-  the buttons, mode tabs and capture row never move — and
-  the Orientation setting turns only the camera image:
-  Portrait is a tall preview, Landscape is a wide preview,
-  Auto follows the phone, and the saved photo matches the
-  preview in every case. The edge frame, grid and tap-to-
-  focus all follow the image, so they stay on the page in
-  either orientation. (2) The separate Grid button is gone
-  from the bottom row — the Grid is still in the Settings
-  panel — and the Spirit Level is in its place instead: a
-  compact level bar with a bubble that glides smoothly
-  (eased animation, not a jump) and turns teal when level.
-  Tap it to turn the level on / off; the Settings toggle
-  controls the same state.
+- **v0.1.53 edge detection, perfected + Sound off by default (same build).**
+  Three fixes from live testing. (1) **No box unless it is a
+  real document.** The live frame used to appear over any bright
+  pattern (a woven mat, a colourful cloth) because the detector
+  only looked at where a bright mask ends. Now every detected
+  quad is checked for REAL edges: each side must be a sharp
+  brightness step (bright paper against a darker background),
+  with at least two strong sides and a good mean strength —
+  verified on the user's own photos (a mat scene scores ~0.2
+  and is rejected; real pages score 0.56–0.75 and are kept).
+  By default the box never appears; it only comes when a
+  document is actually there. The frame also only appears
+  after the same document is found on two frames in a row, so
+  a one-frame flicker never flashes a box. (2) **Smooth, no
+  lag.** The frame now glides to each new detection (eased
+  every frame, like the Spirit Level bubble) instead of
+  jumping, so it tracks the page smoothly with no shake.
+  (3) **Sound is OFF by default** — the shutter click stays
+  silent unless the user turns it on in Settings > Sound.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

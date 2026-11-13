@@ -18,8 +18,11 @@ object ShutterSound {
     private var sound: MediaActionSound? = null
 
     fun isOn(context: Context): Boolean {
+        // Sound is OFF by default (v0.1.53) — the shutter click
+        // is a surprise on a quiet scanner, so it stays silent
+        // unless the user turns it on in Settings > Sound.
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getBoolean(PREF_SOUND_ON, true)
+            .getBoolean(PREF_SOUND_ON, false)
     }
 
     fun play(context: Context) {

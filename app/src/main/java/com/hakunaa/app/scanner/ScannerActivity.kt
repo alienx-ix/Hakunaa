@@ -183,6 +183,12 @@ class ScannerActivity : AppCompatActivity() {
     // smoothed corners only.
     private var smoothCorners: FloatArray? = null
     private var lastDetectMs = 0L
+    // The frame only appears after the SAME document has been
+    // found on two frames in a row (v0.1.53). A single-frame
+    // detection — a hand, a glare, a pattern flicker — must
+    // never flash a box. Two steady frames is ~250 ms, which
+    // the user never notices, and it kills the flicker.
+    private var confirmCount = 0
 
     companion object {
         private const val PREFS_NAME = "hakunaa_prefs"
@@ -201,7 +207,7 @@ class ScannerActivity : AppCompatActivity() {
     // Settings (the CamScanner-style panel, opened from the
     // top-bar menu): the shutter sound, the spirit level, and
     // the screen orientation — all saved, so they stay.
-    private var soundOn = true
+    private var soundOn = false
     private var spiritLevelOn = false
     private var orientation = ORIENTATION_AUTO
     private var sensorManager: SensorManager? = null
@@ -354,7 +360,7 @@ class ScannerActivity : AppCompatActivity() {
         // Saved Settings-panel choices.
         autoCaptureOn = prefs().getBoolean(PREF_AUTO_CAPTURE_ON, true)
         updateAutoCaptureButton()
-        soundOn = prefs().getBoolean(PREF_SOUND_ON, true)
+        soundOn = prefs().getBoolean(PREF_SOUND_ON, false)
         spiritLevelOn = prefs().getBoolean(PREF_SPIRIT_LEVEL_ON, false)
         orientation = prefs().getString(PREF_ORIENTATION, ORIENTATION_AUTO) ?: ORIENTATION_AUTO
         // The Orientation setting turns the IMAGE, not the
@@ -534,6 +540,7 @@ class ScannerActivity : AppCompatActivity() {
         steadyStartMs = 0
         lastCorners = null
         smoothCorners = null
+        confirmCount = 0
         cancelCaptureRing()
         updateAutoCaptureButton()
     }
@@ -1163,6 +1170,7 @@ class ScannerActivity : AppCompatActivity() {
         try {
             if (!autoCaptureOn || isCapturing) {
                 smoothCorners = null
+                confirmCount = 0
                 edgeOverlay().clear()
                 cancelCaptureRing()
                 return
@@ -1183,6 +1191,7 @@ class ScannerActivity : AppCompatActivity() {
                 steadyStartMs = 0
                 lastCorners = null
                 smoothCorners = null
+                confirmCount = 0
                 edgeOverlay().clear()
                 cancelCaptureRing()
                 return
@@ -1201,13 +1210,30 @@ class ScannerActivity : AppCompatActivity() {
                 FloatArray(8) { i -> prevSmooth[i] + 0.35f * (corners[i] - prevSmooth[i]) }
             }
             smoothCorners = smoothed
+            // Confirm the document: only show the frame once the
+            // SAME quad has been found on two frames in a row.
+            // A one-frame flicker never draws a box.
+            val prevConfirm = lastCorners
+            confirmCount = if (prevConfirm == null) {
+                1
+            } else {
+                var maxMove = 0f
+                for (i in smoothed.indices) {
+                    maxMove = maxOf(maxMove, abs(smoothed[i] - prevConfirm[i]))
+                }
+                if (maxMove < 20f) confirmCount + 1 else 1
+            }
             // A document is in the frame — draw its real edges.
-            edgeOverlay().updateCorners(
-                smoothed,
-                imageProxy.imageInfo.rotationDegrees,
-                imageProxy.width,
-                imageProxy.height
-            )
+            // (Only once confirmed, so the box never flashes on
+            // a single-frame flicker.)
+            if (confirmCount >= 2) {
+                edgeOverlay().updateCorners(
+                    smoothed,
+                    imageProxy.imageInfo.rotationDegrees,
+                    imageProxy.width,
+                    imageProxy.height
+                )
+            }
             val prev = lastCorners
             val firstSeen = prev == null
             lastCorners = smoothed
@@ -1277,6 +1303,7 @@ class ScannerActivity : AppCompatActivity() {
         steadyStartMs = 0
         lastCorners = null
         smoothCorners = null
+        confirmCount = 0
         edgeOverlay().clear()
         cancelCaptureRing()
         hideFocusUi()

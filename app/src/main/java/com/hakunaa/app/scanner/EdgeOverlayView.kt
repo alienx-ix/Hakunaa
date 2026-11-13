@@ -7,6 +7,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.util.AttributeSet
 import android.view.View
+import kotlin.math.abs
 
 /**
  * Dynamic document-edge overlay — the frame that follows the
@@ -37,7 +38,15 @@ class EdgeOverlayView @JvmOverloads constructor(
 ) : View(context, attrs) {
 
     // The four corners in view coordinates, TL TR BR BL, or null.
+    // NEW (v0.1.53) — the frame GLIDES, it never jumps. The
+    // detector hands over a new quad ~4 times a second, and the
+    // raw corners jitter a few pixels each time, so drawing them
+    // directly made the box shake. Instead the drawn points ease
+    // toward the latest target every frame (the same easing the
+    // Spirit Level bubble uses), so the frame moves smoothly
+    // with the page, with no lag — it settles in ~150 ms.
     private var points: FloatArray? = null
+    private var targetPoints: FloatArray? = null
 
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#00BFA5")
@@ -81,10 +90,18 @@ class EdgeOverlayView @JvmOverloads constructor(
         imageHeight: Int
     ) {
         post {
-            points = if (corners == null || corners.size < 8) {
+            targetPoints = if (corners == null || corners.size < 8) {
                 null
             } else {
                 mapToView(corners, rotationDegrees, imageWidth, imageHeight)
+            }
+            if (targetPoints == null) {
+                // No document — hide the frame at once.
+                points = null
+            } else if (points == null) {
+                // First frame: snap straight onto the target, so
+                // the box appears at once. After that it eases.
+                points = targetPoints?.copyOf()
             }
             invalidate()
         }
@@ -94,6 +111,7 @@ class EdgeOverlayView @JvmOverloads constructor(
     fun clear() {
         post {
             points = null
+            targetPoints = null
             invalidate()
         }
     }
@@ -157,7 +175,19 @@ class EdgeOverlayView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val pts = points ?: return
+        // Ease the drawn frame toward the latest target, so it
+        // glides instead of jumping to each new detection.
+        val target = targetPoints
+        val current = points
+        if (target == null || current == null) return
+        var settled = true
+        for (i in current.indices) {
+            val diff = target[i] - current[i]
+            current[i] += diff * 0.35f
+            if (abs(diff) > 0.5f) settled = false
+        }
+        if (!settled) postInvalidateOnAnimation()
+        val pts = current
         // Light fill so the detected page area reads clearly.
         val fill = Path().apply {
             moveTo(pts[0], pts[1])
