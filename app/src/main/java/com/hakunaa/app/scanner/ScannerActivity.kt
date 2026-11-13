@@ -1594,7 +1594,8 @@ class ScannerActivity : AppCompatActivity() {
         intent.putExtra(PagesActivity.EXTRA_DOC_NAME, docName)
         // A Batch from this scanner picks its filters at the
         // end (on Save, in the Pages screen); a Book Scan batch
-        // is already enhanced at capture, so it does not.
+        // picks them earlier, in its own Enhance step before
+        // the Preview (v0.1.71).
         intent.putExtra(PagesActivity.EXTRA_BATCH_ENHANCE, true)
         pagesLauncher.launch(intent)
     }

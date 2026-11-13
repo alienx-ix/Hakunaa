@@ -5,7 +5,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Matrix
 import android.graphics.RectF
 import android.os.Bundle
 import android.view.View
@@ -17,10 +16,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.AspectRatio
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
-import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -31,8 +28,6 @@ import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
 
 /**
  * Book Scan — scan a whole book, two pages at a time.
@@ -52,10 +47,13 @@ import java.util.concurrent.Executors
  *
  * Capture is MANUAL (a book's pages change while you flip, so
  * auto-capture would fire at the wrong moment). Each page is
- * auto-enhanced with the NO_SHADOW filter (the default, with
- * sharpening), so there is no per-page Crop/Enhance screen in
- * the way — the flow stays fast. Review and reorder on the
- * Pages screen; save the whole book as one PDF.
+ * auto-enhanced with the NO_SHADOW filter at capture (the
+ * default, with sharpening). When the user is done — Pages or
+ * Save PDF — the book goes through the Filter (Enhance) screen
+ * first, like a Batch (v0.1.71): pick a filter per page (or one
+ * for all), crop or adjust a page, then the Preview (Pages)
+ * screen to reorder, rotate or delete, then Export. Review and
+ * reorder on the Pages screen; save the whole book as one PDF.
  *
  * The camera permission is asked the same way as the main
  * scanner (it is normally already granted by then).
@@ -68,7 +66,6 @@ class BookScannerActivity : AppCompatActivity() {
     private var docName: String? = null
     private var camera: Camera? = null
     private var imageCapture: ImageCapture? = null
-    private var cameraExecutor: ExecutorService? = null
 
     // Camera lifecycle (the black-screen fix). The camera is
     // bound while this screen is visible and released the
@@ -87,9 +84,6 @@ class BookScannerActivity : AppCompatActivity() {
     private var doubleMode = true
     private var selectedSide = SpineLineView.SIDE_LEFT
     private var spineFraction = 0.5f
-    private var smoothSpine: Float? = null
-    private var lastDragMs = 0L
-    private var lastAnalysisMs = 0L
 
     private fun spineLine(): SpineLineView =
         findViewById(R.id.spineLine)
@@ -104,27 +98,28 @@ class BookScannerActivity : AppCompatActivity() {
             }
         }
 
-    // Export is a separate screen: while it is open this
-    // activity stops and the camera is released — no scan runs
-    // in the background. On save, clear the pages; on cancel,
-    // keep them and leave the Save button visible.
-    private val exportLauncher =
+    // Book → Filter (Enhance) first (v0.1.71): the Book flow
+    // was capture → Pages/Export with no Filter screen, so a
+    // book page could never change its filter or be cropped /
+    // adjusted. Now Pages and Save PDF both open Enhance for
+    // the first page with "Apply to all pages" already ticked
+    // (one filter covers the book; the user can swipe pages
+    // and pick a filter per page, or un-tick it). Back from
+    // Enhance cancels — the pages stay on the camera. On save,
+    // the first page is replaced by the enhanced file and the
+    // PREVIEW screen (Pages) opens: reorder (long-press drag),
+    // rotate, delete, full-screen preview, then Save → Export.
+    private val enhanceLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            val status = findViewById<TextView>(R.id.tvStatus)
             if (result.resultCode == RESULT_OK) {
-                val fileName = result.data?.getStringExtra(PdfExportActivity.EXTRA_FILE_NAME)
-                    ?: "scan.pdf"
-                val sizeBytes = result.data?.getLongExtra(PdfExportActivity.EXTRA_SIZE_BYTES, 0L)
-                    ?: 0L
-                val size = com.hakunaa.app.core.FileUtils.formatSize(sizeBytes)
-                status.text = "Done — book PDF saved to Documents/Hakunaa/$fileName (${pages.size} page(s), $size)"
-                Toast.makeText(this, "PDF saved ($size)", Toast.LENGTH_SHORT).show()
-                pages.clear()
-                docName = null
-                updateLabels()
-            } else {
-                status.text = "Save cancelled — ${pages.size} page(s) ready, tap Save PDF when ready"
-                updateLabels()
+                val enhancedPath =
+                    result.data?.getStringExtra(EnhanceActivity.EXTRA_ENHANCED_PATH)
+                if (enhancedPath != null && pages.isNotEmpty()) {
+                    val file = File(enhancedPath)
+                    if (file.exists()) pages[0] = file
+                }
+                docName = result.data?.getStringExtra("doc_name") ?: docName
+                openPagesAfterEnhance()
             }
         }
 
@@ -137,6 +132,16 @@ class BookScannerActivity : AppCompatActivity() {
                 updateLabels()
                 findViewById<TextView>(R.id.tvStatus).text =
                     "Done — PDF saved. Scan another book when ready"
+            } else if (result.resultCode == PdfExportActivity.RESULT_DISCARD) {
+                // Discard confirmed on the export screen reached
+                // via the Preview (v0.1.71): drop every page so
+                // the camera comes back fresh.
+                pages.clear()
+                docName = null
+                updateLabels()
+                findViewById<TextView>(R.id.tvStatus).text =
+                    "Discarded — point the camera at an open book and tap Capture"
+                Toast.makeText(this, "Discarded", Toast.LENGTH_SHORT).show()
             }
             // RESULT_ADD_PAGE or back: stay on the camera, pages kept.
         }
@@ -145,7 +150,6 @@ class BookScannerActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_book_scanner)
 
-        cameraExecutor = Executors.newSingleThreadExecutor()
         docName = "Hakunaa Book " + SimpleDateFormat("dd-MM-yyyy HH.mm", Locale.US).format(Date())
 
         findViewById<ImageButton>(R.id.btnClose).setOnClickListener { finish() }
@@ -158,12 +162,12 @@ class BookScannerActivity : AppCompatActivity() {
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnSavePdf)
             .setOnClickListener { saveAsPdf() }
 
-        // Spine line: a drag moves it (and pauses the auto
-        // follow for 3 seconds); a tap picks a side in Single
-        // mode. Double mode takes both pages, so no selection.
+        // Spine line: MANUAL only (v0.1.71) — a drag moves it,
+        // and it never moves on its own; there is no automatic
+        // spine follow. A tap picks a side in Single mode.
+        // Double mode takes both pages, so no selection.
         spineLine().onSpineChanged = { fraction ->
             spineFraction = fraction
-            lastDragMs = System.currentTimeMillis()
         }
         spineLine().onSideTapped = { side ->
             if (!doubleMode) {
@@ -213,11 +217,6 @@ class BookScannerActivity : AppCompatActivity() {
             cameraProvider?.unbindAll()
         } catch (_: Throwable) {
         }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        cameraExecutor?.shutdown()
     }
 
     private fun setDoubleMode(double: Boolean) {
@@ -294,69 +293,28 @@ class BookScannerActivity : AppCompatActivity() {
                     .build().also {
                         it.flashMode = ImageCapture.FLASH_MODE_AUTO
                     }
-                // AUTO-RESOLVE camera binding — global support.
-                // Same ladder as the main scanner: fixed 640x480
-                // analysis -> CameraX picks the size -> no
-                // analysis at all (the spine line just won't
-                // auto-follow; drag it by hand). The camera must
-                // open on ANY phone.
+                // No live spine analysis (v0.1.71): the spine
+                // line is MANUAL only — the user drags it to
+                // the fold. No analysis use case is bound, so
+                // the camera opens on ANY phone and no CPU is
+                // spent tracking the spine.
                 val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-                var analysisOn = true
-                camera = try {
-                    val analysis = buildAnalysis(fixedResolution = true)
-                    cameraProvider.unbindAll()
-                    cameraProvider.bindToLifecycle(
-                        this, cameraSelector, preview, imageCapture, analysis
-                    )
-                } catch (_: Throwable) {
-                    try {
-                        val analysis = buildAnalysis(fixedResolution = false)
-                        cameraProvider.unbindAll()
-                        cameraProvider.bindToLifecycle(
-                            this, cameraSelector, preview, imageCapture, analysis
-                        )
-                    } catch (_: Throwable) {
-                        analysisOn = false
-                        cameraProvider.unbindAll()
-                        cameraProvider.bindToLifecycle(
-                            this, cameraSelector, preview, imageCapture
-                        )
-                    }
-                }
+                cameraProvider.unbindAll()
+                camera = cameraProvider.bindToLifecycle(
+                    this, cameraSelector, preview, imageCapture
+                )
                 cameraBound = true
                 try {
                     if (torchOn) camera?.cameraControl?.enableTorch(true)
                 } catch (_: Throwable) {
                 }
                 findViewById<TextView>(R.id.tvStatus).text =
-                    if (analysisOn) "Point the camera at an open book — both pages at once"
-                    else "Camera ready — drag the spine line by hand (auto-follow isn't supported on this phone)"
+                    "Point the camera at an open book — drag the spine line to the fold, then Capture"
             } catch (_: Throwable) {
                 findViewById<TextView>(R.id.tvStatus).text =
                     "Couldn't start the camera — try again"
             }
         }, ContextCompat.getMainExecutor(this))
-    }
-
-    /** The live spine-detection stream. A fixed 320x240 is
-     *  fastest (small frames, no lag — 4x fewer pixels than
-     *  640x480, so the spine scan costs a quarter of the CPU),
-     *  but some phones reject that exact combination — then
-     *  CameraX picks the size itself (auto resolve), which
-     *  works everywhere. */
-    private fun buildAnalysis(fixedResolution: Boolean): ImageAnalysis {
-        val builder = ImageAnalysis.Builder()
-            // 4:3, the same aspect as the preview, so the
-            // detected spine maps exactly onto the preview.
-            .setTargetAspectRatio(AspectRatio.RATIO_4_3)
-            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
-            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-        if (fixedResolution) {
-            builder.setTargetResolution(android.util.Size(320, 240))
-        }
-        return builder.build().also {
-            it.setAnalyzer(cameraExecutor!!, ::analyzeFrame)
-        }
     }
 
     /** The preview is 4:3 fitCenter inside the full-screen
@@ -373,44 +331,6 @@ class BookScannerActivity : AppCompatActivity() {
         } else {
             val contentH = w * 3f / 4f
             RectF(0f, (h - contentH) / 2f, w, (h + contentH) / 2f)
-        }
-    }
-
-    /** One analysis frame: find the spine valley and move the
-     *  line to it (smoothed), unless the user dragged it
-     *  recently — a drag wins over the auto follow. */
-    private fun analyzeFrame(imageProxy: ImageProxy) {
-        try {
-            if (isCapturing) return
-            val now = System.currentTimeMillis()
-            if (now - lastAnalysisMs < 250) return
-            lastAnalysisMs = now
-            val raw = imageProxy.toBitmap()
-            // The buffer may be rotated relative to the display;
-            // upright it first so the fraction maps onto the
-            // preview directly.
-            val rotation = imageProxy.imageInfo.rotationDegrees
-            val bitmap = if (rotation == 0) {
-                raw
-            } else {
-                val matrix = Matrix()
-                matrix.postRotate(rotation.toFloat())
-                Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, matrix, true)
-                    .also { raw.recycle() }
-            }
-            val frac = DocumentDetector.spineFraction(bitmap)
-            bitmap.recycle()
-            if (frac == null) return
-            if (now - lastDragMs < 3000) return
-            val prev = smoothSpine
-            val smoothed = if (prev == null) frac else prev + 0.3f * (frac - prev)
-            smoothSpine = smoothed
-            spineFraction = smoothed
-            spineLine().setSpineFraction(smoothed)
-        } catch (_: Throwable) {
-            // Analysis must never crash the camera.
-        } finally {
-            imageProxy.close()
         }
     }
 
@@ -487,9 +407,8 @@ class BookScannerActivity : AppCompatActivity() {
             left.recycle()
             right.recycle()
             photoFile.delete()
-            // Next spread: let the spine line re-detect.
-            lastDragMs = 0
-            smoothSpine = null
+            // The spine line stays where the user put it
+            // (manual only) — it is not reset between spreads.
             runOnUiThread {
                 isCapturing = false
                 pages.addAll(newPages)
@@ -513,7 +432,33 @@ class BookScannerActivity : AppCompatActivity() {
             if (pages.isNotEmpty()) View.VISIBLE else View.GONE
     }
 
-    private fun openPages() {
+    /** Book → Filter (Enhance) for the first page, with
+     *  "Apply to all pages" already ticked. The Enhance screen
+     *  lets the user swipe through every page, pick a filter
+     *  per page (or one for all), and re-crop a page. */
+    private fun openBookEnhance() {
+        if (pages.isEmpty()) {
+            Toast.makeText(this, "Scan at least one page first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val intent = Intent(this, EnhanceActivity::class.java)
+        intent.putExtra(EnhanceActivity.EXTRA_IMAGE_PATH, pages[0].absolutePath)
+        intent.putStringArrayListExtra(
+            EnhanceActivity.EXTRA_PAGE_PATHS,
+            ArrayList(pages.map { it.absolutePath })
+        )
+        intent.putExtra(EnhanceActivity.EXTRA_APPLY_ALL_CHECKED, true)
+        enhanceLauncher.launch(intent)
+    }
+
+    /** Book after Enhance (v0.1.71): the Preview screen.
+     *  Filters are already picked, so EXTRA_BATCH_ENHANCE is
+     *  false — Save in the Preview goes straight to Export
+     *  instead of opening Enhance again. The user reorders
+     *  (long-press drag), rotates, deletes, or taps a page for
+     *  full-screen preview, then Saves. Back keeps the pages
+     *  on the camera. */
+    private fun openPagesAfterEnhance() {
         if (pages.isEmpty()) {
             Toast.makeText(this, "Scan at least one page first", Toast.LENGTH_SHORT).show()
             return
@@ -524,24 +469,24 @@ class BookScannerActivity : AppCompatActivity() {
             ArrayList(pages.map { it.absolutePath })
         )
         intent.putExtra(PagesActivity.EXTRA_DOC_NAME, docName)
+        intent.putExtra(PagesActivity.EXTRA_BATCH_ENHANCE, false)
         pagesLauncher.launch(intent)
     }
 
+    private fun openPages() {
+        // Pages now goes through the Filter (Enhance) screen
+        // first (v0.1.71) — a book page gets its filters and
+        // menus there, then the Preview opens.
+        openBookEnhance()
+    }
+
     private fun saveAsPdf() {
-        if (pages.isEmpty()) {
-            Toast.makeText(this, "Scan at least one page first", Toast.LENGTH_SHORT).show()
-            return
-        }
-        // Export opens as its OWN SCREEN (PdfExportActivity).
-        // While it is open this activity stops, CameraX releases
-        // the camera, and no scan runs in the background.
-        val name = docName ?: "Hakunaa Book"
-        val intent = Intent(this, PdfExportActivity::class.java)
-        intent.putStringArrayListExtra(
-            PdfExportActivity.EXTRA_PAGE_PATHS,
-            ArrayList(pages.map { it.absolutePath })
-        )
-        intent.putExtra(PdfExportActivity.EXTRA_DOC_NAME, name)
-        exportLauncher.launch(intent)
+        // Save PDF now goes through the Filter (Enhance) screen
+        // first (v0.1.71), then the Preview — the user picks
+        // filters, reorders, and Saves there, which opens
+        // Export. Export is a separate screen: while it is open
+        // this activity stops, CameraX releases the camera, and
+        // no scan runs in the background.
+        openBookEnhance()
     }
 }
