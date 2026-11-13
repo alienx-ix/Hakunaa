@@ -83,6 +83,22 @@ class CropView @JvmOverloads constructor(
     fun setCorners(c: FloatArray) {
         if (c.size != 8) return
         c.copyInto(corners)
+        // Keep every handle on screen (v0.1.55): a corner on the
+        // very edge of the photo puts its circle half off the
+        // screen, where a finger cannot press and drag it (the
+        // user hit this on the right side of a book photo). So
+        // the corners are clamped 2% inside the photo — the
+        // handles stay fully visible and grabbable, and the
+        // user can still drag a corner back out to the edge.
+        val bmp = bitmap
+        if (bmp != null) {
+            val mx = bmp.width * 0.02f
+            val my = bmp.height * 0.02f
+            for (i in 0 until 4) {
+                corners[i * 2] = corners[i * 2].coerceIn(mx, bmp.width - mx)
+                corners[i * 2 + 1] = corners[i * 2 + 1].coerceIn(my, bmp.height - my)
+            }
+        }
         hasCorners = true
         invalidate()
     }
