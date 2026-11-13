@@ -37,7 +37,8 @@ object VideoCompressor {
     enum class Resolution(val scaleFilter: String?, val label: String) {
         ORIGINAL(null, "Original"),
         P720("scale=-2:720", "720p"),
-        P1080("scale=-2:1080", "1080p")
+        P1080("scale=-2:1080", "1080p"),
+        P480("scale=-2:480", "480p")
     }
 
     /** Output container for Convert. WebM uses VP9 + Opus (best for web). */
@@ -362,6 +363,109 @@ object VideoCompressor {
                 }
             }
         } catch (t: Throwable) {
+            onDone(false, t.message ?: "Video engine failed to start")
+        }
+    }
+
+    /**
+     * WhatsApp Optimize: shrink a video until it fits under
+     * [targetBytes] (WhatsApp's media limit is 16 MB — anything
+     * bigger gets re-compressed by WhatsApp itself, losing quality).
+     * Escalation ladder: CRF 28 → 33 → 38 at original resolution,
+     * then 720p, then 480p. Stops at the first attempt that fits.
+     * If no attempt fits, the SMALLEST attempt is kept anyway
+     * (still smaller than the input) with a note that it is still
+     * over the limit — send it as a document in WhatsApp instead.
+     * Never hands back a file bigger than the input.
+     */
+    fun compressForWhatsApp(
+        inputPath: String,
+        outputPath: String,
+        inputSize: Long,
+        targetBytes: Long,
+        onProgress: (Int) -> Unit,
+        onDone: (Boolean, String) -> Unit
+    ) {
+        val attempts = listOf(
+            28 to Resolution.ORIGINAL,
+            33 to Resolution.ORIGINAL,
+            38 to Resolution.ORIGINAL,
+            33 to Resolution.P720,
+            38 to Resolution.P720,
+            33 to Resolution.P480,
+            38 to Resolution.P480
+        )
+        runWhatsAppAttempt(inputPath, outputPath, inputSize, targetBytes, attempts, 0, null, onProgress, onDone)
+    }
+
+    private fun runWhatsAppAttempt(
+        inputPath: String,
+        outputPath: String,
+        inputSize: Long,
+        targetBytes: Long,
+        attempts: List<Pair<Int, Resolution>>,
+        index: Int,
+        bestFile: java.io.File?,
+        onProgress: (Int) -> Unit,
+        onDone: (Boolean, String) -> Unit
+    ) {
+        if (index >= attempts.size) {
+            val best = bestFile
+            if (best != null && best.exists() && best.length() < inputSize) {
+                val bestSize = best.length()
+                try {
+                    best.copyTo(java.io.File(outputPath), overwrite = true)
+                    best.delete()
+                } catch (_: Throwable) { }
+                onDone(true, " (smallest possible is ${com.hakunaa.app.core.FileUtils.formatSize(bestSize)} — still over ${com.hakunaa.app.core.FileUtils.formatSize(targetBytes)}, send it as a document in WhatsApp)")
+            } else {
+                try { best?.delete() } catch (_: Throwable) { }
+                onDone(false, "This video is already as small as it gets — even the strongest settings couldn't shrink it")
+            }
+            return
+        }
+        val (crf, resolution) = attempts[index]
+        val attemptFile = java.io.File("$outputPath.try$index.mp4")
+        try {
+            executeCommand(
+                buildCommand(inputPath, attemptFile.absolutePath, crf, Codec.H264, Presets.VIDEO_PRESET, true, resolution),
+                onProgress
+            ) { ok, message ->
+                if (!ok) {
+                    try { attemptFile.delete() } catch (_: Throwable) { }
+                    try { bestFile?.delete() } catch (_: Throwable) { }
+                    onDone(false, message)
+                    return@executeCommand
+                }
+                val size = if (attemptFile.exists()) attemptFile.length() else Long.MAX_VALUE
+                when {
+                    size <= targetBytes && size < inputSize -> {
+                        // Fits WhatsApp AND is actually smaller — keep it.
+                        // (Fits-but-bigger would break the never-bigger law,
+                        // so it falls through to try harder instead.)
+                        try {
+                            attemptFile.copyTo(java.io.File(outputPath), overwrite = true)
+                            attemptFile.delete()
+                            bestFile?.delete()
+                        } catch (_: Throwable) { }
+                        val note = if (index == 0) "" else " (used CRF $crf, ${resolution.label})"
+                        onDone(true, note)
+                    }
+                    size < inputSize -> {
+                        // Smaller but still over the limit — remember it, try harder.
+                        try { bestFile?.delete() } catch (_: Throwable) { }
+                        runWhatsAppAttempt(inputPath, outputPath, inputSize, targetBytes, attempts, index + 1, attemptFile, onProgress, onDone)
+                    }
+                    else -> {
+                        // Not smaller — discard, try harder.
+                        try { attemptFile.delete() } catch (_: Throwable) { }
+                        runWhatsAppAttempt(inputPath, outputPath, inputSize, targetBytes, attempts, index + 1, bestFile, onProgress, onDone)
+                    }
+                }
+            }
+        } catch (t: Throwable) {
+            try { attemptFile.delete() } catch (_: Throwable) { }
+            try { bestFile?.delete() } catch (_: Throwable) { }
             onDone(false, t.message ?: "Video engine failed to start")
         }
     }

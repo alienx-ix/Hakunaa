@@ -463,6 +463,20 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   layout (Grid 2x2, Side by side, Stacked, Row of 3, Column of
   3), each photo centre-cropped to fill its cell, saved as one
   image to Pictures/Hakunaa. Pure Kotlin Bitmap, no library.
+- **v0.1.36 (2026-11-13): WhatsApp Optimize.** The user picked it
+  from the noted features. New 5th Home card — tap it, pick a
+  video, photo or PDF, see its details + preview, tap Optimize
+  for WhatsApp, share the result straight to WhatsApp.
+  Targets are WhatsApp's real limits: video ≤ 16 MB (H.264,
+  CRF ladder 28 → 33 → 38, then 720p, then 480p), photo ≤ 200 KB
+  at max 1600 px (best-quality JPEG/WebP levels first, then
+  binary-search to the target), PDF ≤ 16 MB via Smart Compress.
+  Rule, set by the user: ALWAYS best-compress, even a file that
+  already fits (a 499 KB photo still gets compressed); quality
+  first, only as low as the limit needs; output is never bigger
+  than the input — a file that cannot shrink at all is saved
+  as-is. New: WhatsAppOptimizeActivity + VideoCompressor
+  .compressForWhatsApp.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

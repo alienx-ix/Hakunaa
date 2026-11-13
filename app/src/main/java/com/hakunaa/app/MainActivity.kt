@@ -9,6 +9,7 @@ import com.hakunaa.app.image.ImageCompressActivity
 import com.hakunaa.app.pdf.PdfToolsActivity
 import com.hakunaa.app.scanner.ScannerActivity
 import com.hakunaa.app.video.VideoCompressActivity
+import com.hakunaa.app.whatsapp.WhatsAppOptimizeActivity
 
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -34,6 +35,9 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<View>(R.id.cardScanner).setOnClickListener {
             startActivity(Intent(this, ScannerActivity::class.java))
+        }
+        findViewById<View>(R.id.cardWhatsApp).setOnClickListener {
+            startActivity(Intent(this, WhatsAppOptimizeActivity::class.java))
         }
     }
 }

@@ -9,6 +9,8 @@
     <string name="card_image_subtitle">JPEG, WebP and AVIF — smaller, same look</string>
     <string name="card_video_title">Video Compress</string>
     <string name="card_video_subtitle">H.264 / H.265, keeps 1080p, CRF quality</string>
+    <string name="card_whatsapp_title">WhatsApp Optimize</string>
+    <string name="card_whatsapp_subtitle">One tap — video, photo, PDF ready for WhatsApp</string>
     <string name="privacy_note">100% on-device. No account, no upload, no server.</string>
     <string name="pick_video">Pick a video</string>
     <string name="pick_image">Pick an image</string>
