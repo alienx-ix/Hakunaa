@@ -543,6 +543,25 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   Cancel keeps the pages and the Save button stays visible so
   export can be opened again. PdfExportDialog + its layout
   deleted.
+- **v0.1.41 (2026-11-13): Single-page detection + clear scans +
+  auto-capture countdown.** (1) Single page: the detector used
+  to take the whole bright blob, so an open book's side page
+  came along. The spine shadow is NOT dark enough to break the
+  Otsu mask, but it IS a clear valley in the column-mean
+  brightness profile — the detector now finds that valley and,
+  when one side is a small partial page, splits there and keeps
+  only the biggest page. A full two-page spread (both sides
+  comparable) is still kept whole. Verified on the user's two
+  photos: INDEX page left edge moved 0 -> 111 (spine), notes
+  spread unchanged. (2) Clear scans: no filter ever sharpened,
+  so the warp's softening stayed. ENHANCE (the default) now
+  adds an unsharp mask after the colour work — verified
+  side-by-side on the INDEX page, visibly crisper text/lines.
+  The Enhance screen shows the raw page at once, then swaps in
+  the sharpened version when ready. (3) Auto capture: a
+  countdown bar on the side fills like a charge while the page
+  is held steady — full means capture. Hold time is now the
+  menu setting (2 / 3 / 5 seconds, default 3 s, saved).
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

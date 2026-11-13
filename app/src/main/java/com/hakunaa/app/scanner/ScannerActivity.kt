@@ -2,6 +2,7 @@ package com.hakunaa.app.scanner
 
 import android.Manifest
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
@@ -23,6 +24,7 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlin.math.abs
 import com.hakunaa.app.R
 import com.hakunaa.app.core.FileUtils
@@ -39,6 +41,14 @@ import java.util.concurrent.Executors
  *    Images / Import Files. AUTO capture: when a document is held
  *    steady in the frame, the app captures it by itself — the way
  *    professional scanners do it (toggle AUTO in the top bar).
+ *    While it is held steady a countdown bar on the side fills
+ *    like a charge; full means capture. The hold time is
+ *    adjustable in the menu (2 / 3 / 5 seconds, default 3).
+ *    The live edge frame (EdgeOverlayView) draws the document's
+ *    real detected corners on the preview, following the page.
+ *    Single-page detection: in an open book the detector splits
+ *    at the spine and keeps only the biggest page — unless both
+ *    pages form a full spread, which it keeps whole.
  * 2. Crop (CropActivity): draggable teal corner handles, Auto
  *    Detect, rotate Left / Right, Next.
  * 3. Enhance (EnhanceActivity): filters Original / Lighten /
@@ -88,13 +98,27 @@ class ScannerActivity : AppCompatActivity() {
     private var hdOn = true
     private var autoCaptureOn = true
     private var isCapturing = false
-    // Auto-capture state: the last detected corners, how many
-    // consecutive frames they stayed still, and when the last
-    // capture happened (cooldown so it does not fire twice).
+    // Auto-capture state: the last detected corners, when the
+    // current steady hold started, and when the last capture
+    // happened (cooldown so it does not fire twice). The hold
+    // time before auto-capture is the user's menu setting
+    // (2 / 3 / 5 seconds, default 3) — the countdown bar fills
+    // over exactly that time.
     private var lastCorners: FloatArray? = null
-    private var stableFrames = 0
+    private var steadyStartMs = 0L
     private var lastAnalysisMs = 0L
     private var lastCaptureMs = 0L
+    private var autoCaptureDelayMs = 3000L
+
+    companion object {
+        private const val PREFS_NAME = "hakunaa_prefs"
+        private const val PREF_AUTO_CAPTURE_DELAY_MS = "auto_capture_delay_ms"
+        private val DELAY_OPTIONS_MS = longArrayOf(2000L, 3000L, 5000L)
+        private val DELAY_OPTIONS_LABELS = arrayOf("2 seconds", "3 seconds", "5 seconds")
+    }
+
+    private fun prefs(): SharedPreferences =
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
 
     private val requestCameraPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -186,7 +210,7 @@ class ScannerActivity : AppCompatActivity() {
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnHd)
             .setOnClickListener { toggleHd() }
         findViewById<ImageButton>(R.id.btnMenu).setOnClickListener {
-            Toast.makeText(this, "More options coming soon", Toast.LENGTH_SHORT).show()
+            showDelayDialog()
         }
         findViewById<LinearLayout>(R.id.btnAllFeatures).setOnClickListener {
             Toast.makeText(this, "All Features coming soon", Toast.LENGTH_SHORT).show()
@@ -210,6 +234,8 @@ class ScannerActivity : AppCompatActivity() {
         } else {
             requestCameraPermission.launch(Manifest.permission.CAMERA)
         }
+        // Auto-capture hold time from the saved menu setting.
+        autoCaptureDelayMs = prefs().getLong(PREF_AUTO_CAPTURE_DELAY_MS, 3000L)
         updatePagesLabel()
     }
 
@@ -252,10 +278,32 @@ class ScannerActivity : AppCompatActivity() {
             if (torchOn) "Torch on" else "Torch off"
     }
 
+    /** Scanner menu: how long to hold the document steady
+     *  before auto-capture fires (2 / 3 / 5 seconds). Saved,
+     *  so it stays the next time the scanner opens. */
+    private fun showDelayDialog() {
+        val checked = DELAY_OPTIONS_MS.indexOf(autoCaptureDelayMs).coerceAtLeast(1)
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Auto capture delay")
+            .setSingleChoiceItems(DELAY_OPTIONS_LABELS, checked) { dialog, which ->
+                autoCaptureDelayMs = DELAY_OPTIONS_MS[which]
+                prefs().edit().putLong(PREF_AUTO_CAPTURE_DELAY_MS, autoCaptureDelayMs).apply()
+                Toast.makeText(
+                    this,
+                    "Auto capture delay: ${DELAY_OPTIONS_LABELS[which]}",
+                    Toast.LENGTH_SHORT
+                ).show()
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     private fun toggleAutoCapture() {
         autoCaptureOn = !autoCaptureOn
-        stableFrames = 0
+        steadyStartMs = 0
         lastCorners = null
+        countdownBar().setProgress(-1f)
         val btn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnAuto)
         btn.setTextColor(
             if (autoCaptureOn) getColor(R.color.hakunaa_teal)
@@ -340,17 +388,25 @@ class ScannerActivity : AppCompatActivity() {
     private fun edgeOverlay(): EdgeOverlayView =
         findViewById(R.id.edgeOverlay)
 
+    /** The countdown bar lives here: it fills like a charge
+     *  while the document is held steady, and hides when there
+     *  is nothing to count down. */
+    private fun countdownBar(): CountdownBarView =
+        findViewById(R.id.countdownBar)
+
     /** Analyse one camera frame for auto-capture and for the
      *  dynamic edge overlay. Runs on a background thread,
      *  throttled to about 6 frames a second so the frame tracks
      *  the page smoothly. When a document is detected and its
-     *  corners stay still for 3 checks in a row, the page is
-     *  held correctly — capture it automatically, the way
-     *  professional scanners do. */
+     *  corners stay still, the countdown bar fills over the
+     *  user's hold time (menu: 2 / 3 / 5 seconds); full means
+     *  the page is held correctly — capture it automatically,
+     *  the way professional scanners do. */
     private fun analyzeFrame(imageProxy: ImageProxy) {
         try {
             if (!autoCaptureOn || isCapturing) {
                 edgeOverlay().clear()
+                countdownBar().setProgress(-1f)
                 return
             }
             val now = System.currentTimeMillis()
@@ -361,9 +417,10 @@ class ScannerActivity : AppCompatActivity() {
             val corners = DocumentDetector.detectCorners(bitmap)
             bitmap.recycle()
             if (corners == null) {
-                stableFrames = 0
+                steadyStartMs = 0
                 lastCorners = null
                 edgeOverlay().clear()
+                countdownBar().setProgress(-1f)
                 return
             }
             // A document is in the frame — draw its real edges.
@@ -374,33 +431,47 @@ class ScannerActivity : AppCompatActivity() {
                 imageProxy.height
             )
             val prev = lastCorners
+            val firstSeen = prev == null
+            lastCorners = corners
+            if (firstSeen) {
+                runOnUiThread {
+                    findViewById<TextView>(R.id.tvStatus).text = "Document found — hold steady…"
+                }
+            }
+            // How far did the corners move since the last check?
+            var stable = false
             if (prev != null) {
-                // How far did the corners move since the last check?
                 var maxMove = 0f
                 for (i in corners.indices) {
                     maxMove = maxOf(maxMove, abs(corners[i] - prev[i]))
                 }
                 // The analysis frame is small; 25 px of movement
                 // means the phone or the page is still moving.
-                if (maxMove < 25f) {
-                    stableFrames++
-                } else {
-                    stableFrames = 0
-                }
-            } else {
-                stableFrames = 0
+                stable = maxMove < 25f
             }
-            lastCorners = corners
-            if (stableFrames >= 3) {
-                stableFrames = 0
+            if (!stable) {
+                // Moved — the hold starts over, the bar empties.
+                steadyStartMs = 0
+                countdownBar().setProgress(0f)
+                return
+            }
+            val justStarted = steadyStartMs == 0L
+            if (justStarted) steadyStartMs = now
+            val progress = ((now - steadyStartMs).toFloat() / autoCaptureDelayMs)
+                .coerceIn(0f, 1f)
+            countdownBar().setProgress(progress)
+            if (justStarted) {
+                runOnUiThread {
+                    findViewById<TextView>(R.id.tvStatus).text = "Document found — hold steady…"
+                }
+            }
+            if (progress >= 1f) {
+                steadyStartMs = 0
                 lastCorners = null
+                countdownBar().setProgress(-1f)
                 runOnUiThread {
                     findViewById<TextView>(R.id.tvStatus).text = "Document found — capturing…"
                     capturePhoto()
-                }
-            } else if (stableFrames == 1) {
-                runOnUiThread {
-                    findViewById<TextView>(R.id.tvStatus).text = "Document found — hold steady…"
                 }
             }
         } catch (_: Throwable) {
@@ -420,9 +491,10 @@ class ScannerActivity : AppCompatActivity() {
         }
         isCapturing = true
         lastCaptureMs = System.currentTimeMillis()
-        stableFrames = 0
+        steadyStartMs = 0
         lastCorners = null
         edgeOverlay().clear()
+        countdownBar().setProgress(-1f)
         val status = findViewById<TextView>(R.id.tvStatus)
         status.text = "Capturing…"
         val photoFile = File(cacheDir, "scan_capture_${System.currentTimeMillis()}.jpg")

@@ -25,6 +25,17 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- Auto-capture countdown bar — fills like a charge while
+         the document is held steady; full means capture. Shown
+         only while a document is detected and AUTO is on. -->
+    <com.hakunaa.app.scanner.CountdownBarView
+        android:id="@+id/countdownBar"
+        android:layout_width="10dp"
+        android:layout_height="180dp"
+        android:layout_gravity="center_vertical|end"
+        android:layout_marginEnd="16dp"
+        android:visibility="gone" />
+
     <!-- Top bar -->
     <LinearLayout
         android:layout_width="match_parent"

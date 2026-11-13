@@ -70,6 +70,12 @@ class EnhanceActivity : AppCompatActivity() {
                         return@runOnUiThread
                     }
                     bitmap = bmp
+                    // Show the page at once, then swap in the
+                    // filtered version when it is ready — the
+                    // Enhance filter now sharpens (a ~2s job on a
+                    // full-resolution page), and the screen should
+                    // not sit empty while that runs.
+                    findViewById<ImageView>(R.id.ivPage).setImageBitmap(bmp)
                     // Default filter is Enhance (the one CamScanner selects).
                     applyFilterToPreview(selectedFilter)
                     buildFilterThumbnails()

@@ -93,6 +93,18 @@ object DocumentDetector {
         // For each row, find the leftmost and rightmost bright pixel.
         // For each column, find the topmost and bottommost bright pixel.
         // Fit a line to each side and intersect them.
+        //
+        // NEW (v0.1.41) — single-page detection in an open book.
+        // The spine shadow is NOT dark enough to break the Otsu
+        // bright mask, so the bright region spans both pages and
+        // the frame used to include the side page. But the spine
+        // IS a clear valley in the column-mean brightness profile
+        // (the middle rows average out text). findSpineSplit
+        // finds that valley; if one side is a small partial page
+        // it splits there and keeps only the biggest page. If both
+        // sides are comparable (a full two-page spread) it keeps
+        // the whole span — that is what the user wants then.
+        val split = findSpineSplit(gray, w, h, threshold)
         val leftEdge = mutableListOf<Pair<Float, Float>>()
         val rightEdge = mutableListOf<Pair<Float, Float>>()
         val topEdge = mutableListOf<Pair<Float, Float>>()
@@ -106,12 +118,23 @@ object DocumentDetector {
                     right = x
                 }
             }
+            // Split at the spine: the small side is a partial
+            // page — the edge of the kept page is the spine.
+            if (split != null && left >= 0 && left + 5 < split.x && split.x < right - 5) {
+                if (split.splitLeft) left = split.x else right = split.x
+            }
             if (left >= 0 && right > left + w * 0.3) {
                 leftEdge.add(Pair(left.toFloat(), y.toFloat()))
                 rightEdge.add(Pair(right.toFloat(), y.toFloat()))
             }
         }
         for (x in 0 until w) {
+            // When a page was split off, its columns must not
+            // pull the top/bottom lines off the kept page.
+            if (split != null) {
+                if (split.splitLeft && x < split.x) continue
+                if (!split.splitLeft && x > split.x) continue
+            }
             var top = -1
             var bottom = -1
             for (y in 0 until h) {
@@ -165,6 +188,88 @@ object DocumentDetector {
             (bl.first * invScale).coerceIn(0f, bitmap.width.toFloat()),
             (bl.second * invScale).coerceIn(0f, bitmap.height.toFloat())
         )
+    }
+
+    /** The book's spine, found as a valley in the column-mean
+     *  brightness profile. Returns the valley column and which
+     *  side is the small partial page — or null when there is no
+     *  valley worth splitting on (a single sheet, or a full
+     *  two-page spread where both sides are comparable).
+     *
+     *  Why a valley, not a threshold gap: the spine shadow
+     *  (~130 gray) sits ABOVE the Otsu threshold (~92), so the
+     *  bright mask never splits there. But averaged over the
+     *  middle rows (text averages out) the spine is a clear dip
+     *  (~30 levels on a single page, ~60 on a spread) between
+     *  two bright plateaus. Verified on the user's own photos:
+     *  the INDEX page's valley split the side page off (left
+     *  part 71 px vs right 402 px), while the two-page notes
+     *  photo kept its spread (255 vs 288). */
+    private data class SpineSplit(val x: Int, val splitLeft: Boolean)
+
+    private fun findSpineSplit(gray: FloatArray, w: Int, h: Int, threshold: Float): SpineSplit? {
+        // Column means over the middle rows.
+        val y0 = h / 4
+        val y1 = 3 * h / 4
+        val rows = (y1 - y0).coerceAtLeast(1)
+        val colMean = FloatArray(w)
+        for (x in 0 until w) {
+            var sum = 0f
+            for (y in y0 until y1) sum += gray[y * w + x]
+            colMean[x] = sum / rows
+        }
+        // Smooth (moving average, window 5).
+        val sm = FloatArray(w)
+        for (x in 0 until w) {
+            var sum = 0f
+            var n = 0
+            for (k in -2..2) {
+                val xx = x + k
+                if (xx in 0 until w) {
+                    sum += colMean[xx]
+                    n++
+                }
+            }
+            sm[x] = sum / n
+        }
+        // Deepest valley between two bright plateaus.
+        var bestX = -1
+        var bestDepth = 0f
+        val xStart = (w * 0.08f).toInt()
+        val xEnd = (w * 0.92f).toInt()
+        for (x in xStart..xEnd) {
+            var leftPlateau = sm[x]
+            for (k in x - 60..x - 8) {
+                if (k in 0 until w) leftPlateau = max(leftPlateau, sm[k])
+            }
+            var rightPlateau = sm[x]
+            for (k in x + 8..x + 60) {
+                if (k in 0 until w) rightPlateau = max(rightPlateau, sm[k])
+            }
+            val depth = min(leftPlateau, rightPlateau) - sm[x]
+            if (depth < 20f) continue
+            if (min(leftPlateau, rightPlateau) < threshold + 20f) continue
+            if (depth > bestDepth) {
+                bestDepth = depth
+                bestX = x
+            }
+        }
+        if (bestX < 0) return null
+        // Bright span from the smoothed column means.
+        var brightLeft = -1
+        var brightRight = -1
+        for (x in 0 until w) {
+            if (sm[x] > threshold) {
+                if (brightLeft < 0) brightLeft = x
+                brightRight = x
+            }
+        }
+        if (brightLeft < 0) return null
+        val leftPart = bestX - brightLeft
+        val rightPart = brightRight - bestX
+        // Both sides comparable = a real two-page spread: keep it.
+        if (min(leftPart, rightPart) >= 0.5f * max(leftPart, rightPart)) return null
+        return SpineSplit(bestX, leftPart < rightPart)
     }
 
     /** Otsu's method: the threshold that best separates the bright

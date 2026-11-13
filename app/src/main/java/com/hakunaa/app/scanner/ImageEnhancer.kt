@@ -70,6 +70,16 @@ object ImageEnhancer {
                 matrix.postConcat(contrast)
                 paint.colorFilter = ColorMatrixColorFilter(matrix)
                 canvas.drawBitmap(bitmap, 0f, 0f, paint)
+                // NEW (v0.1.41): SHARPEN. The perspective warp
+                // resampling softens text a little, and no filter
+                // ever re-sharpened it — that is why scans looked
+                // "a little poor" next to CamScanner. An unsharp
+                // mask after the colour work makes text and lines
+                // crisp again. Verified side-by-side on the user's
+                // INDEX page: visibly clearer, same colours.
+                val sharp = sharpen(result)
+                result.recycle()
+                return sharp
             }
             Filter.NO_SHADOW -> {
                 // Lift the dark areas (shadows) without blowing out
@@ -168,5 +178,116 @@ object ImageEnhancer {
             }
         }
         return result
+    }
+
+    /** Unsharp mask — the "clear scan" step. A blurred copy is
+     *  subtracted from the original and the difference is added
+     *  back (amount 0.9), so text and ruled lines get crisp edges
+     *  without changing colours. Pure Kotlin, separable box blur
+     *  (radius 2, about the same as a Gaussian radius 2) so it
+     *  stays fast even on full-resolution pages. Runs on a
+     *  background thread in the caller, never on the UI thread. */
+    private fun sharpen(bitmap: Bitmap): Bitmap {
+        val w = bitmap.width
+        val h = bitmap.height
+        val src = IntArray(w * h)
+        bitmap.getPixels(src, 0, w, 0, 0, w, h)
+        val blurred = boxBlur(src, w, h, 2)
+        val out = IntArray(w * h)
+        for (i in src.indices) {
+            val s = src[i]
+            val b = blurred[i]
+            val sr = (s shr 16) and 0xFF
+            val sg = (s shr 8) and 0xFF
+            val sb = s and 0xFF
+            val br = (b shr 16) and 0xFF
+            val bg = (b shr 8) and 0xFF
+            val bb = b and 0xFF
+            val r = (sr + 0.9f * (sr - br)).toInt().coerceIn(0, 255)
+            val g = (sg + 0.9f * (sg - bg)).toInt().coerceIn(0, 255)
+            val bl = (sb + 0.9f * (sb - bb)).toInt().coerceIn(0, 255)
+            out[i] = (0xFF shl 24) or (r shl 16) or (g shl 8) or bl
+        }
+        val result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        result.setPixels(out, 0, w, 0, 0, w, h)
+        return result
+    }
+
+    /** Separable box blur (horizontal pass, then vertical).
+     *  Running sums keep it O(n) — one pass per direction,
+     *  no per-pixel window loop. */
+    private fun boxBlur(src: IntArray, w: Int, h: Int, r: Int): IntArray {
+        val tmp = IntArray(w * h)
+        val out = IntArray(w * h)
+        // Horizontal pass.
+        for (y in 0 until h) {
+            val row = y * w
+            var sumR = 0
+            var sumG = 0
+            var sumB = 0
+            var count = 0
+            for (k in 0..r) {
+                val p = src[row + k]
+                sumR += (p shr 16) and 0xFF
+                sumG += (p shr 8) and 0xFF
+                sumB += p and 0xFF
+                count++
+            }
+            for (x in 0 until w) {
+                tmp[row + x] = (0xFF shl 24) or
+                    ((sumR / count) shl 16) or ((sumG / count) shl 8) or (sumB / count)
+                val addX = x + r + 1
+                if (addX < w) {
+                    val p = src[row + addX]
+                    sumR += (p shr 16) and 0xFF
+                    sumG += (p shr 8) and 0xFF
+                    sumB += p and 0xFF
+                    count++
+                }
+                val remX = x - r
+                if (remX >= 0) {
+                    val p = src[row + remX]
+                    sumR -= (p shr 16) and 0xFF
+                    sumG -= (p shr 8) and 0xFF
+                    sumB -= p and 0xFF
+                    count--
+                }
+            }
+        }
+        // Vertical pass.
+        for (x in 0 until w) {
+            var sumR = 0
+            var sumG = 0
+            var sumB = 0
+            var count = 0
+            for (k in 0..r) {
+                val p = tmp[k * w + x]
+                sumR += (p shr 16) and 0xFF
+                sumG += (p shr 8) and 0xFF
+                sumB += p and 0xFF
+                count++
+            }
+            for (y in 0 until h) {
+                out[y * w + x] = (0xFF shl 24) or
+                    ((sumR / count) shl 16) or ((sumG / count) shl 8) or (sumB / count)
+                val addY = y + r + 1
+                if (addY < h) {
+                    val p = tmp[addY * w + x]
+                    sumR += (p shr 16) and 0xFF
+                    sumG += (p shr 8) and 0xFF
+                    sumB += p and 0xFF
+                    count++
+                }
+                val remY = y - r
+                if (remY >= 0) {
+                    val p = tmp[remY * w + x]
+                    sumR -= (p shr 16) and 0xFF
+                    sumG -= (p shr 8) and 0xFF
+                    sumB -= p and 0xFF
+                    count--
+                }
+            }
+        }
+        return out
     }
 }
