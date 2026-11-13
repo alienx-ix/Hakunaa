@@ -83,7 +83,12 @@ class CropActivity : AppCompatActivity() {
             ?: emptyList()
         Thread {
             try {
-                val bmp = BitmapFactory.decodeFile(path)
+                // EXIF-aware decode (v0.1.66): the camera can
+                // save landscape pixels with a 90° EXIF tag,
+                // and plain decodeFile would show that as a
+                // small wide band instead of the full portrait
+                // image from the preview.
+                val bmp = com.hakunaa.app.core.FileUtils.decodeBitmapWithExif(path)
                 runOnUiThread {
                     if (bmp == null) {
                         Toast.makeText(this, "Couldn't open the photo", Toast.LENGTH_SHORT).show()

@@ -960,7 +960,23 @@ class ScannerActivity : AppCompatActivity() {
                 val tierSize = qualityTiers()
                     .firstOrNull { it.key == captureRes }?.size
                 if (tierSize != null) {
-                    captureBuilder.setTargetResolution(tierSize)
+                    // PORTRAIT target (v0.1.66): this phone is
+                    // portrait-locked, so the target resolution
+                    // must be portrait (height > width). The
+                    // tier sizes come back landscape (WxH) from
+                    // Camera2, and a landscape target made
+                    // CameraX capture a landscape photo — a
+                    // small wide band in the portrait Crop
+                    // screen, instead of filling it like the
+                    // preview. Swapping W/H here makes every
+                    // tier capture portrait, same aspect, only
+                    // the MP (MB) differs — as the user asked.
+                    captureBuilder.setTargetResolution(
+                        android.util.Size(
+                            minOf(tierSize.width, tierSize.height),
+                            maxOf(tierSize.width, tierSize.height)
+                        )
+                    )
                 }
                 imageCapture = captureBuilder.build().also {
                     it.flashMode = ImageCapture.FLASH_MODE_AUTO
