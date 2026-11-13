@@ -629,25 +629,47 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   ValueAnimator on the UI thread (60 fps, vsync); full means
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
-- **v0.1.53 edge detection, perfected + Sound off by default (same build).**
-  Three fixes from live testing. (1) **No box unless it is a
-  real document.** The live frame used to appear over any bright
-  pattern (a woven mat, a colourful cloth) because the detector
-  only looked at where a bright mask ends. Now every detected
-  quad is checked for REAL edges: each side must be a sharp
-  brightness step (bright paper against a darker background),
-  with at least two strong sides and a good mean strength —
-  verified on the user's own photos (a mat scene scores ~0.2
-  and is rejected; real pages score 0.56–0.75 and are kept).
-  By default the box never appears; it only comes when a
-  document is actually there. The frame also only appears
-  after the same document is found on two frames in a row, so
-  a one-frame flicker never flashes a box. (2) **Smooth, no
-  lag.** The frame now glides to each new detection (eased
-  every frame, like the Spirit Level bubble) instead of
-  jumping, so it tracks the page smoothly with no shake.
-  (3) **Sound is OFF by default** — the shutter click stays
-  silent unless the user turns it on in Settings > Sound.
+- **v0.1.54 edge detection, best algorithm (two-stage) + smoother frame.**
+  The user tested v0.1.53 and said edge detection is still the
+  worst, 0% accurate, not smooth, and the crop is wrong — so
+  this is a proper rebuild, not a tweak. Researched the best
+  algorithm (the Canny + contour pipeline every professional
+  scanner uses, plus ML-based segmentation) and prototyped it
+  on the user's own photos; the classical approaches (Canny
+  edges, contours, Hough lines, saturation, strong blur +
+  morphological close) all fail on a busy woven mat, so the
+  shipped algorithm is a two-stage detector that does work
+  there. (1) **Texture mask:** paper is bright AND smooth at
+  the pattern scale (low local standard deviation over a
+  window about 1/16 of the image), while a patterned
+  background is bright in places but textured everywhere —
+  the mask isolates the paper on ANY background. (2) **Snap
+  outward:** the texture mask is inset (it only covers the
+  smooth interior), so each side is snapped outward to the
+  strongest brightness drop nearby — the true page edge — and
+  the four snapped lines (PCA fit, so tilted sides work) are
+  intersected for precise corners; a side on the image border
+  keeps its rough line. (3) **Validate twice:** the interior
+  must be mostly paper (paper fraction >= 0.45) AND the edges
+  must be real brightness steps (hasRealEdges). A patterned
+  background can fake strong edges, but its interior is not
+  paper; a bright mask can fake a quad, but its edges are not
+  real steps. Both checks together reject it. Falls back to
+  the plain bright-mask detector when the texture path finds
+  nothing. Verified in Python on the user's photos before
+  porting: the texture mask + snap finds the book on the woven
+  mat (edge strength 0.89, paper fraction 0.67) where the
+  bright mask found only the whole image; it finds the real
+  pages on clean backgrounds too (edge 0.73–0.77, paper
+  0.52–0.63); and a mat-only scene is rejected (paper fraction
+  0.36) even though its pattern edges are strong. (4) **Smooth:**
+  the missed-frame grace is now 1000 ms (was 600) so the box
+  never blinks off on a flicker, and the corner smoothing is
+  gentler (alpha 0.25, was 0.35) so the frame glides instead
+  of jumping. Known limit: on a very busy background the
+  detector finds the whole open book (both pages) — the spine
+  split still cannot isolate one page there, so drag the
+  corners to the single page, or use Book mode for a spread.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

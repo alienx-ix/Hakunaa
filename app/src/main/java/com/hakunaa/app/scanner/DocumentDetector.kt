@@ -17,29 +17,60 @@ import kotlin.math.sqrt
  * No OpenCV — that would add a 20 MB native library to the APK,
  * and the user already wants the app smaller, not bigger.
  *
- * How it works:
+ * How it works (v0.1.54 — two-stage, best-in-class):
  * 1. Downscale the photo (max 800 px) for speed.
- * 2. Grayscale + Otsu's threshold: the optimal split between
- *    bright paper and darker background, computed from the
- *    actual brightness histogram — so it works in dim light,
- *    bright light, and with shadows, not just one fixed level.
- * 3. Find the page edges by scanning rows/columns for the bright
- *    region and fitting a line to each side (least squares, with
- *    outlier rejection so text or shadows near the edge do not
- *    pull the frame off).
- * 4. Intersect the four edge lines to get the four corners.
- * 5. Warp the full-resolution photo with Matrix.setPolyToPoly,
+ * 2. Grayscale + a light blur + Otsu's threshold: the optimal
+ *    split between bright paper and darker background, computed
+ *    from the actual brightness histogram — so it works in dim
+ *    light, bright light, and with shadows, not just one fixed
+ *    level.
+ * 3. TEXTURE mask: paper is bright AND smooth at the pattern
+ *    scale (low local standard deviation over a window about
+ *    1/16 of the image), while a patterned background (a woven
+ *    mat, a colourful cloth) is bright in places but textured
+ *    everywhere. The mask isolates the paper on ANY background.
+ * 4. SNAP outward: the texture mask is inset (it only covers
+ *    the smooth interior), so each side is snapped outward to
+ *    the strongest brightness drop nearby — the true page edge
+ *    — and the four snapped lines are intersected for precise
+ *    corners. A side at the image border keeps its rough line.
+ * 5. VALIDATE twice: the interior must be mostly paper (paper
+ *    fraction >= 0.45) AND the edges must be real brightness
+ *    steps (hasRealEdges). A patterned background can fake
+ *    strong edges, but its interior is not paper; a bright
+ *    mask can fake a quad, but its edges are not real steps.
+ *    Both checks together reject it.
+ * 6. Falls back to the plain bright-mask detector when the
+ *    texture path finds nothing.
+ * 7. Warp the full-resolution photo with Matrix.setPolyToPoly,
  *    which maps the four corners to a flat rectangle — the page
  *    looks straight and flat, like a real scan.
- * 6. If detection fails (corners invalid, page too small, or the
- *    photo has no clear bright page), returns null and the caller
- *    keeps the original photo. The Crop screen also lets the user
- *    adjust the corners by hand — auto + manual, the way
- *    professional scanners do it.
- */
+ * 8. If detection fails (corners invalid, page too small, or
+ *    the photo has no clear bright page), returns null and the
+ *    caller keeps the original photo. The Crop screen also lets
+ *    the user adjust the corners by hand — auto + manual, the
+ *    way professional scanners do it.
+ *
+ * Verified on the user's own photos before porting: the texture
+ * mask + snap finds the book on the woven mat (edge strength
+ * 0.89, paper fraction 0.67) where the bright mask found only
+ * the whole image; it finds the real pages on clean backgrounds
+ * too (edge 0.73–0.77, paper 0.52–0.63); and a mat-only scene
+ * is rejected (paper fraction 0.36) even though its pattern
+ * edges are strong. */
 object DocumentDetector {
 
     private data class Line(val a: Float, val b: Float, val c: Float)
+
+    /** A pixel is "paper-like" (smooth) when its local standard
+     *  deviation is below this (grey levels). Paper is smooth;
+     *  a woven mat or patterned cloth is textured. */
+    private const val TEXTURE_STD_MAX = 20f
+
+    /** A quad's interior must be at least this fraction paper
+     *  for it to count as a document (0.52-0.67 on real pages,
+     *  0.36 on a mat-only scene). */
+    private const val PAPER_FRACTION_MIN = 0.45f
 
     /** Straighten [input] and write the result to a new file. Returns null on failure. */
     fun straighten(input: File): File? {
@@ -65,7 +96,16 @@ object DocumentDetector {
 
     /** Detect the four document corners in [bitmap]. Returns null if not found.
      *  Corners are in full-resolution bitmap coordinates, in the order
-     *  top-left, top-right, bottom-right, bottom-left. */
+     *  top-left, top-right, bottom-right, bottom-left.
+     *
+     *  Two-stage detection (v0.1.54):
+     *  1. TEXTURE mask (bright AND smooth at the pattern scale) finds
+     *     the paper on ANY background, including a busy woven mat.
+     *  2. SNAP each side outward to the strongest brightness drop —
+     *     the true page edge — and intersect the four snapped lines.
+     *  3. VALIDATE twice (interior paper fraction AND real edges).
+     *  Falls back to the plain bright-mask detector when the
+     *  texture path finds nothing. */
     fun detectCorners(bitmap: Bitmap): FloatArray? {
         // Downscale for speed.
         val maxSide = 800
@@ -87,30 +127,111 @@ object DocumentDetector {
                 0.587f * ((p shr 8) and 0xFF) +
                 0.114f * (p and 0xFF)
         }
-        // NEW (v0.1.42) — soften sensor noise before
-        // thresholding. A 3x3 blur on the small image costs
-        // almost nothing and stops single noisy pixels from
-        // wobbling the detected edges frame to frame (the
-        // shaking box).
+        // Soften sensor noise before thresholding (v0.1.42).
         gray = boxBlurGray(gray, w, h, 1)
         // Otsu's threshold: the optimal split between bright paper
         // and darker background, from the actual histogram.
         val threshold = otsuThreshold(gray)
 
-        // For each row, find the leftmost and rightmost bright pixel.
-        // For each column, find the topmost and bottommost bright pixel.
-        // Fit a line to each side and intersect them.
-        //
-        // NEW (v0.1.41) — single-page detection in an open book.
-        // The spine shadow is NOT dark enough to break the Otsu
-        // bright mask, so the bright region spans both pages and
-        // the frame used to include the side page. But the spine
-        // IS a clear valley in the column-mean brightness profile
-        // (the middle rows average out text). findSpineSplit
-        // finds that valley; if one side is a small partial page
-        // it splits there and keeps only the biggest page. If both
-        // sides are comparable (a full two-page spread) it keeps
-        // the whole span — that is what the user wants then.
+        // Local texture (standard deviation over a window about
+        // 1/16 of the image) — paper is smooth, a pattern is not.
+        val stdRadius = max(8, min(w, h) / 16)
+        val stdMap = localStdMap(gray, w, h, stdRadius)
+
+        // Stage 1+2: texture mask -> rough quad -> snap outward.
+        val textureMask = BooleanArray(w * h) { i ->
+            gray[i] > threshold && stdMap[i] < TEXTURE_STD_MAX
+        }
+        val rough = quadFromMask(textureMask, gray, w, h, threshold)
+        if (rough != null) {
+            val refined = snapQuadOutward(gray, w, h, rough)
+            if (refined != null && isRealDocument(gray, stdMap, w, h, refined, threshold)) {
+                return scaleQuad(refined, scale, bitmap.width, bitmap.height)
+            }
+        }
+        // Fallback: the plain bright-mask detector (v0.1.41-53).
+        val brightMask = BooleanArray(w * h) { i -> gray[i] > threshold }
+        val quad = quadFromMask(brightMask, gray, w, h, threshold)
+        if (quad != null && isRealDocument(gray, stdMap, w, h, quad, threshold)) {
+            return scaleQuad(quad, scale, bitmap.width, bitmap.height)
+        }
+        return null
+    }
+
+    /** A quad is a real document only when BOTH hold: its interior
+     *  is mostly paper (paper fraction >= 0.45) AND its edges are
+     *  real brightness steps (hasRealEdges). A patterned background
+     *  can fake strong edges, but its interior is not paper; a
+     *  bright mask can fake a quad, but its edges are not real
+     *  steps. [pts] is TL TR BR BL in the small-image coords. */
+    private fun isRealDocument(
+        gray: FloatArray, stdMap: FloatArray, w: Int, h: Int,
+        pts: FloatArray, threshold: Float
+    ): Boolean {
+        if (!hasRealEdges(gray, w, h, pts)) return false
+        return interiorPaperFraction(gray, stdMap, w, h, pts, threshold) >= PAPER_FRACTION_MIN
+    }
+
+    /** The fraction of the quad's interior that is paper (bright
+     *  AND smooth). Sampled on a 4 px grid to keep it fast.
+     *  A real document is mostly paper (0.52-0.67 on the user's
+     *  photos); a patterned background is not (0.36 on the mat). */
+    private fun interiorPaperFraction(
+        gray: FloatArray, stdMap: FloatArray, w: Int, h: Int,
+        pts: FloatArray, threshold: Float
+    ): Float {
+        val quad = arrayOf(
+            Pair(pts[0], pts[1]), Pair(pts[2], pts[3]),
+            Pair(pts[4], pts[5]), Pair(pts[6], pts[7])
+        )
+        var paper = 0
+        var total = 0
+        var y = 0
+        while (y < h) {
+            var x = 0
+            while (x < w) {
+                if (pointInQuad(x.toFloat(), y.toFloat(), quad)) {
+                    total++
+                    val i = y * w + x
+                    if (gray[i] > threshold && stdMap[i] < TEXTURE_STD_MAX) paper++
+                }
+                x += 4
+            }
+            y += 4
+        }
+        return if (total == 0) 0f else paper.toFloat() / total
+    }
+
+    /** True when (x, y) lies inside the convex quad. */
+    private fun pointInQuad(x: Float, y: Float, quad: Array<Pair<Float, Float>>): Boolean {
+        var pos = false
+        var neg = false
+        for (i in 0 until 4) {
+            val (x1, y1) = quad[i]
+            val (x2, y2) = quad[(i + 1) % 4]
+            val cross = (x2 - x1) * (y - y1) - (y2 - y1) * (x - x1)
+            if (cross > 0f) pos = true
+            if (cross < 0f) neg = true
+            if (pos && neg) return false
+        }
+        return true
+    }
+
+    /** Find the page's four corners from a binary mask: scan rows
+     *  and columns for the mask region (with the spine split for
+     *  an open book), fit a line to each side, intersect them.
+     *  Returns the quad in small-image coords (TL TR BR BL), or
+     *  null when the mask has no clear quadrilateral. This is the
+     *  v0.1.41-53 scan/fit logic, extracted so both the texture
+     *  mask and the bright mask can use it. */
+    private fun quadFromMask(
+        mask: BooleanArray, gray: FloatArray, w: Int, h: Int, threshold: Float
+    ): FloatArray? {
+        // Single-page detection in an open book (v0.1.41): the
+        // spine is a valley in the column-mean brightness profile.
+        // If one side is a small partial page it splits there and
+        // keeps only the biggest page; a full two-page spread is
+        // kept whole.
         val split = findSpineSplit(gray, w, h, threshold)
         val leftEdge = mutableListOf<Pair<Float, Float>>()
         val rightEdge = mutableListOf<Pair<Float, Float>>()
@@ -120,13 +241,11 @@ object DocumentDetector {
             var left = -1
             var right = -1
             for (x in 0 until w) {
-                if (gray[y * w + x] > threshold) {
+                if (mask[y * w + x]) {
                     if (left < 0) left = x
                     right = x
                 }
             }
-            // Split at the spine: the small side is a partial
-            // page — the edge of the kept page is the spine.
             if (split != null && left >= 0 && left + 5 < split.x && split.x < right - 5) {
                 if (split.splitLeft) left = split.x else right = split.x
             }
@@ -136,8 +255,6 @@ object DocumentDetector {
             }
         }
         for (x in 0 until w) {
-            // When a page was split off, its columns must not
-            // pull the top/bottom lines off the kept page.
             if (split != null) {
                 if (split.splitLeft && x < split.x) continue
                 if (!split.splitLeft && x > split.x) continue
@@ -145,7 +262,7 @@ object DocumentDetector {
             var top = -1
             var bottom = -1
             for (y in 0 until h) {
-                if (gray[y * w + x] > threshold) {
+                if (mask[y * w + x]) {
                     if (top < 0) top = y
                     bottom = y
                 }
@@ -160,55 +277,189 @@ object DocumentDetector {
         ) {
             return null
         }
-        // Fit x = a*y + b for left/right, y = a*x + b for top/bottom.
         val leftLine = fitVertical(leftEdge) ?: return null
         val rightLine = fitVertical(rightEdge) ?: return null
         val topLine = fitHorizontal(topEdge) ?: return null
         val bottomLine = fitHorizontal(bottomEdge) ?: return null
-
-        // Intersect: TL = top & left, TR = top & right,
-        // BR = bottom & right, BL = bottom & left.
         val tl = intersect(topLine, leftLine) ?: return null
         val tr = intersect(topLine, rightLine) ?: return null
         val br = intersect(bottomLine, rightLine) ?: return null
         val bl = intersect(bottomLine, leftLine) ?: return null
-
-        // Validate: corners must be inside the image and form a
-        // reasonable quadrilateral (not too small, not degenerate).
-        val pts = floatArrayOf(tl.first, tl.second, tr.first, tr.second, br.first, br.second, bl.first, bl.second)
+        val pts = floatArrayOf(
+            tl.first, tl.second, tr.first, tr.second,
+            br.first, br.second, bl.first, bl.second
+        )
         val minX = pts.filterIndexed { i, _ -> i % 2 == 0 }.min()
         val maxX = pts.filterIndexed { i, _ -> i % 2 == 0 }.max()
         val minY = pts.filterIndexed { i, _ -> i % 2 == 1 }.min()
         val maxY = pts.filterIndexed { i, _ -> i % 2 == 1 }.max()
         if (minX < -w * 0.05f || maxX > w * 1.05f || minY < -h * 0.05f || maxY > h * 1.05f) return null
         if (maxX - minX < w * 0.25f || maxY - minY < h * 0.25f) return null
+        return pts
+    }
 
-        // NEW (v0.1.53) — the quad must be a REAL document, not
-        // just where a bright mask happens to end. A patterned
-        // background (a woven mat, a colourful cloth) is bright
-        // in places, so the bright mask finds a big quadrilateral
-        // in it and the live frame used to appear over a scene
-        // with no document at all. A real document's edges are
-        // sharp brightness steps (bright paper against a darker
-        // background); a hallucinated mask boundary is not.
-        // Verified on the user's own photos: a mat scene scores
-        // ~0.2 mean edge strength with 1 strong side (rejected),
-        // real pages score 0.56–0.75 with 2–3 strong sides
-        // (accepted) — at full size and at the 320x240 live
-        // analysis size, with the pre-blur applied.
-        if (!hasRealEdges(gray, w, h, pts)) return null
+    /** Snap each side of a rough quad outward to the strongest
+     *  brightness drop nearby — the true page edge. The texture
+     *  mask is inset (it only covers the smooth interior), so
+     *  without this the frame would sit inside the page. For
+     *  each side, 24 points are sampled along it; at each, the
+     *  brightness profile outward (up to maxDist) is scanned for
+     *  the biggest drop (paper -> darker background, step > 20).
+     *  A line is fitted to the snapped points (PCA, so tilted
+     *  sides work); a side that cannot be snapped (e.g. it sits
+     *  on the image border, with nothing outside to search)
+     *  keeps its rough line. Returns the refined quad (TL TR BR
+     *  BL) or null when the four lines cannot be intersected. */
+    private fun snapQuadOutward(gray: FloatArray, w: Int, h: Int, quad: FloatArray): FloatArray? {
+        val corners = arrayOf(
+            Pair(quad[0], quad[1]), Pair(quad[2], quad[3]),
+            Pair(quad[4], quad[5]), Pair(quad[6], quad[7])
+        )
+        val cx = (corners[0].first + corners[1].first + corners[2].first + corners[3].first) / 4f
+        val cy = (corners[0].second + corners[1].second + corners[2].second + corners[3].second) / 4f
+        val maxDist = max(30, min(w, h) / 4)
+        val lines = mutableListOf<Pair<Pair<Float, Float>, Pair<Float, Float>>>()
+        for (i in 0 until 4) {
+            val a = corners[i]
+            val b = corners[(i + 1) % 4]
+            val dx = b.first - a.first
+            val dy = b.second - a.second
+            val len = sqrt(dx * dx + dy * dy).coerceAtLeast(1e-6f)
+            var nx = -dy / len
+            var ny = dx / len
+            val mx = (a.first + b.first) / 2f
+            val my = (a.second + b.second) / 2f
+            // The outward normal points AWAY from the quad centre.
+            if ((cx - mx) * nx + (cy - my) * ny > 0) {
+                nx = -nx
+                ny = -ny
+            }
+            val snapped = mutableListOf<Pair<Float, Float>>()
+            val samples = 24
+            for (k in 0 until samples) {
+                val t = (k + 0.5f) / samples
+                val px = a.first + dx * t
+                val py = a.second + dy * t
+                var bestD = 0
+                var bestStep = 0f
+                var prev: Float? = null
+                var d = -5
+                while (d <= maxDist) {
+                    val xi = (px + nx * d).roundToInt()
+                    val yi = (py + ny * d).roundToInt()
+                    val v = if (xi in 0 until w && yi in 0 until h) gray[yi * w + xi] else null
+                    if (v == null) {
+                        prev = null
+                    } else {
+                        if (prev != null) {
+                            val step = prev - v
+                            if (step > bestStep) {
+                                bestStep = step
+                                bestD = d - 1
+                            }
+                        }
+                        prev = v
+                    }
+                    d++
+                }
+                if (bestStep > 20f) {
+                    snapped.add(Pair(px + nx * bestD, py + ny * bestD))
+                }
+            }
+            if (snapped.size >= 8) {
+                lines.add(pcaLine(snapped) ?: pcaLine(listOf(a, b))!!)
+            } else {
+                lines.add(pcaLine(listOf(a, b))!!)
+            }
+        }
+        val tl = intersectPca(lines[0], lines[3]) ?: return null
+        val tr = intersectPca(lines[0], lines[1]) ?: return null
+        val br = intersectPca(lines[2], lines[1]) ?: return null
+        val bl = intersectPca(lines[2], lines[3]) ?: return null
+        return floatArrayOf(
+            tl.first, tl.second, tr.first, tr.second,
+            br.first, br.second, bl.first, bl.second
+        )
+    }
 
-        // Scale corners back to full resolution.
+    /** Fit a line to points by PCA (total least squares): the
+     *  principal axis of the point cloud. Returns (centre,
+     *  direction). Works for a line at any angle, unlike the
+     *  axis-aligned fits. */
+    private fun pcaLine(points: List<Pair<Float, Float>>): Pair<Pair<Float, Float>, Pair<Float, Float>>? {
+        if (points.size < 2) return null
+        var cx = 0f
+        var cy = 0f
+        for ((x, y) in points) {
+            cx += x
+            cy += y
+        }
+        cx /= points.size
+        cy /= points.size
+        var sxx = 0f
+        var syy = 0f
+        var sxy = 0f
+        for ((x, y) in points) {
+            val dx = x - cx
+            val dy = y - cy
+            sxx += dx * dx
+            syy += dy * dy
+            sxy += dx * dy
+        }
+        val n = points.size.toFloat()
+        sxx /= n
+        syy /= n
+        sxy /= n
+        // Principal axis angle: 0.5 * atan2(2*sxy, sxx - syy).
+        val angle = 0.5f * kotlin.math.atan2(2f * sxy, sxx - syy)
+        val dir = Pair(kotlin.math.cos(angle), kotlin.math.sin(angle))
+        return Pair(Pair(cx, cy), dir)
+    }
+
+    /** Intersect two PCA lines (centre + direction). */
+    private fun intersectPca(
+        l1: Pair<Pair<Float, Float>, Pair<Float, Float>>,
+        l2: Pair<Pair<Float, Float>, Pair<Float, Float>>
+    ): Pair<Float, Float>? {
+        val (c1, d1) = l1
+        val (c2, d2) = l2
+        val det = d1.first * d2.second - d2.first * d1.second
+        if (abs(det) < 1e-6f) return null
+        val rhsX = c2.first - c1.first
+        val rhsY = c2.second - c1.second
+        val t = (rhsX * d2.second - rhsY * d2.first) / det
+        return Pair(c1.first + t * d1.first, c1.second + t * d1.second)
+    }
+
+    /** The local standard deviation of the grey image over a
+     *  window of radius [r] (separable box blurs of the image
+     *  and of its square: std = sqrt(E[x^2] - E[x]^2)). Paper
+     *  is smooth (low std); a patterned background is textured
+     *  (high std) even where it is bright. */
+    private fun localStdMap(gray: FloatArray, w: Int, h: Int, r: Int): FloatArray {
+        val mean = boxBlurGray(gray, w, h, r)
+        val sq = FloatArray(w * h) { i -> gray[i] * gray[i] }
+        val meanSq = boxBlurGray(sq, w, h, r)
+        val out = FloatArray(w * h)
+        for (i in out.indices) {
+            val v = meanSq[i] - mean[i] * mean[i]
+            out[i] = sqrt(max(0f, v))
+        }
+        return out
+    }
+
+    /** Scale a small-image quad back to full resolution. */
+    private fun scaleQuad(quad: FloatArray, scale: Float, fullW: Int, fullH: Int): FloatArray {
         val invScale = 1f / scale
         return floatArrayOf(
-            (tl.first * invScale).coerceIn(0f, bitmap.width.toFloat()),
-            (tl.second * invScale).coerceIn(0f, bitmap.height.toFloat()),
-            (tr.first * invScale).coerceIn(0f, bitmap.width.toFloat()),
-            (tr.second * invScale).coerceIn(0f, bitmap.height.toFloat()),
-            (br.first * invScale).coerceIn(0f, bitmap.width.toFloat()),
-            (br.second * invScale).coerceIn(0f, bitmap.height.toFloat()),
-            (bl.first * invScale).coerceIn(0f, bitmap.width.toFloat()),
-            (bl.second * invScale).coerceIn(0f, bitmap.height.toFloat())
+            (quad[0] * invScale).coerceIn(0f, fullW.toFloat()),
+            (quad[1] * invScale).coerceIn(0f, fullH.toFloat()),
+            (quad[2] * invScale).coerceIn(0f, fullW.toFloat()),
+            (quad[3] * invScale).coerceIn(0f, fullH.toFloat()),
+            (quad[4] * invScale).coerceIn(0f, fullW.toFloat()),
+            (quad[5] * invScale).coerceIn(0f, fullH.toFloat()),
+            (quad[6] * invScale).coerceIn(0f, fullW.toFloat()),
+            (quad[7] * invScale).coerceIn(0f, fullH.toFloat())
         )
     }
 

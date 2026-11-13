@@ -1186,8 +1186,10 @@ class ScannerActivity : AppCompatActivity() {
                 // One missed frame must not wipe the box and the
                 // bar — detection flickers for a frame now and
                 // then (a hand, a glare). Keep the last frame for
-                // a short grace; only a real loss resets.
-                if (now - lastDetectMs < 600) return
+                // a longer grace (v0.1.54: 1000 ms, up from 600);
+                // only a real loss resets. This is what makes
+                // the frame look smooth instead of blinking.
+                if (now - lastDetectMs < 1000) return
                 steadyStartMs = 0
                 lastCorners = null
                 smoothCorners = null
@@ -1202,12 +1204,14 @@ class ScannerActivity : AppCompatActivity() {
             // and the hold never look steady (the bar kept
             // resetting). An exponential moving average settles
             // the frame; the overlay and the steadiness check
-            // both use the smoothed corners.
+            // both use the smoothed corners. (v0.1.54: alpha
+            // 0.25, down from 0.35 — the frame glides more
+            // gently, which is what "smooth" means here.)
             val prevSmooth = smoothCorners
             val smoothed = if (prevSmooth == null) {
                 corners.copyOf()
             } else {
-                FloatArray(8) { i -> prevSmooth[i] + 0.35f * (corners[i] - prevSmooth[i]) }
+                FloatArray(8) { i -> prevSmooth[i] + 0.25f * (corners[i] - prevSmooth[i]) }
             }
             smoothCorners = smoothed
             // Confirm the document: only show the frame once the
