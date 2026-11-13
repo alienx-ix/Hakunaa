@@ -114,7 +114,11 @@ class ExposureSliderView @JvmOverloads constructor(
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
         val cx = w / 2f
-        val trackW = 6f * density
+        // Thin track (v0.1.59): 3dp, not 6dp — the old bar was
+        // bold / thick, and the user asked for it thin, the way
+        // a professional camera app does it. The thumb is
+        // smaller too, to match.
+        val trackW = 3f * density
         val top = trackTop()
         val bottom = trackBottom()
         // Sun at the top: brighter is up.
@@ -144,7 +148,7 @@ class ExposureSliderView @JvmOverloads constructor(
         }
         // Thumb at the current level.
         val thumbY = bottom - fillH
-        val thumbR = 11f * density
+        val thumbR = 9f * density
         canvas.drawCircle(cx, thumbY, thumbR, thumbPaint)
         canvas.drawCircle(cx, thumbY, thumbR, thumbRingPaint)
     }

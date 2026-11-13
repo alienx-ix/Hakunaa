@@ -5,19 +5,22 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <!-- Full-screen live camera preview — FIT_START shows the
-         whole camera frame top-aligned (the 4:3 image starts
-         at the top, under the translucent top bar, the way
-         professional scanners do it), so the capture area
-         sits higher and uses the top space. fitCenter left a
-         wide empty band above the image. The preview uses the
+    <!-- Full-screen live camera preview — FIT_CENTER shows the
+         whole camera frame, centred. The preview uses the
          sensor's native 4:3 aspect — the widest field of view,
-         nothing cropped, no zoomed-in look. -->
+         nothing cropped, no zoomed-in look. Centred is what the
+         user wants (v0.1.59): a little black bar on top with the
+         menus, the capture area in the middle, the mode tabs and
+         capture button below it — no pushing the image up (the
+         120dp bottom margin tried that and left too much space
+         above the Single button) and no top-alignment (FIT_START
+         put the image at the very top, which the user did not
+         like either). -->
     <androidx.camera.view.PreviewView
         android:id="@+id/previewView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        app:scaleType="fitStart" />
+        app:scaleType="fitCenter" />
 
     <!-- Dynamic document-edge overlay — draws the detected page's
          real corners, live, right where the page is in the
@@ -201,14 +204,18 @@
                 android:id="@+id/btnLevel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:alpha="0.4"
+                android:alpha="1.0"
                 android:gravity="center"
                 android:orientation="vertical">
 
+                <!-- Bullseye spirit level (v0.1.59): a round
+                     bubble that moves left / right AND top /
+                     bottom, so the phone can be levelled in
+                     every direction. ON by default. -->
                 <com.hakunaa.app.scanner.SpiritLevelView
                     android:id="@+id/levelView"
-                    android:layout_width="88dp"
-                    android:layout_height="20dp" />
+                    android:layout_width="44dp"
+                    android:layout_height="44dp" />
 
                 <TextView
                     android:id="@+id/tvLevelLabel"
@@ -216,7 +223,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
                     android:text="Level"
-                    android:textColor="#FFFFFF"
+                    android:textColor="#00BFA5"
                     android:textSize="11sp" />
             </LinearLayout>
 

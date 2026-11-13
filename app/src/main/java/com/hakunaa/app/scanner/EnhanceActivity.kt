@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.os.Bundle
-import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import android.widget.CheckBox
@@ -113,13 +112,16 @@ class EnhanceActivity : AppCompatActivity() {
         }
 
     // Manual adjustments (the Adjust panel), on top of the filter.
-    // Sharpness starts at 20, not 0 (v0.1.58): the user asked
-    // for a little more sharpness by default, everywhere, so
-    // text is always clearly visible — every filter gets this
-    // small sharpen boost unless the user moves the slider.
+    // Sharpness starts at 40, not 0 (v0.1.58 set 20, raised to
+    // 40 in v0.1.59): the user asked for a little more sharpness
+    // by default, everywhere, so text is always clearly visible
+    // — and 20 was too subtle to see, so it did not look like it
+    // worked at all. 40 is the level the user themself set by
+    // hand (39) — clearly crisp, without halos. Every filter
+    // gets this sharpen boost unless the user moves the slider.
     private var brightness = 0f
     private var contrast = 1f
-    private var sharpness = 20f
+    private var sharpness = 40f
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -234,28 +236,38 @@ class EnhanceActivity : AppCompatActivity() {
     /** Swipe the page left / right to move between batch
      *  pages (CamScanner-style). A swipe stores the current
      *  page's filter first, so each page keeps the filter
-     *  picked for it. */
+     *  picked for it.
+     *
+     *  This tracks the drag by hand (ACTION_DOWN → ACTION_UP)
+     *  instead of a GestureDetector fling: a fling only fires
+     *  for a fast swipe, but the user swipes slowly, like
+     *  turning pages in a gallery — a slow drag never fired
+     *  onFling, so no page ever came. Any mostly-horizontal
+     *  drag past 100px moves a page. */
     private fun setupSwipe() {
         val pageView = findViewById<ImageView>(R.id.ivPage)
-        val detector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onFling(
-                e1: MotionEvent?,
-                e2: MotionEvent,
-                velocityX: Float,
-                velocityY: Float
-            ): Boolean {
-                if (allPages.size <= 1 || e1 == null) return false
-                val dx = e2.x - e1.x
-                val dy = e2.y - e1.y
-                // A mostly-horizontal fling, fast enough to be
-                // a swipe and not a stray drag.
-                if (abs(dx) < 120f || abs(dx) < abs(dy) * 1.5f) return false
-                if (dx < 0) showPage(currentPageIndex + 1) else showPage(currentPageIndex - 1)
-                return true
-            }
-        })
+        var downX = 0f
+        var downY = 0f
         pageView.setOnTouchListener { _, event ->
-            detector.onTouchEvent(event)
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.x
+                    downY = event.y
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (allPages.size > 1) {
+                        val dx = event.x - downX
+                        val dy = event.y - downY
+                        if (abs(dx) > 100f && abs(dx) > abs(dy) * 1.5f) {
+                            if (dx < 0) showPage(currentPageIndex + 1)
+                            else showPage(currentPageIndex - 1)
+                        }
+                    }
+                    true
+                }
+                else -> true
+            }
         }
     }
 
@@ -392,13 +404,13 @@ class EnhanceActivity : AppCompatActivity() {
     private fun resetAdjustments() {
         brightness = 0f
         contrast = 1f
-        sharpness = 20f
+        sharpness = 40f
         findViewById<SeekBar>(R.id.seekBrightness).progress = 100
         findViewById<SeekBar>(R.id.seekContrast).progress = 50
-        findViewById<SeekBar>(R.id.seekSharpness).progress = 20
+        findViewById<SeekBar>(R.id.seekSharpness).progress = 40
         findViewById<TextView>(R.id.tvBrightnessValue).text = "0"
         findViewById<TextView>(R.id.tvContrastValue).text = "1.00"
-        findViewById<TextView>(R.id.tvSharpnessValue).text = "20"
+        findViewById<TextView>(R.id.tvSharpnessValue).text = "40"
         refreshPreview()
     }
 

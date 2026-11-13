@@ -66,11 +66,9 @@ class GridOverlayView @JvmOverloads constructor(
         val w = width.toFloat()
         val h = height.toFloat()
         if (w == 0f || h == 0f) return
-        // The 4:3 preview, fitStart inside this view — tall
+        // The 4:3 preview, fitCenter inside this view — tall
         // when the preview is portrait, wide when it is
-        // landscape (the Orientation setting). Top-aligned
-        // (v0.1.58), so the grid sits on the camera image,
-        // which now starts at the top.
+        // landscape (the Orientation setting).
         val isLandscape = displayRotation == android.view.Surface.ROTATION_90 ||
             displayRotation == android.view.Surface.ROTATION_270
         val contentW: Float
@@ -83,7 +81,7 @@ class GridOverlayView @JvmOverloads constructor(
             contentW = contentH * 3f / 4f
         }
         val left = (w - contentW) / 2f
-        val top = 0f
+        val top = (h - contentH) / 2f
         val right = left + contentW
         val bottom = top + contentH
         // Thirds only — no border. A border around the framing

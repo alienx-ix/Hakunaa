@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
 import kotlin.math.abs
@@ -13,16 +12,22 @@ import kotlin.math.sqrt
 
 /**
  * Spirit level — the bubble level professional scanners show
- * while framing a page. A horizontal track with a bubble that
- * slides left and right with the phone's tilt; when the phone
- * is level (within about 2 degrees) the bubble turns teal.
+ * while framing a page. A round bullseye (v0.1.59): the bubble
+ * moves in TWO directions — left / right AND top / bottom —
+ * so the user can level the phone in every direction, not just
+ * sideways. The old version was a horizontal track that only
+ * showed left / right; the user asked for top / bottom too,
+ * with a different animation. When the phone is level (within
+ * about 2 degrees on both axes) the bubble sits in the centre
+ * and turns teal.
  *
- * The tilt is the roll around the phone's long axis, from the
- * accelerometer: roll = atan2(x, sqrt(y^2 + z^2)). That works
- * whether the phone is held upright (portrait) or flat over
- * the page (face down) — the two ways a scanner is held.
- * The bubble is smoothed (low-pass) so it does not jitter
- * with every hand tremor.
+ * Tilt comes from the accelerometer, two axes:
+ *  roll  = atan2(x, sqrt(y^2 + z^2)) — left / right tilt.
+ *  pitch = atan2(y, sqrt(x^2 + z^2)) — top / bottom tilt.
+ * That works whether the phone is held upright (portrait) or
+ * flat over the page (face down) — the two ways a scanner is
+ * held. The bubble is smoothed (low-pass) so it does not
+ * jitter with every hand tremor.
  */
 class SpiritLevelView @JvmOverloads constructor(
     context: Context,
@@ -32,23 +37,27 @@ class SpiritLevelView @JvmOverloads constructor(
     private val density = resources.displayMetrics.density
 
     /** Tilt in degrees; 0 = level. Clamped to +-15 for display.
-     *  [targetRoll] is what the sensor reports; [roll] is what
-     *  is drawn, eased toward the target a little every frame
-     *  — so the bubble glides smoothly instead of jumping with
-     *  every sensor sample. */
+     *  [targetRoll] / [targetPitch] are what the sensor reports;
+     *  [roll] / [pitch] are what is drawn, eased toward the
+     *  target a little every frame — so the bubble glides
+     *  smoothly instead of jumping with every sensor sample. */
     private var targetRoll = 0f
+    private var targetPitch = 0f
     private var roll = 0f
+    private var pitch = 0f
 
-    private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
-        alpha = 60
-        style = Paint.Style.FILL
+        alpha = 90
+        style = Paint.Style.STROKE
+        strokeWidth = 2f * density
     }
 
-    private val tickPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val centrePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         alpha = 160
-        style = Paint.Style.FILL
+        style = Paint.Style.STROKE
+        strokeWidth = 2f * density
     }
 
     private val bubblePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -61,15 +70,32 @@ class SpiritLevelView @JvmOverloads constructor(
         style = Paint.Style.FILL
     }
 
-    /** The tilt, in degrees. Call from the sensor listener.
-     *  The bubble eases toward it (see onDraw) — smooth
-     *  animation, not a jump. */
-    fun setRoll(degrees: Float) {
-        val clamped = degrees.coerceIn(-15f, 15f)
-        if (abs(clamped - targetRoll) > 0.05f) {
-            targetRoll = clamped
+    private val bubbleDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.BLACK
+        alpha = 90
+        style = Paint.Style.FILL
+    }
+
+    /** The tilt, in degrees — roll is left / right, pitch is
+     *  top / bottom. Call from the sensor listener. The bubble
+     *  eases toward it (see onDraw) — smooth animation, not a
+     *  jump. */
+    fun setTilt(rollDegrees: Float, pitchDegrees: Float) {
+        val clampedRoll = rollDegrees.coerceIn(-15f, 15f)
+        val clampedPitch = pitchDegrees.coerceIn(-15f, 15f)
+        if (abs(clampedRoll - targetRoll) > 0.05f ||
+            abs(clampedPitch - targetPitch) > 0.05f
+        ) {
+            targetRoll = clampedRoll
+            targetPitch = clampedPitch
             invalidate()
         }
+    }
+
+    /** Backwards-compatible single-axis setter (left / right
+     *  only) — kept so old callers still compile. */
+    fun setRoll(degrees: Float) {
+        setTilt(degrees, targetPitch)
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -81,31 +107,34 @@ class SpiritLevelView @JvmOverloads constructor(
         // closer every frame, so it glides. Keep animating
         // until it has settled on the target.
         roll += (targetRoll - roll) * 0.25f
-        if (abs(targetRoll - roll) > 0.05f) {
+        pitch += (targetPitch - pitch) * 0.25f
+        if (abs(targetRoll - roll) > 0.05f || abs(targetPitch - pitch) > 0.05f) {
             postInvalidateOnAnimation()
         } else {
             roll = targetRoll
+            pitch = targetPitch
         }
+        val cx = w / 2f
         val cy = h / 2f
-        val trackH = 6f * density
-        val track = RectF(0f, cy - trackH / 2f, w, cy + trackH / 2f)
-        val radius = 8f * density
-        canvas.drawRoundRect(track, trackH / 2f, trackH / 2f, trackPaint)
-        // Centre tick — the bubble sits on it when level.
-        val tickW = 2f * density
-        canvas.drawRect(
-            w / 2f - tickW / 2f, cy - 10f * density,
-            w / 2f + tickW / 2f, cy + 10f * density, tickPaint
-        )
-        // Bubble: slides with the tilt, teal when level.
-        val bubbleR = 11f * density
-        val travel = (w / 2f) - bubbleR - 4f * density
-        val bx = w / 2f + (roll / 15f) * travel
-        val paint = if (abs(roll) < 2f) bubbleLevelPaint else bubblePaint
-        canvas.drawCircle(bx, cy, bubbleR, paint)
+        // The bullseye: an outer ring and a small centre ring
+        // the bubble must sit inside when the phone is level.
+        val outerR = (minOf(w, h) / 2f) - 3f * density
+        val centreR = 6f * density
+        canvas.drawCircle(cx, cy, outerR, ringPaint)
+        canvas.drawCircle(cx, cy, centreR, centrePaint)
+        // Bubble: moves with the tilt in both directions —
+        // roll left / right, pitch top / bottom — teal when
+        // level on both axes. Clamped inside the ring.
+        val bubbleR = 9f * density
+        val travel = outerR - bubbleR - 2f * density
+        val bx = cx + (roll / 15f) * travel
+        val by = cy + (pitch / 15f) * travel
+        val level = abs(roll) < 2f && abs(pitch) < 2f
+        val paint = if (level) bubbleLevelPaint else bubblePaint
+        canvas.drawCircle(bx, by, bubbleR, paint)
         // A small dark dot in the bubble's centre, so it reads
         // as a bubble even when it is teal.
-        canvas.drawCircle(bx, cy, 3f * density, tickPaint)
+        canvas.drawCircle(bx, by, 3f * density, bubbleDotPaint)
     }
 
     companion object {
@@ -115,6 +144,15 @@ class SpiritLevelView @JvmOverloads constructor(
         fun rollFromAccelerometer(x: Float, y: Float, z: Float): Float {
             val denom = sqrt(y * y + z * z)
             return Math.toDegrees(atan2(x.toDouble(), denom.toDouble())).toFloat()
+        }
+
+        /** Pitch — the top / bottom tilt, in degrees, from one
+         *  accelerometer sample. 0 = level, positive = the
+         *  phone's top is tipped forward (away from the user).
+         *  Works upright and flat. */
+        fun pitchFromAccelerometer(x: Float, y: Float, z: Float): Float {
+            val denom = sqrt(x * x + z * z)
+            return Math.toDegrees(atan2(y.toDouble(), denom.toDouble())).toFloat()
         }
     }
 }

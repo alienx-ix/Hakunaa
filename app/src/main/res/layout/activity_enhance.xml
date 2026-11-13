@@ -218,7 +218,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:max="100"
-                android:progress="20"
+                android:progress="40"
                 android:progressTint="#00BFA5"
                 android:thumbTint="#00BFA5" />
 
@@ -227,7 +227,7 @@
                 android:layout_width="40dp"
                 android:layout_height="wrap_content"
                 android:gravity="end"
-                android:text="20"
+                android:text="40"
                 android:textColor="#FFFFFF"
                 android:textSize="13sp" />
         </LinearLayout>

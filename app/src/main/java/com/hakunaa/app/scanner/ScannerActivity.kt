@@ -18,7 +18,6 @@ import android.graphics.RectF
 import android.net.Uri
 import android.os.Bundle
 import android.view.MotionEvent
-import android.view.OrientationEventListener
 import android.view.Surface
 import android.view.View
 import android.view.animation.LinearInterpolator
@@ -120,17 +119,13 @@ class ScannerActivity : AppCompatActivity() {
     private var imageAnalysis: ImageAnalysis? = null
     private var camera: Camera? = null
     private var cameraExecutor: ExecutorService? = null
-    /** The preview / capture rotation (a Surface rotation).
-     *  This is what the Orientation setting controls — the
-     *  IMAGE, not the screen. The activity is locked to
-     *  portrait (manifest), so the whole screen never rotates;
-     *  only the camera image turns. 0 / 180 = a tall preview,
-     *  90 / 270 = a wide preview. */
-    private var displayRotation: Int = Surface.ROTATION_0
-    /** Follows the phone's physical orientation in Auto mode,
-     *  so the preview turns with the phone while the buttons
-     *  stay put. Only active in Auto mode, while visible. */
-    private var orientationListener: OrientationEventListener? = null
+    // The preview / capture rotation is FIXED to portrait
+    // (ROTATION_0, v0.1.59): the Orientation setting (Auto /
+    // Landscape / Portrait) is removed — the user asked for it
+    // to go, because it caused errors. The activity is locked
+    // to portrait (manifest), so the whole screen never
+    // rotates and the camera image stays tall. No sensor
+    // listener, no rotation switching, nothing to go wrong.
 
     // Camera lifecycle (the black-screen fix). The camera is
     // bound while this screen is visible and released the
@@ -198,31 +193,36 @@ class ScannerActivity : AppCompatActivity() {
         private const val PREF_AUTO_CAPTURE_ON = "auto_capture_on"
         private const val PREF_SOUND_ON = "sound_on"
         private const val PREF_SPIRIT_LEVEL_ON = "spirit_level_on"
-        private const val PREF_ORIENTATION = "orientation"
-        private const val ORIENTATION_AUTO = "auto"
-        private const val ORIENTATION_LANDSCAPE = "landscape"
-        private const val ORIENTATION_PORTRAIT = "portrait"
     }
 
     // Settings (the CamScanner-style panel, opened from the
-    // top-bar menu): the shutter sound, the spirit level, and
-    // the screen orientation — all saved, so they stay.
+    // top-bar menu): the shutter sound and the spirit level —
+    // all saved, so they stay. (Orientation was here too; it
+    // is removed in v0.1.59 — the user asked for it to go,
+    // because it caused errors.)
     private var soundOn = false
-    private var spiritLevelOn = false
-    private var orientation = ORIENTATION_AUTO
+    // The spirit level is ON BY DEFAULT (v0.1.59): the user
+    // asked for it to be on, so the bullseye shows the moment
+    // the scanner opens. The user can still turn it off from
+    // the bottom-row Level button or the Settings panel.
+    private var spiritLevelOn = true
     private var sensorManager: SensorManager? = null
     private var levelSensor: Sensor? = null
     private var smoothRoll = 0f
+    private var smoothPitch = 0f
     private val levelListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
             val x = event.values[0]
             val y = event.values[1]
             val z = event.values[2]
             val roll = SpiritLevelView.rollFromAccelerometer(x, y, z)
+            val pitch = SpiritLevelView.pitchFromAccelerometer(x, y, z)
             // Low-pass: the bubble must not jitter with every
             // hand tremor.
             smoothRoll += 0.25f * (roll - smoothRoll)
-            findViewById<SpiritLevelView>(R.id.levelView).setRoll(smoothRoll)
+            smoothPitch += 0.25f * (pitch - smoothPitch)
+            findViewById<SpiritLevelView>(R.id.levelView)
+                .setTilt(smoothRoll, smoothPitch)
         }
 
         override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
@@ -386,20 +386,7 @@ class ScannerActivity : AppCompatActivity() {
         autoCaptureOn = prefs().getBoolean(PREF_AUTO_CAPTURE_ON, true)
         updateAutoCaptureButton()
         soundOn = prefs().getBoolean(PREF_SOUND_ON, false)
-        spiritLevelOn = prefs().getBoolean(PREF_SPIRIT_LEVEL_ON, false)
-        orientation = prefs().getString(PREF_ORIENTATION, ORIENTATION_AUTO) ?: ORIENTATION_AUTO
-        // The Orientation setting turns the IMAGE, not the
-        // screen (the activity is locked to portrait): a
-        // fixed rotation for Portrait / Landscape, the phone's
-        // own rotation in Auto mode.
-        displayRotation = when (orientation) {
-            ORIENTATION_LANDSCAPE -> Surface.ROTATION_90
-            ORIENTATION_PORTRAIT -> Surface.ROTATION_0
-            else -> Surface.ROTATION_0
-        }
-        // Sync the grid with the saved orientation from the start.
-        updateDisplayRotation()
-        setupOrientationListener()
+        spiritLevelOn = prefs().getBoolean(PREF_SPIRIT_LEVEL_ON, true)
         updateSpiritLevel()
         // A rotation (or the system killing the activity) must
         // not lose the pages already captured.
@@ -434,7 +421,6 @@ class ScannerActivity : AppCompatActivity() {
         // the camera always comes back.
         if (!cameraBound) startCamera()
         startSpiritLevel()
-        startOrientationListener()
     }
 
     override fun onPause() {
@@ -451,7 +437,6 @@ class ScannerActivity : AppCompatActivity() {
         } catch (_: Throwable) {
         }
         stopSpiritLevel()
-        stopOrientationListener()
     }
 
     /** The spirit level only listens while this screen is
@@ -499,7 +484,8 @@ class ScannerActivity : AppCompatActivity() {
         )
         if (spiritLevelOn) {
             smoothRoll = 0f
-            findViewById<SpiritLevelView>(R.id.levelView).setRoll(0f)
+            smoothPitch = 0f
+            findViewById<SpiritLevelView>(R.id.levelView).setTilt(0f, 0f)
             startSpiritLevel()
         } else {
             stopSpiritLevel()
@@ -610,93 +596,12 @@ class ScannerActivity : AppCompatActivity() {
         setAutoCapture(!autoCaptureOn)
     }
 
-    /** The Orientation setting from the Settings panel: Auto
-     *  (follow the phone), Landscape, or Portrait. Saved, so
-     *  it stays. It turns the IMAGE only — the activity is
-     *  locked to portrait (manifest), so the whole screen
-     *  never rotates; only the camera image turns, and the
-     *  saved photo matches it. Changing it takes effect at
-     *  once, with no restart and no lost pages. */
-    private fun setOrientation(value: String) {
-        orientation = value
-        prefs().edit().putString(PREF_ORIENTATION, value).apply()
-        displayRotation = when (value) {
-            ORIENTATION_LANDSCAPE -> Surface.ROTATION_90
-            ORIENTATION_PORTRAIT -> Surface.ROTATION_0
-            else -> currentSensorRotation()
-        }
-        updateDisplayRotation()
-        if (value == ORIENTATION_AUTO) startOrientationListener()
-        else stopOrientationListener()
-    }
-
-    /** Apply [displayRotation] to the camera (preview,
-     *  capture and analysis all turn together, live — no
-     *  rebind) and to the grid, so the thirds sit on the
-     *  camera image in either orientation. */
-    private fun updateDisplayRotation() {
-        try {
-            preview?.targetRotation = displayRotation
-        } catch (_: Throwable) {
-        }
-        try {
-            imageCapture?.targetRotation = displayRotation
-        } catch (_: Throwable) {
-        }
-        try {
-            imageAnalysis?.targetRotation = displayRotation
-        } catch (_: Throwable) {
-        }
-        findViewById<GridOverlayView>(R.id.gridOverlay).displayRotation = displayRotation
-    }
-
-    /** The phone's physical orientation as a Surface rotation,
-     *  from the last sensor reading (portrait if unknown). */
-    private var lastSensorRotation: Int = Surface.ROTATION_0
-
-    private fun currentSensorRotation(): Int = lastSensorRotation
-
-    private fun setupOrientationListener() {
-        if (orientationListener != null) return
-        orientationListener = object : OrientationEventListener(this) {
-            override fun onOrientationChanged(angle: Int) {
-                if (angle == ORIENTATION_UNKNOWN) return
-                if (orientation != ORIENTATION_AUTO) return
-                val rotation = when (angle) {
-                    in 45..134 -> Surface.ROTATION_90
-                    in 135..224 -> Surface.ROTATION_180
-                    in 225..314 -> Surface.ROTATION_270
-                    else -> Surface.ROTATION_0
-                }
-                lastSensorRotation = rotation
-                if (rotation != displayRotation) {
-                    displayRotation = rotation
-                    updateDisplayRotation()
-                }
-            }
-        }
-    }
-
-    private fun startOrientationListener() {
-        if (orientation != ORIENTATION_AUTO) return
-        try {
-            orientationListener?.enable()
-        } catch (_: Throwable) {
-        }
-    }
-
-    private fun stopOrientationListener() {
-        try {
-            orientationListener?.disable()
-        } catch (_: Throwable) {
-        }
-    }
-
     /** The Settings panel — the CamScanner-style menu the
-     *  top-bar button opens: Auto Capture, Orientation, Grid,
-     *  Sound, Spirit Level, and More Settings. A dark rounded
-     *  card over the dimmed preview. Every row is a real
-     *  setting that takes effect at once. */
+     *  top-bar button opens: Auto Capture, Grid, Sound, Spirit
+     *  Level, and More Settings. (Orientation was here too; it
+     *  is removed in v0.1.59.) A dark rounded card over the
+     *  dimmed preview. Every row is a real setting that takes
+     *  effect at once. */
     private fun showSettingsDialog() {
         val view = layoutInflater.inflate(R.layout.dialog_scanner_settings, null)
         val dialog = Dialog(this)
@@ -712,10 +617,6 @@ class ScannerActivity : AppCompatActivity() {
         val tvSoundState = view.findViewById<TextView>(R.id.tvSoundState)
         val swLevel = view.findViewById<SwitchMaterial>(R.id.swSpiritLevel)
         val tvLevelState = view.findViewById<TextView>(R.id.tvSpiritLevelState)
-        val tvOrientationState = view.findViewById<TextView>(R.id.tvOrientationState)
-        val btnAuto = view.findViewById<MaterialButton>(R.id.btnOrientationAuto)
-        val btnLandscape = view.findViewById<MaterialButton>(R.id.btnOrientationLandscape)
-        val btnPortrait = view.findViewById<MaterialButton>(R.id.btnOrientationPortrait)
 
         fun refreshStates() {
             swAuto.isChecked = autoCaptureOn
@@ -726,26 +627,6 @@ class ScannerActivity : AppCompatActivity() {
             tvSoundState.text = if (soundOn) "On" else "Off"
             swLevel.isChecked = spiritLevelOn
             tvLevelState.text = if (spiritLevelOn) "On" else "Off"
-            tvOrientationState.text = when (orientation) {
-                ORIENTATION_LANDSCAPE -> "Landscape"
-                ORIENTATION_PORTRAIT -> "Portrait"
-                else -> "Auto"
-            }
-            val teal = getColor(R.color.hakunaa_teal)
-            val grey = getColor(android.R.color.darker_gray)
-            fun styleOrientationButton(btn: MaterialButton, selected: Boolean) {
-                btn.backgroundTintList =
-                    android.content.res.ColorStateList.valueOf(
-                        if (selected) teal else Color.parseColor("#33FFFFFF")
-                    )
-                btn.setTextColor(getColor(android.R.color.white))
-                btn.strokeColor = android.content.res.ColorStateList.valueOf(
-                    if (selected) teal else grey
-                )
-            }
-            styleOrientationButton(btnAuto, orientation == ORIENTATION_AUTO)
-            styleOrientationButton(btnLandscape, orientation == ORIENTATION_LANDSCAPE)
-            styleOrientationButton(btnPortrait, orientation == ORIENTATION_PORTRAIT)
         }
         refreshStates()
 
@@ -766,9 +647,6 @@ class ScannerActivity : AppCompatActivity() {
             setSpiritLevel(checked)
             refreshStates()
         }
-        btnAuto.setOnClickListener { setOrientation(ORIENTATION_AUTO); refreshStates() }
-        btnLandscape.setOnClickListener { setOrientation(ORIENTATION_LANDSCAPE); refreshStates() }
-        btnPortrait.setOnClickListener { setOrientation(ORIENTATION_PORTRAIT); refreshStates() }
 
         view.findViewById<ImageButton>(R.id.btnCloseSettings)
             .setOnClickListener { dialog.dismiss() }
@@ -849,9 +727,9 @@ class ScannerActivity : AppCompatActivity() {
                     // crops the sensor's frame top and bottom, so
                     // the screen still looked slightly zoomed in.
                     .setTargetAspectRatio(AspectRatio.RATIO_4_3)
-                    // The Orientation setting's rotation — the
-                    // IMAGE turns, the screen does not.
-                    .setTargetRotation(displayRotation)
+                    // Fixed portrait rotation (v0.1.59) — the
+                    // Orientation setting is removed.
+                    .setTargetRotation(Surface.ROTATION_0)
                     .build().also {
                     it.setSurfaceProvider(findViewById<PreviewView>(R.id.previewView).surfaceProvider)
                 }
@@ -865,7 +743,7 @@ class ScannerActivity : AppCompatActivity() {
                 val captureBuilder = ImageCapture.Builder()
                     .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
                     .setJpegQuality(100)
-                    .setTargetRotation(displayRotation)
+                    .setTargetRotation(Surface.ROTATION_0)
                 if (!hdOn) {
                     captureBuilder.setTargetResolution(android.util.Size(1920, 1080))
                 }
@@ -942,10 +820,10 @@ class ScannerActivity : AppCompatActivity() {
             // 4:3, the same aspect as the preview, so the
             // detected corners map exactly onto the preview.
             .setTargetAspectRatio(AspectRatio.RATIO_4_3)
-            // The Orientation setting's rotation — the analysis
-            // turns with the preview, so the edge frame stays
-            // on the page in either orientation.
-            .setTargetRotation(displayRotation)
+            // Fixed portrait rotation (v0.1.59) — the analysis
+            // matches the preview, so the edge frame stays on
+            // the page.
+            .setTargetRotation(Surface.ROTATION_0)
             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
         if (fixedResolution) {
@@ -1048,30 +926,20 @@ class ScannerActivity : AppCompatActivity() {
     /** The preview is 4:3 fitCenter inside the full-screen
      *  PreviewView, so the top and bottom are black bars. Only
      *  taps inside the actual camera image focus the camera.
-     *  The rect follows the Orientation setting: tall when the
-     *  preview is portrait, wide when it is landscape. */
+     *  Always portrait now (v0.1.59): the Orientation setting
+     *  is removed, so the preview is always tall. */
     private fun previewContentRect(): RectF {
         val previewView = findViewById<PreviewView>(R.id.previewView)
         val w = previewView.width.toFloat()
         val h = previewView.height.toFloat()
-        val isLandscape = displayRotation == Surface.ROTATION_90 ||
-            displayRotation == Surface.ROTATION_270
-        // Top-aligned (v0.1.58): the preview is fitStart now,
-        // so the content rect starts at the top, not centred.
-        return if (isLandscape) {
-            // Landscape preview: 4 wide, 3 tall.
-            val contentW = minOf(w, h * 4f / 3f)
-            val contentH = contentW * 3f / 4f
-            RectF((w - contentW) / 2f, 0f, (w + contentW) / 2f, contentH)
+        // Centred (fitCenter) inside the preview view, matching
+        // the image. Portrait preview: 3 wide, 4 tall.
+        val contentH = w * 4f / 3f
+        return if (contentH <= h) {
+            RectF(0f, (h - contentH) / 2f, w, (h + contentH) / 2f)
         } else {
-            // Portrait preview: 3 wide, 4 tall.
-            val contentH = w * 4f / 3f
-            if (contentH <= h) {
-                RectF(0f, 0f, w, contentH)
-            } else {
-                val contentW = h * 3f / 4f
-                RectF((w - contentW) / 2f, 0f, (w + contentW) / 2f, h)
-            }
+            val contentW = h * 3f / 4f
+            RectF((w - contentW) / 2f, 0f, (w + contentW) / 2f, h)
         }
     }
 
