@@ -145,10 +145,10 @@ class ScannerActivity : AppCompatActivity() {
     // Full camera quality is the DEFAULT: HD on means the sensor's
     // full resolution, no artificial cap. HD off drops to 1920x1080
     // for users who want smaller files.
-    // Capture resolution (v0.1.62, HD picker): "max" = full
-    // sensor, no cap (the old HD-on behaviour); "std" =
-    // 1920x1080 (the old HD-off behaviour); or "WxH" for a
-    // resolution picked from the HD picker.
+    // Capture quality (v0.1.64, HD picker tiers): "max" =
+    // Full Sensor, no cap; "veryhigh" / "high" / "medium" /
+    // "low" = a 4:3 size from this phone's camera, resolved
+    // by qualityTiers() when the camera binds.
     private var captureRes = "max"
     private var autoCaptureOn = true
     private var gridOn = false
@@ -346,6 +346,11 @@ class ScannerActivity : AppCompatActivity() {
         // HD button (v0.1.62): opens the resolution picker
         // (CamScanner-style) and shows the current resolution.
         captureRes = prefs().getString(PREF_CAPTURE_RES, "max") ?: "max"
+        // v0.1.64: the old "std" / "WxH" values no longer
+        // exist (quality tiers now) — reset to Full Sensor.
+        if (captureRes !in setOf("max", "veryhigh", "high", "medium", "low")) {
+            captureRes = "max"
+        }
         updateHdButton()
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnAuto)
             .setOnClickListener { toggleAutoCapture() }
@@ -713,32 +718,34 @@ class ScannerActivity : AppCompatActivity() {
      *  from the bottom edge, full width, rounded top corners,
      *  clean rows (bold megapixels + grey dimensions, teal
      *  check on the right, divider under each row) and a
-     *  Hide button at the bottom. It lists what THIS phone's
-     *  camera really supports, so every option works — nothing
-     *  is premium-locked (CamScanner crowns some sizes). The
+     *  Hide button at the bottom. It lists QUALITY tiers
+     *  (v0.1.64 — the user asked to drop the megapixel list):
+     *  Full Sensor / Very High / High / Medium / Low, each
+     *  with its real resolution in grey. Every tier is a 4:3
+     *  size from THIS phone's camera, so every option works
+     *  and no photo ever looks "kutty" — nothing is
+     *  premium-locked (CamScanner crowns some sizes). The
      *  choice is saved and the camera re-binds with it. */
     private fun showResolutionDialog() {
-        val sizes = supportedCaptureSizes()
-        // Each entry: the MP text, the dimensions text, the
-        // saved value, and whether it gets the BEST badge.
+        val tiers = qualityTiers()
+        // Each entry: the quality name, the real resolution
+        // in grey (so the user still sees what it means),
+        // the saved key, and whether it gets the BEST badge.
         data class ResOption(
             val mp: String,
             val dims: String,
             val value: String,
             val best: Boolean = false
         )
-        val options = mutableListOf<ResOption>()
-        options.add(ResOption("Full sensor", "(max)", "max", best = true))
-        for (size in sizes) {
-            options.add(
-                ResOption(
-                    mpLabel(size),
-                    "(${size.width}x${size.height})",
-                    "${size.width}x${size.height}"
-                )
+        val options = tiers.map { tier ->
+            ResOption(
+                tier.name,
+                if (tier.size == null) "(max)"
+                else "${tier.size.width}x${tier.size.height} \u2022 ${mpLabel(tier.size)}",
+                tier.key,
+                tier.best
             )
         }
-        options.add(ResOption("Standard", "(1920x1080)", "std"))
         val checked = options.indexOfFirst { it.value == captureRes }
             .takeIf { it >= 0 } ?: 0
         val dialog = Dialog(this)
@@ -764,7 +771,7 @@ class ScannerActivity : AppCompatActivity() {
                 prefs().edit().putString(PREF_CAPTURE_RES, captureRes).apply()
                 updateHdButton()
                 findViewById<TextView>(R.id.tvStatus).text =
-                    "Resolution: ${opt.mp} ${opt.dims}"
+                    "Quality: ${opt.mp} ${opt.dims}"
                 dialog.dismiss()
                 startCamera()
             }
@@ -793,51 +800,101 @@ class ScannerActivity : AppCompatActivity() {
         else String.format("%.1fM", mp)
     }
 
-    /** The camera's real supported JPEG sizes (back camera,
-     *  via Camera2) — at least 1280 wide, biggest first, at
-     *  most 8. Empty when the camera cannot be read: the
-     *  picker then offers only Full sensor + Standard, so it
-     *  never breaks on a phone whose camera list is odd. */
-    private fun supportedCaptureSizes(): List<android.util.Size> {
-        return try {
+    /** Quality tiers for the HD picker (v0.1.64). The user
+     *  asked to drop the long megapixel list and define
+     *  QUALITY only: Low / Medium / High / Very High /
+     *  Full Sensor. Every tier is a 4:3 size — a 16:9 photo
+     *  looks small ("kutty") in the portrait Crop screen,
+     *  which is what the user reported after picking a 16:9
+     *  size, so 16:9 sizes are never offered here. Full
+     *  Sensor = the sensor's max (no cap). The other tiers
+     *  spread across this phone's real 4:3 sizes by rank, so
+     *  they are always distinct and sensibly spaced on any
+     *  phone (8MP or 108MP). A tier with no distinct size is
+     *  skipped, and the names are assigned by count so the
+     *  smallest is always Low and the largest Very High.
+     *  Camera unreadable = only Full Sensor, never a crash. */
+    private data class QualityTier(
+        val key: String,
+        val name: String,
+        val size: android.util.Size?, // null = Full Sensor (no cap)
+        val best: Boolean = false
+    )
+
+    private fun qualityTiers(): List<QualityTier> {
+        val tiers = mutableListOf(QualityTier("max", "Full Sensor", null, true))
+        val allSizes: List<android.util.Size> = try {
             val manager =
                 getSystemService(Context.CAMERA_SERVICE) as android.hardware.camera2.CameraManager
             val cameraId = manager.cameraIdList.firstOrNull { id ->
                 manager.getCameraCharacteristics(id).get(
                     android.hardware.camera2.CameraCharacteristics.LENS_FACING
                 ) == android.hardware.camera2.CameraCharacteristics.LENS_FACING_BACK
-            } ?: return emptyList()
+            } ?: return tiers
             val chars = manager.getCameraCharacteristics(cameraId)
             val map = chars.get(
                 android.hardware.camera2.CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP
             )
-            val sizes = map?.getOutputSizes(android.graphics.ImageFormat.JPEG)
-                ?.toList() ?: emptyList()
-            sizes.filter { it.width >= 1280 }
-                .distinct()
-                .sortedByDescending { it.width * it.height }
-                .take(8)
+            map?.getOutputSizes(android.graphics.ImageFormat.JPEG)?.toList() ?: return tiers
         } catch (e: Exception) {
-            emptyList()
+            return tiers
         }
+        // 4:3 only, at least 1280 wide, biggest first.
+        val sizes43 = allSizes
+            .filter {
+                it.width >= 1280 &&
+                    kotlin.math.abs(it.width.toDouble() / it.height - 4.0 / 3.0) < 0.03
+            }
+            .distinct()
+            .sortedByDescending { it.width * it.height }
+        if (sizes43.isEmpty()) return tiers
+        // The sensor's max size: if it is 4:3 it IS Full
+        // Sensor, so keep it out of the tier picks — no
+        // duplicate row for the same size.
+        val maxSize = allSizes.maxByOrNull { it.width * it.height }
+        val avail = sizes43.filter { it != maxSize }
+        if (avail.isEmpty()) return tiers
+        // Spread the four tiers across the list by rank.
+        fun at(frac: Double): android.util.Size {
+            val idx = ((avail.size - 1) * frac).roundToInt()
+                .coerceIn(0, avail.size - 1)
+            return avail[idx]
+        }
+        val distinct = listOf(at(0.0), at(0.33), at(0.66), at(1.0)).distinct()
+        val names = when (distinct.size) {
+            4 -> listOf("Very High", "High", "Medium", "Low")
+            3 -> listOf("Very High", "High", "Low")
+            2 -> listOf("Very High", "Low")
+            1 -> listOf("Very High")
+            else -> emptyList()
+        }
+        val keys = when (distinct.size) {
+            4 -> listOf("veryhigh", "high", "medium", "low")
+            3 -> listOf("veryhigh", "high", "low")
+            2 -> listOf("veryhigh", "low")
+            1 -> listOf("veryhigh")
+            else -> emptyList()
+        }
+        distinct.forEachIndexed { i, size ->
+            tiers.add(QualityTier(keys[i], names[i], size))
+        }
+        return tiers
     }
 
-    /** The HD button shows the current resolution: "HD" for
-     *  the full sensor, "16M" / "12M" for a picked size,
-     *  "1080p" for Standard. Always teal — it is a setting
-     *  that opens the picker, not an on/off toggle. */
+    /** The HD button shows the current quality (v0.1.64):
+     *  "HD" for Full Sensor, "Very High" / "High" /
+     *  "Medium" / "Low" for a picked tier. Always teal — it
+     *  is a setting that opens the picker, not a toggle. */
     private fun updateHdButton() {
         val btn =
             findViewById<com.google.android.material.button.MaterialButton>(R.id.btnHd)
-        val label = when {
-            captureRes == "max" -> "HD"
-            captureRes == "std" -> "1080p"
-            else -> {
-                val parts = captureRes.split("x")
-                val w = parts.getOrNull(0)?.toIntOrNull() ?: 0
-                val h = parts.getOrNull(1)?.toIntOrNull() ?: 0
-                if (w > 0 && h > 0) mpLabel(android.util.Size(w, h)) else "HD"
-            }
+        val label = when (captureRes) {
+            "max" -> "HD"
+            "veryhigh" -> "Very High"
+            "high" -> "High"
+            "medium" -> "Medium"
+            "low" -> "Low"
+            else -> "HD"
         }
         btn.text = label
         btn.setTextColor(getColor(R.color.hakunaa_teal))
@@ -879,26 +936,21 @@ class ScannerActivity : AppCompatActivity() {
                 // at the sensor's full resolution with full processing
                 // (MINIMIZE_LATENCY used the fast, lower-quality path),
                 // JPEG quality 100. The capture resolution comes
-                // from the HD picker (v0.1.62): "max" = no cap
-                // (full sensor), "std" = 1920x1080, or the picked
-                // WxH — applied as the target resolution.
+                // from the HD picker (v0.1.64 quality tiers):
+                // "max" = no cap (Full Sensor), otherwise the
+                // tier's 4:3 size — applied as the target
+                // resolution. Unknown key = no cap (safe).
                 val captureBuilder = ImageCapture.Builder()
                     .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
                     .setJpegQuality(100)
                     .setTargetRotation(Surface.ROTATION_0)
                 when (captureRes) {
                     "max" -> { /* no cap — full sensor */ }
-                    "std" -> captureBuilder.setTargetResolution(
-                        android.util.Size(1920, 1080)
-                    )
                     else -> {
-                        val parts = captureRes.split("x")
-                        val w = parts.getOrNull(0)?.toIntOrNull()
-                        val h = parts.getOrNull(1)?.toIntOrNull()
-                        if (w != null && h != null) {
-                            captureBuilder.setTargetResolution(
-                                android.util.Size(w, h)
-                            )
+                        val size = qualityTiers()
+                            .firstOrNull { it.key == captureRes }?.size
+                        if (size != null) {
+                            captureBuilder.setTargetResolution(size)
                         }
                     }
                 }
