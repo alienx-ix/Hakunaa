@@ -323,17 +323,51 @@ object PdfTools {
      * (longest side 2000 px, about 200 DPI) and embeds it as
      * JPEG quality 80. A 2-page scan is about 1 MB instead of
      * 22 MB, and the text stays crisp at print size.
+     *
+     * It is the "Compressed" tier of the export dialog — see
+     * [imageToPdfOriginal] and [imageToPdfExtreme].
      */
     fun imageToPdfOptimized(imageFiles: List<File>, output: File): Boolean {
+        return imageToPdfQuality(imageFiles, output, 2000, 0.8f)
+    }
+
+    /**
+     * "Original Quality" export: the pages at FULL camera
+     * resolution, JPEG quality 95 — no downscaling at all.
+     * Biggest file, best quality. A 2-page 12 MP scan is
+     * roughly 4–8 MB instead of 22 MB (lossless PNG).
+     */
+    fun imageToPdfOriginal(imageFiles: List<File>, output: File): Boolean {
+        return imageToPdfQuality(imageFiles, output, Int.MAX_VALUE, 0.95f)
+    }
+
+    /**
+     * "Extreme Compress" export: longest side 1200 px, JPEG
+     * quality 60. Smallest file, for sharing over WhatsApp or
+     * slow connections. A 2-page scan is a few hundred KB.
+     */
+    fun imageToPdfExtreme(imageFiles: List<File>, output: File): Boolean {
+        return imageToPdfQuality(imageFiles, output, 1200, 0.6f)
+    }
+
+    /** Shared engine for the three export tiers. [maxSidePx] is
+     *  the longest side allowed (Int.MAX_VALUE = no downscale),
+     *  [jpegQuality] is the JPEG quality (0–1). */
+    fun imageToPdfQuality(
+        imageFiles: List<File>,
+        output: File,
+        maxSidePx: Int,
+        jpegQuality: Float
+    ): Boolean {
         return try {
             PDDocument().use { doc ->
                 for (imageFile in imageFiles) {
                     val original = BitmapFactory.decodeFile(imageFile.absolutePath) ?: return false
-                    val bitmap = downscaleForPrint(original)
+                    val bitmap = downscaleForPrint(original, maxSidePx)
                     if (bitmap != original) original.recycle()
                     val page = PDPage(PDRectangle.A4)
                     doc.addPage(page)
-                    val image = JPEGFactory.createFromImage(doc, bitmap, 0.8f)
+                    val image = JPEGFactory.createFromImage(doc, bitmap, jpegQuality)
                     PDPageContentStream(doc, page).use { content ->
                         val pageWidth = page.mediaBox.width
                         val pageHeight = page.mediaBox.height
@@ -357,11 +391,11 @@ object PdfTools {
         }
     }
 
-    /** Downscale a bitmap so its longest side is at most 2000 px
-     *  (A4 at about 200 DPI — crisp for print, small in a PDF).
-     *  Returns the original bitmap unchanged if it is already small. */
-    private fun downscaleForPrint(bitmap: Bitmap): Bitmap {
-        val maxSide = 2000
+    /** Downscale a bitmap so its longest side is at most [maxSide]
+     *  px (A4 at about 200 DPI for 2000 — crisp for print, small
+     *  in a PDF). Returns the original bitmap unchanged if it is
+     *  already small, or if [maxSide] is Int.MAX_VALUE. */
+    private fun downscaleForPrint(bitmap: Bitmap, maxSide: Int = 2000): Bitmap {
         val longest = maxOf(bitmap.width, bitmap.height)
         if (longest <= maxSide) return bitmap
         val scale = maxSide.toFloat() / longest

@@ -17,8 +17,7 @@ import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 import com.hakunaa.app.R
-import com.hakunaa.app.core.MediaStoreSaver
-import com.hakunaa.app.pdf.PdfTools
+import com.hakunaa.app.core.FileUtils
 import java.io.File
 import java.util.Collections
 
@@ -122,8 +121,9 @@ class PagesActivity : AppCompatActivity() {
     }
 
     private fun updateTitle() {
+        val totalBytes = pages.sumOf { it.length() }
         findViewById<TextView>(R.id.tvTitle).text =
-            (docName ?: "Scanned Pages") + " (${pages.size})"
+            (docName ?: "Scanned Pages") + " (${pages.size}) • ${FileUtils.formatSize(totalBytes)}"
     }
 
     private fun rotatePage(index: Int) {
@@ -135,7 +135,7 @@ class PagesActivity : AppCompatActivity() {
                 matrix.postRotate(90f)
                 val rotated = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
                 file.outputStream().use { stream ->
-                    rotated.compress(Bitmap.CompressFormat.JPEG, 92, stream)
+                    rotated.compress(Bitmap.CompressFormat.JPEG, 95, stream)
                 }
                 bmp.recycle()
                 rotated.recycle()
@@ -154,30 +154,19 @@ class PagesActivity : AppCompatActivity() {
             return
         }
         val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Saving optimized PDF…"
-        val name = (docName ?: "Hakunaa Scan").replace(Regex("[^A-Za-z0-9 _.-]"), "_")
-        Thread {
-            try {
-                val out = File(cacheDir, "$name.pdf")
-                val ok = PdfTools.imageToPdfOptimized(pages, out)
-                val saved = ok && MediaStoreSaver.save(this, out, MediaStoreSaver.Kind.DOCUMENT, out.name) != null
-                runOnUiThread {
-                    if (saved) {
-                        val sizeKb = out.length() / 1024
-                        status.text = "Done — ${out.name} saved (${pages.size} page(s), ${sizeKb} KB)"
-                        Toast.makeText(this, "PDF saved (${sizeKb} KB)", Toast.LENGTH_LONG).show()
-                        val data = Intent()
-                        data.putExtra("saved_pdf", out.name)
-                        setResult(RESULT_OK, data)
-                        finish()
-                    } else {
-                        status.text = "Save failed — try again"
-                    }
-                }
-            } catch (_: Throwable) {
-                runOnUiThread { status.text = "Save failed — try again" }
-            }
-        }.start()
+        status.text = "Preparing export options…"
+        val name = docName ?: "Hakunaa Scan"
+        // The export dialog builds all three quality tiers, shows
+        // each with its real size, and saves the one the user picks.
+        PdfExportDialog.show(this, pages.toList(), name) { fileName, sizeBytes ->
+            val size = FileUtils.formatSize(sizeBytes)
+            status.text = "Done — $fileName saved (${pages.size} page(s), $size)"
+            Toast.makeText(this, "PDF saved ($size)", Toast.LENGTH_LONG).show()
+            val data = Intent()
+            data.putExtra("saved_pdf", fileName)
+            setResult(RESULT_OK, data)
+            finish()
+        }
     }
 
     private class PagesAdapter(

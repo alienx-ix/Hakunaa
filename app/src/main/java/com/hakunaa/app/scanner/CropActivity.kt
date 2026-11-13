@@ -131,7 +131,10 @@ class CropActivity : AppCompatActivity() {
                 val straightened = DocumentDetector.warpToRectangle(bmp, corners) ?: bmp
                 val out = File(cacheDir, "scan_cropped_${System.currentTimeMillis()}.jpg")
                 out.outputStream().use { stream ->
-                    straightened.compress(Bitmap.CompressFormat.JPEG, 92, stream)
+                    // Near-lossless intermediate (95) — the final PDF
+                    // tiers re-encode from this, so it must not be
+                    // the quality bottleneck.
+                    straightened.compress(Bitmap.CompressFormat.JPEG, 95, stream)
                 }
                 if (straightened != bmp) straightened.recycle()
                 runOnUiThread {

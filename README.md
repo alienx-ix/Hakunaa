@@ -494,6 +494,21 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   results on already-compressed videos. Also fixed: a video with
   no readable duration showed "0:00" (now hidden) and its
   progress bar sat at 0 (now spins until real progress arrives).
+- **v0.1.38 (2026-11-13): Scanner — original camera quality +
+  export choice + stronger UI.** The user felt camera quality
+  was missing. Root causes found: capture used
+  CAPTURE_MODE_MINIMIZE_LATENCY (fast, lower-quality path),
+  no JPEG quality set, and HD capped at 1920x1080; then the
+  PDF downscaled every page to 2000 px / JPEG 80. Fix:
+  MAXIMIZE_QUALITY capture, JPEG 100, sensor's full resolution
+  while HD is on (HD off = 1920x1080, HD is on by default);
+  crop / enhance / rotate intermediates at JPEG 95. Save now
+  asks first: Original Quality (full resolution, JPEG 95),
+  Compressed (2000 px / 80, the old default) or Extreme
+  Compress (1200 px / 60) — each shown with its real file
+  size, tap one to save. UI: document frame guide on the
+  camera screen, mode tabs in a segmented pill, Pages screen
+  shows total size. New: PdfExportDialog + dialog_pdf_export.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

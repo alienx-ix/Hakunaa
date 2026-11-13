@@ -165,7 +165,9 @@ class EnhanceActivity : AppCompatActivity() {
                 val safeName = docName.replace(Regex("[^A-Za-z0-9 _.-]"), "_")
                 val out = File(cacheDir, "scan_enhanced_${System.currentTimeMillis()}.jpg")
                 out.outputStream().use { stream ->
-                    filtered.compress(Bitmap.CompressFormat.JPEG, 92, stream)
+                    // Near-lossless (95) — the PDF tiers re-encode
+                    // from this file, so it must keep full quality.
+                    filtered.compress(Bitmap.CompressFormat.JPEG, 95, stream)
                 }
                 filtered.recycle()
                 runOnUiThread {

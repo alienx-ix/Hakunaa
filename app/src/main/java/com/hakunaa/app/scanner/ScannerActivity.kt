@@ -25,8 +25,6 @@ import androidx.core.content.ContextCompat
 import kotlin.math.abs
 import com.hakunaa.app.R
 import com.hakunaa.app.core.FileUtils
-import com.hakunaa.app.core.MediaStoreSaver
-import com.hakunaa.app.pdf.PdfTools
 import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -45,8 +43,16 @@ import java.util.concurrent.Executors
  * 3. Enhance (EnhanceActivity): filters Original / Lighten /
  *    Enhance / No Shadow / B&W, rotate, document name, checkmark
  *    to save the page.
- * 4. Back here: Single mode saves the PDF after one page; Batch
- *    mode keeps capturing and saves all pages as one PDF.
+ * 4. Back here: Single mode asks for the export quality after
+ *    one page; Batch mode keeps capturing and asks when saving
+ *    all pages as one PDF. The export dialog offers Original
+ *    Quality (full camera resolution), Compressed (balanced)
+ *    and Extreme Compress (smallest) — each with its real size.
+ *
+ * Camera quality: MAXIMIZE_QUALITY capture, JPEG 100, and the
+ * sensor's full resolution while HD is on (HD off caps at
+ * 1920x1080). Crop / enhance intermediates are saved at JPEG
+ * 95 so they never become the quality bottleneck.
  *
  * The camera permission is asked properly with the system dialog
  * when the scanner opens — that was the v0.1.27 bug (permission
@@ -65,7 +71,10 @@ class ScannerActivity : AppCompatActivity() {
     private var camera: Camera? = null
     private var cameraExecutor: ExecutorService? = null
     private var torchOn = false
-    private var hdOn = false
+    // Full camera quality is the DEFAULT: HD on means the sensor's
+    // full resolution, no artificial cap. HD off drops to 1920x1080
+    // for users who want smaller files.
+    private var hdOn = true
     private var autoCaptureOn = true
     private var isCapturing = false
     // Auto-capture state: the last detected corners, how many
@@ -131,6 +140,11 @@ class ScannerActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.btnClose).setOnClickListener { finish() }
         findViewById<ImageButton>(R.id.btnCapture).setOnClickListener { capturePhoto() }
         findViewById<ImageButton>(R.id.btnFlash).setOnClickListener { toggleTorch() }
+        // HD is on by default (full camera quality) — show it teal.
+        findViewById<com.google.android.material.button.MaterialButton>(R.id.btnHd).apply {
+            setTextColor(getColor(R.color.hakunaa_teal))
+            strokeColor = android.content.res.ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+        }
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnAuto)
             .setOnClickListener { toggleAutoCapture() }
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnHd)
@@ -220,7 +234,12 @@ class ScannerActivity : AppCompatActivity() {
         hdOn = !hdOn
         // Re-bind the camera with the new capture setting.
         val btn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnHd)
-        btn.setTextColor(if (hdOn) getColor(R.color.hakunaa_teal) else getColor(android.R.color.white))
+        val color = if (hdOn) getColor(R.color.hakunaa_teal) else getColor(android.R.color.white)
+        btn.setTextColor(color)
+        btn.strokeColor = android.content.res.ColorStateList.valueOf(color)
+        findViewById<TextView>(R.id.tvStatus).text =
+            if (hdOn) "Full quality — original camera resolution"
+            else "HD off — captures at 1920x1080"
         startCamera()
     }
 
@@ -232,9 +251,15 @@ class ScannerActivity : AppCompatActivity() {
                 val preview = Preview.Builder().build().also {
                     it.setSurfaceProvider(findViewById<PreviewView>(R.id.previewView).surfaceProvider)
                 }
+                // ORIGINAL CAMERA QUALITY: MAXIMIZE_QUALITY captures
+                // at the sensor's full resolution with full processing
+                // (MINIMIZE_LATENCY used the fast, lower-quality path),
+                // JPEG quality 100, and no resolution cap while HD is
+                // on. HD off caps at 1920x1080 for smaller files.
                 val captureBuilder = ImageCapture.Builder()
-                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                if (hdOn) {
+                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+                    .setJpegQuality(100)
+                if (!hdOn) {
                     captureBuilder.setTargetResolution(android.util.Size(1920, 1080))
                 }
                 imageCapture = captureBuilder.build().also {
@@ -400,30 +425,17 @@ class ScannerActivity : AppCompatActivity() {
             return
         }
         val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Saving PDF…"
-        val name = (docName ?: "Hakunaa Scan").replace(Regex("[^A-Za-z0-9 _.-]"), "_")
-        Thread {
-            try {
-                val out = File(cacheDir, "$name.pdf")
-                // Optimized: downscaled + JPEG, about 1 MB for 2 pages
-                // instead of 22 MB (lossless PNG was the problem).
-                val ok = PdfTools.imageToPdfOptimized(pages, out)
-                val saved = ok && MediaStoreSaver.save(this, out, MediaStoreSaver.Kind.DOCUMENT, out.name) != null
-                runOnUiThread {
-                    if (saved) {
-                        val sizeKb = out.length() / 1024
-                        status.text = "Done — scanned PDF saved to Documents/Hakunaa/${out.name} (${pages.size} page(s), ${sizeKb} KB)"
-                        Toast.makeText(this, "PDF saved (${sizeKb} KB)", Toast.LENGTH_SHORT).show()
-                        pages.clear()
-                        docName = null
-                        updatePagesLabel()
-                    } else {
-                        status.text = "Save failed — try again"
-                    }
-                }
-            } catch (_: Throwable) {
-                runOnUiThread { status.text = "Save failed — try again" }
-            }
-        }.start()
+        status.text = "Preparing export options…"
+        val name = docName ?: "Hakunaa Scan"
+        // The export dialog builds all three quality tiers, shows
+        // each with its real size, and saves the one the user picks.
+        PdfExportDialog.show(this, pages.toList(), name) { fileName, sizeBytes ->
+            val size = FileUtils.formatSize(sizeBytes)
+            status.text = "Done — scanned PDF saved to Documents/Hakunaa/$fileName (${pages.size} page(s), $size)"
+            Toast.makeText(this, "PDF saved ($size)", Toast.LENGTH_SHORT).show()
+            pages.clear()
+            docName = null
+            updatePagesLabel()
+        }
     }
 }
