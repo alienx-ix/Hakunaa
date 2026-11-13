@@ -629,28 +629,36 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   ValueAnimator on the UI thread (60 fps, vsync); full means
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
-- **v0.1.56 coloured-cover detection (Hough path).**
-  The user found the detector only works on white paper —
-  a notebook cover is not detected. Root cause, verified on
-  their Camlin HOLLAND cover photo on the woven mat: the
-  texture mask covers only 4.7% (the printed windmill/tulips
-  are textured, not smooth paper) and the bright mask returns
-  a wrong quad. Canny + connected components fragments, and
-  bright + morphological CLOSE merges the cover with the
-  mat's bright weave (the whole image at r=15) — both fail.
-  Fix: a third detection path — Canny edges + a Hough
-  transform find the object's boundary lines by their edges
-  (colour-independent), and the OUTERMOST strong horizontal
-  and vertical lines are the border. The printed design
-  inside the cover has STRONGER internal lines (the stamp's
-  top, 161 votes, beats the cover's top, 82), so the
-  strongest lines are NOT the border — the outermost are.
-  Verified in Python on the cover photo first: Hough finds
-  the cover (top y=15, bottom y=215, left x=51, right x=269
-  in 320x240 coords). Validated by size, aspect ratio and
-  real edges — NOT by paper fraction, since a printed
-  cover's interior is textured. A mat-only scene is guarded
-  by a 95% size cap (its lines span the whole frame).
+- **v0.1.57 live frame fully inside the preview + capture area stays large + top space used.**
+  The user found the detection box's four edges were not
+  visible inside the frame — when the book fills the whole
+  preview the detected corners sit on the view's very edge,
+  so the corner dots are half off-screen and the user cannot
+  see all four edges (and wonders how to capture). The user
+  diagnosed the root cause: in Batch, after the 1st capture
+  the big full-width "Save as PDF" button appears below and
+  the bottom bar grows by 68dp, shrinking the capture area.
+  The user also pointed out the top has a lot of empty space
+  (the 4:3 preview is letterboxed on a tall phone). Three
+  fixes. (1) The EdgeOverlayView now insets each corner
+  toward the quad's centroid by 14dp when mapping to view
+  coords, so the whole frame (edges + dots) is fully visible.
+  Display-only: the actual capture still uses the full
+  detected corners (the Crop screen lets the user adjust
+  them), and auto-capture steadiness is unaffected. (2) The
+  big Save bar is gone — replaced by ONE compact "N page(s)
+  • Done" button (40dp, centred) that opens the Pages screen
+  (Batch) or export (Single). Its space is reserved
+  (INVISIBLE when empty, not GONE), so the bottom bar never
+  grows when a page is captured and the capture area stays
+  large and stable. (3) The mode tabs (Single / Batch /
+  Book) moved from the bottom bar into the empty top band
+  (below the top bar), so the top space is used and the
+  bottom bar is shorter. (The frame in the user's screenshot
+  covers the whole open book — both pages — which is the
+  known busy-background limit: the spine split cannot
+  isolate one page there. For a single page, drag the corners
+  in the Crop screen, or use Book mode.)
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

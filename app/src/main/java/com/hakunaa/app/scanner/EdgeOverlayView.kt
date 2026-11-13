@@ -8,6 +8,7 @@ import android.graphics.Path
 import android.util.AttributeSet
 import android.view.View
 import kotlin.math.abs
+import kotlin.math.sqrt
 
 /**
  * Dynamic document-edge overlay — the frame that follows the
@@ -170,7 +171,40 @@ class EdgeOverlayView @JvmOverloads constructor(
             out[i * 2] = offsetX + rotated[i * 2] * scale
             out[i * 2 + 1] = offsetY + rotated[i * 2 + 1] * scale
         }
+        // v0.1.57: pull the frame inside the preview. When the
+        // book fills the whole frame the detected corners sit
+        // on the view's very edge, so the corner dots are half
+        // off-screen and the user cannot see all four edges.
+        // Inset each corner toward the quad's centroid so the
+        // whole frame (edges + dots) is fully visible. This is
+        // display-only — the actual capture still uses the full
+        // detected corners (the Crop screen lets the user adjust
+        // them), and auto-capture steadiness is unaffected.
+        insetTowardCentroid(out, 14f * resources.displayMetrics.density)
         return out
+    }
+
+    /** Move each corner of [pts] (TL TR BR BL, view coords)
+     *  toward the quad's centroid by [inset] pixels, so the
+     *  frame sits fully inside the view. */
+    private fun insetTowardCentroid(pts: FloatArray, inset: Float) {
+        var cx = 0f
+        var cy = 0f
+        for (i in 0 until 4) {
+            cx += pts[i * 2]
+            cy += pts[i * 2 + 1]
+        }
+        cx /= 4f
+        cy /= 4f
+        for (i in 0 until 4) {
+            val dx = cx - pts[i * 2]
+            val dy = cy - pts[i * 2 + 1]
+            val len = sqrt(dx * dx + dy * dy)
+            if (len > 1e-6f) {
+                pts[i * 2] += dx / len * inset
+                pts[i * 2 + 1] += dy / len * inset
+            }
+        }
     }
 
     override fun onDraw(canvas: Canvas) {

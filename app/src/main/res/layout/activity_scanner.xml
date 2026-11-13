@@ -115,6 +115,62 @@
             android:tint="#FFFFFF" />
     </LinearLayout>
 
+    <!-- Mode tabs — moved to the TOP black space (v0.1.57).
+         The 4:3 preview is letterboxed on a tall phone, so
+         there is a wide empty band above it; the tabs live
+         there now (below the top bar) instead of in the bottom
+         bar. That keeps the bottom bar short, the capture area
+         large, and uses the top space instead of wasting it. -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="64dp"
+        android:background="@drawable/mode_tabs_bg"
+        android:gravity="center"
+        android:orientation="horizontal"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:id="@+id/tvModeSingle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/mode_tab_selected"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:text="Single"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvModeBatch"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:text="Batch"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/tvModeBook"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:text="Book"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp" />
+    </LinearLayout>
+
     <!-- Bottom controls -->
     <LinearLayout
         android:layout_width="match_parent"
@@ -123,56 +179,6 @@
         android:background="#000000"
         android:orientation="vertical"
         android:paddingBottom="16dp">
-
-        <!-- Mode tabs — segmented pill -->
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal"
-            android:background="@drawable/mode_tabs_bg"
-            android:gravity="center"
-            android:orientation="horizontal"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp">
-
-            <TextView
-                android:id="@+id/tvModeSingle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:background="@drawable/mode_tab_selected"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp"
-                android:paddingTop="6dp"
-                android:paddingBottom="6dp"
-                android:text="Single"
-                android:textColor="#FFFFFF"
-                android:textSize="16sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/tvModeBatch"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp"
-                android:paddingTop="6dp"
-                android:paddingBottom="6dp"
-                android:text="Batch"
-                android:textColor="#FFFFFF"
-                android:textSize="16sp" />
-
-            <TextView
-                android:id="@+id/tvModeBook"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp"
-                android:paddingTop="6dp"
-                android:paddingBottom="6dp"
-                android:text="Book"
-                android:textColor="#FFFFFF"
-                android:textSize="16sp" />
-        </LinearLayout>
 
         <!-- Capture row: the Spirit Level on the left (the
              bubble level, in the Grid button's place — the Grid
@@ -281,25 +287,24 @@
             android:textColor="#B0B0B0"
             android:textSize="13sp" />
 
-        <TextView
-            android:id="@+id/tvPages"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center"
-            android:text=""
-            android:textColor="#00BFA5"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-
+        <!-- Pages count + finish — ONE compact button, NOT a big
+             full-width Save bar. (v0.1.57: the big Save button
+             made the bottom bar grow by 68dp after the first
+             capture, shrinking the capture area and pushing the
+             detection frame's edges off-screen. The compact
+             button keeps the capture area large and stable: its
+             space is reserved (invisible when empty), so the
+             layout never shifts when a page is captured.)
+             Batch: opens the Pages screen to review + save.
+             Single: goes straight to the export screen. -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnSavePdf"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:layout_marginStart="24dp"
-            android:layout_marginTop="12dp"
-            android:layout_marginEnd="24dp"
-            android:text="Save as PDF"
-            android:visibility="gone" />
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="8dp"
+            android:text="Done"
+            android:visibility="invisible" />
     </LinearLayout>
 
 </FrameLayout>

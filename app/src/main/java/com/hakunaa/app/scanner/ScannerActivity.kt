@@ -1363,14 +1363,19 @@ class ScannerActivity : AppCompatActivity() {
     }
 
     private fun updatePagesLabel() {
-        findViewById<TextView>(R.id.tvPages).text =
-            if (pages.isEmpty()) ""
-            else "${pages.size} page(s) scanned"
-        // Visible in BOTH modes once a page exists: Batch opens
-        // the Pages screen, Single opens export directly — so
-        // after cancelling export the user can open it again.
-        findViewById<View>(R.id.btnSavePdf).visibility =
-            if (pages.isNotEmpty()) View.VISIBLE else View.GONE
+        // ONE compact Done button (v0.1.57) — it shows the page
+        // count and finishes the batch. Its space is reserved
+        // (INVISIBLE, not GONE, when empty) so the bottom bar
+        // never grows when a page is captured and the capture
+        // area stays large and stable.
+        val btn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnSavePdf)
+        if (pages.isEmpty()) {
+            btn.text = ""
+            btn.visibility = View.INVISIBLE
+        } else {
+            btn.text = "${pages.size} page(s) • Done"
+            btn.visibility = View.VISIBLE
+        }
     }
 
     /** Save button: Batch reviews pages first, Single goes
