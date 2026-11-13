@@ -115,7 +115,11 @@ class ScannerActivity : AppCompatActivity() {
 
     private val pages = mutableListOf<File>()
     private var docName: String? = null
-    private var mode = Mode.SINGLE
+    // Default mode is BATCH (v0.1.67, user): the scanner opens
+    // on Batch — most scans are multi-page, and Single is one
+    // tap away. The mode still survives recreation via
+    // onSaveInstanceState, and setMode() switches it in-session.
+    private var mode = Mode.BATCH
     private var imageCapture: ImageCapture? = null
     private var preview: Preview? = null
     private var imageAnalysis: ImageAnalysis? = null
@@ -312,9 +316,11 @@ class ScannerActivity : AppCompatActivity() {
 
     // Export is a separate screen: while it is open this
     // activity stops and the camera is released — no scan runs
-    // in the background. On save, clear the pages; on cancel,
-    // keep them and leave the Save button visible so the user
-    // can open export again.
+    // in the background. On save, clear the pages; on discard
+    // (user confirmed on the export screen, v0.1.67), clear
+    // them too so the camera comes back fresh; a plain cancel
+    // keeps them and leaves the Save button visible so the
+    // user can open export again.
     private val exportLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             val status = findViewById<TextView>(R.id.tvStatus)
@@ -329,6 +335,21 @@ class ScannerActivity : AppCompatActivity() {
                 pages.clear()
                 docName = null
                 updatePagesLabel()
+            } else if (result.resultCode == PdfExportActivity.RESULT_DISCARD) {
+                // User confirmed discard on the export screen
+                // (v0.1.67): drop every page so the camera comes
+                // back fresh — no "N page(s) • Done" left at the
+                // bottom, in Single or Batch.
+                val count = pages.size
+                pages.clear()
+                docName = null
+                updatePagesLabel()
+                status.text = "Discarded — point the camera at a document and tap Capture"
+                Toast.makeText(
+                    this,
+                    if (count <= 1) "Image discarded" else "$count pages discarded",
+                    Toast.LENGTH_SHORT
+                ).show()
             } else {
                 status.text = "Save cancelled — ${pages.size} page(s) ready, tap Save as PDF when ready"
                 updatePagesLabel()
