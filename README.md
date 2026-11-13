@@ -629,36 +629,8 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   ValueAnimator on the UI thread (60 fps, vsync); full means
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
-- **v0.1.57 live frame fully inside the preview + capture area stays large + top space used.**
-  The user found the detection box's four edges were not
-  visible inside the frame — when the book fills the whole
-  preview the detected corners sit on the view's very edge,
-  so the corner dots are half off-screen and the user cannot
-  see all four edges (and wonders how to capture). The user
-  diagnosed the root cause: in Batch, after the 1st capture
-  the big full-width "Save as PDF" button appears below and
-  the bottom bar grows by 68dp, shrinking the capture area.
-  The user also pointed out the top has a lot of empty space
-  (the 4:3 preview is letterboxed on a tall phone). Three
-  fixes. (1) The EdgeOverlayView now insets each corner
-  toward the quad's centroid by 14dp when mapping to view
-  coords, so the whole frame (edges + dots) is fully visible.
-  Display-only: the actual capture still uses the full
-  detected corners (the Crop screen lets the user adjust
-  them), and auto-capture steadiness is unaffected. (2) The
-  big Save bar is gone — replaced by ONE compact "N page(s)
-  • Done" button (40dp, centred) that opens the Pages screen
-  (Batch) or export (Single). Its space is reserved
-  (INVISIBLE when empty, not GONE), so the bottom bar never
-  grows when a page is captured and the capture area stays
-  large and stable. (3) The mode tabs (Single / Batch /
-  Book) moved from the bottom bar into the empty top band
-  (below the top bar), so the top space is used and the
-  bottom bar is shorter. (The frame in the user's screenshot
-  covers the whole open book — both pages — which is the
-  known busy-background limit: the spine split cannot
-  isolate one page there. For a single page, drag the corners
-  in the Crop screen, or use Book mode.)
+- **v0.1.58 professional scanner flow — tabs back at the bottom, capture area up, Batch Done → Filter, swipe pages, Crop in the menu, handles fully inside, Book layout balanced, sharper by default.**
+  The user corrected v0.1.57 twice: the Single / Batch / Book tabs must ALWAYS stay at the bottom, like professional scanners (moving them to the top was wrong), and the capture area must move up a little. And the Batch flow was totally wrong, with three more fixes asked for. Seven fixes, all following the professional (CamScanner) flow. (1) Tabs back at the bottom (where they were before v0.1.57); the preview is now top-aligned (FIT_START, under the translucent top bar) instead of centred, so the capture area sits higher and uses the top space — the frame, grid and tap-to-focus rects all moved to top-aligned with it, so they still sit exactly on the image. (2) Batch Done → Filter (Enhance) directly: after Done the app opens the Filter section for the first page with "Apply to all pages" already ticked — it no longer goes to the Pages / save screen first. Back from Enhance cancels and the pages stay. On save (green check) the export screen opens. (3) Swipe pages in the Filter section: in a batch the top bar shows "2 / 4" and the user swipes the page left / right to move between pages and apply a filter to each; each page keeps its own filter (default ENHANCE); "Apply to all pages" ticked puts the current page's filter on every page on save, unticked each page keeps its own. (4) Crop in the bottom menu: Extract Text is removed from the Enhance bottom bar (OCR is a cloud feature, not possible offline — it was only a greyed-out label) and Crop takes its place (Left / Markup / Crop / Sign / Adjust / ✓); Crop opens the Crop screen for the current page, where the corners can be dragged by hand, and the cropped result comes back to the Filter section. (5) Crop handles fully inside on ALL sides: the clamp is now 4% (was 2%) — 2% was only ~18px on screen, less than the 26px handle radius, so the left and right corner circles still hung half off-screen and could not be pressed; 4% puts the whole circle inside on every side, and the user can still drag a corner back out to the edge for the full page. (6) Book Scan layout: Single / Double moved from the cramped right strip into the middle of the left strip (which was mostly empty space); Capture stays centred on the right, Torch at the top right. (7) Sharper by default, everywhere: the ENHANCE filter's unsharp amount is 1.1 (was 0.9) and the Adjust Sharpness slider now starts at 20 (was 0, Reset returns to 20) — so every filter gives text a small sharpen boost by default and text is always clearly visible; the user can still move the slider to 0 or higher.
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

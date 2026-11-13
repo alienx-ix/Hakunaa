@@ -33,6 +33,19 @@
             android:textColor="#FFFFFF"
             android:textSize="18sp" />
 
+        <!-- Page indicator — "2 / 4" when a batch has several
+             pages; the user swipes the page to move between
+             them. Hidden for a single page. -->
+        <TextView
+            android:id="@+id/tvPageIndicator"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="12dp"
+            android:text=""
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:visibility="gone" />
+
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -205,7 +218,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:max="100"
-                android:progress="0"
+                android:progress="20"
                 android:progressTint="#00BFA5"
                 android:thumbTint="#00BFA5" />
 
@@ -214,7 +227,7 @@
                 android:layout_width="40dp"
                 android:layout_height="wrap_content"
                 android:gravity="end"
-                android:text="0"
+                android:text="20"
                 android:textColor="#FFFFFF"
                 android:textSize="13sp" />
         </LinearLayout>
@@ -309,7 +322,15 @@
                 android:textSize="12sp" />
         </LinearLayout>
 
+        <!-- Crop — re-crop the current page from the Filter
+             section (v0.1.58). It takes the place of Extract
+             Text in the bottom menu: Extract Text (OCR) is a
+             cloud feature, not possible offline, so it was only
+             a greyed-out label; Crop is a real, working tool
+             here. Opens the Crop screen for this page, where
+             the corners can be dragged by hand. -->
         <LinearLayout
+            android:id="@+id/btnCrop"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="24dp"
@@ -319,15 +340,15 @@
             <ImageView
                 android:layout_width="26dp"
                 android:layout_height="26dp"
-                android:src="@drawable/ic_text"
-                android:tint="#808080" />
+                android:src="@drawable/ic_crop"
+                android:tint="#FFFFFF" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Extract Text"
-                android:textColor="#808080"
+                android:text="Crop"
+                android:textColor="#FFFFFF"
                 android:textSize="12sp" />
         </LinearLayout>
 

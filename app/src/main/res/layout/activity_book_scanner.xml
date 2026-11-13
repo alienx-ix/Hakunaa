@@ -5,11 +5,11 @@
      Two narrow control strips leave the preview filling the
      whole screen — no top/bottom bars squeezing it, and
      nothing overlaps the status bar.
-       LEFT strip — the file actions: Close, then Pages (with
-       the count) and Save PDF at the bottom.
-       RIGHT strip — the shooting actions: Torch as a proper
-       round button, Single / Double as real segmented
-       buttons, then the big capture button at the centre. -->
+       LEFT strip — Close at the top, the Single / Double
+       toggle in the middle, Pages (with the count) and Save
+       PDF at the bottom.
+       RIGHT strip — the shooting actions: Torch at the top,
+       the big capture button at the centre. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -44,7 +44,12 @@
         android:textColor="#FFFFFF"
         android:textSize="13sp" />
 
-    <!-- LEFT strip — file actions. -->
+    <!-- LEFT strip — file actions + the Single / Double
+         toggle. The toggle moved here (v0.1.58): on the right
+         it sat under the torch, cramped, and the left strip
+         was mostly empty space. Now it sits in the middle of
+         the left strip — a better placement, and the empty
+         space is used. -->
     <LinearLayout
         android:layout_width="140dp"
         android:layout_height="match_parent"
@@ -68,42 +73,7 @@
             android:layout_height="0dp"
             android:layout_weight="1" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnPages"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:text="Pages (0)"
-            android:textSize="14sp" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnSavePdf"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:layout_marginTop="8dp"
-            android:text="Save PDF"
-            android:textSize="14sp"
-            android:visibility="gone" />
-    </LinearLayout>
-
-    <!-- RIGHT strip — shooting actions. -->
-    <LinearLayout
-        android:layout_width="140dp"
-        android:layout_height="match_parent"
-        android:layout_gravity="end"
-        android:clickable="true"
-        android:orientation="vertical"
-        android:padding="12dp">
-
-        <ImageButton
-            android:id="@+id/btnTorch"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_gravity="center_horizontal"
-            android:background="@drawable/circle_button_bg"
-            android:contentDescription="Torch"
-            android:src="@drawable/ic_flash_off" />
-
-        <!-- Single / Double — real segmented buttons now: the
+        <!-- Single / Double — real segmented buttons: the
              selected one is a teal pill, the other is plain.
              Double captures both pages at once (A then B),
              Single captures one tapped page. -->
@@ -111,7 +81,6 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal"
-            android:layout_marginTop="12dp"
             android:background="@drawable/mode_tabs_bg"
             android:gravity="center"
             android:orientation="vertical"
@@ -146,6 +115,48 @@
                 android:textSize="16sp"
                 android:textStyle="bold" />
         </LinearLayout>
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnPages"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="Pages (0)"
+            android:textSize="14sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnSavePdf"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:text="Save PDF"
+            android:textSize="14sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- RIGHT strip — shooting actions: Torch at the top, the
+         big capture button centred. (Single / Double moved to
+         the left strip — better placement, less cramped.) -->
+    <LinearLayout
+        android:layout_width="140dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="end"
+        android:clickable="true"
+        android:orientation="vertical"
+        android:padding="12dp">
+
+        <ImageButton
+            android:id="@+id/btnTorch"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="center_horizontal"
+            android:background="@drawable/circle_button_bg"
+            android:contentDescription="Torch"
+            android:src="@drawable/ic_flash_off" />
 
         <View
             android:layout_width="0dp"

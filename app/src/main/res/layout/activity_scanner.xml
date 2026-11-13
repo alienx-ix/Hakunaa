@@ -5,16 +5,19 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <!-- Full-screen live camera preview — FIT_CENTER shows the
-         whole camera frame (fillCenter cropped it, so the screen
-         looked zoomed in). The preview uses the sensor's native
-         4:3 aspect — the widest field of view, nothing cropped,
-         no zoomed-in look. -->
+    <!-- Full-screen live camera preview — FIT_START shows the
+         whole camera frame top-aligned (the 4:3 image starts
+         at the top, under the translucent top bar, the way
+         professional scanners do it), so the capture area
+         sits higher and uses the top space. fitCenter left a
+         wide empty band above the image. The preview uses the
+         sensor's native 4:3 aspect — the widest field of view,
+         nothing cropped, no zoomed-in look. -->
     <androidx.camera.view.PreviewView
         android:id="@+id/previewView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        app:scaleType="fitCenter" />
+        app:scaleType="fitStart" />
 
     <!-- Dynamic document-edge overlay — draws the detected page's
          real corners, live, right where the page is in the
@@ -115,62 +118,6 @@
             android:tint="#FFFFFF" />
     </LinearLayout>
 
-    <!-- Mode tabs — moved to the TOP black space (v0.1.57).
-         The 4:3 preview is letterboxed on a tall phone, so
-         there is a wide empty band above it; the tabs live
-         there now (below the top bar) instead of in the bottom
-         bar. That keeps the bottom bar short, the capture area
-         large, and uses the top space instead of wasting it. -->
-    <LinearLayout
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top|center_horizontal"
-        android:layout_marginTop="64dp"
-        android:background="@drawable/mode_tabs_bg"
-        android:gravity="center"
-        android:orientation="horizontal"
-        android:paddingTop="8dp"
-        android:paddingBottom="8dp">
-
-        <TextView
-            android:id="@+id/tvModeSingle"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:background="@drawable/mode_tab_selected"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:paddingTop="6dp"
-            android:paddingBottom="6dp"
-            android:text="Single"
-            android:textColor="#FFFFFF"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/tvModeBatch"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:paddingTop="6dp"
-            android:paddingBottom="6dp"
-            android:text="Batch"
-            android:textColor="#FFFFFF"
-            android:textSize="16sp" />
-
-        <TextView
-            android:id="@+id/tvModeBook"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:paddingTop="6dp"
-            android:paddingBottom="6dp"
-            android:text="Book"
-            android:textColor="#FFFFFF"
-            android:textSize="16sp" />
-    </LinearLayout>
-
     <!-- Bottom controls -->
     <LinearLayout
         android:layout_width="match_parent"
@@ -179,6 +126,59 @@
         android:background="#000000"
         android:orientation="vertical"
         android:paddingBottom="16dp">
+
+        <!-- Mode tabs — segmented pill. ALWAYS at the bottom,
+             like professional scanners (CamScanner). (v0.1.57
+             moved them to the top — the user said that was
+             wrong; they belong at the bottom.) -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:background="@drawable/mode_tabs_bg"
+            android:gravity="center"
+            android:orientation="horizontal"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp">
+
+            <TextView
+                android:id="@+id/tvModeSingle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/mode_tab_selected"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:text="Single"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvModeBatch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:text="Batch"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp" />
+
+            <TextView
+                android:id="@+id/tvModeBook"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:text="Book"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp" />
+        </LinearLayout>
 
         <!-- Capture row: the Spirit Level on the left (the
              bubble level, in the Grid button's place — the Grid

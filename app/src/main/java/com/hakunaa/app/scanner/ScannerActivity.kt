@@ -277,6 +277,31 @@ class ScannerActivity : AppCompatActivity() {
             // RESULT_ADD_PAGE or back: stay on the camera, pages kept.
         }
 
+    // Batch Done → Filter (Enhance) directly (v0.1.58): the
+    // Batch flow was Done → Pages → Save → Enhance → Export,
+    // and the user said it is totally wrong — after Done it
+    // must go to the Filter section, not straight to a save /
+    // preview screen. So Done opens Enhance for the first page
+    // with "Apply to all pages" already ticked (one filter
+    // covers the batch; the user can swipe pages and pick a
+    // filter per page, or un-tick it). Back from Enhance
+    // cancels — the pages stay on the camera. On save, the
+    // first page is replaced by the enhanced file and the
+    // export screen opens.
+    private val enhanceLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) {
+                val enhancedPath =
+                    result.data?.getStringExtra(EnhanceActivity.EXTRA_ENHANCED_PATH)
+                if (enhancedPath != null && pages.isNotEmpty()) {
+                    val file = File(enhancedPath)
+                    if (file.exists()) pages[0] = file
+                }
+                docName = result.data?.getStringExtra("doc_name") ?: docName
+                saveAsPdf()
+            }
+        }
+
     // Export is a separate screen: while it is open this
     // activity stops and the camera is released — no scan runs
     // in the background. On save, clear the pages; on cancel,
@@ -1031,16 +1056,18 @@ class ScannerActivity : AppCompatActivity() {
         val h = previewView.height.toFloat()
         val isLandscape = displayRotation == Surface.ROTATION_90 ||
             displayRotation == Surface.ROTATION_270
+        // Top-aligned (v0.1.58): the preview is fitStart now,
+        // so the content rect starts at the top, not centred.
         return if (isLandscape) {
             // Landscape preview: 4 wide, 3 tall.
             val contentW = minOf(w, h * 4f / 3f)
             val contentH = contentW * 3f / 4f
-            RectF((w - contentW) / 2f, (h - contentH) / 2f, (w + contentW) / 2f, (h + contentH) / 2f)
+            RectF((w - contentW) / 2f, 0f, (w + contentW) / 2f, contentH)
         } else {
             // Portrait preview: 3 wide, 4 tall.
             val contentH = w * 4f / 3f
             if (contentH <= h) {
-                RectF(0f, (h - contentH) / 2f, w, (h + contentH) / 2f)
+                RectF(0f, 0f, w, contentH)
             } else {
                 val contentW = h * 3f / 4f
                 RectF((w - contentW) / 2f, 0f, (w + contentW) / 2f, h)
@@ -1385,7 +1412,30 @@ class ScannerActivity : AppCompatActivity() {
             Toast.makeText(this, "Scan at least one page first", Toast.LENGTH_SHORT).show()
             return
         }
-        if (mode == Mode.BATCH) openPages() else saveAsPdf()
+        // Batch: Done goes to the Filter (Enhance) section
+        // directly — not to the Pages / save screen. Single:
+        // straight to export (it already went through Enhance
+        // after its one capture).
+        if (mode == Mode.BATCH) openBatchEnhance() else saveAsPdf()
+    }
+
+    /** Batch Done → Filter (Enhance) for the first page, with
+     *  "Apply to all pages" already ticked. The Enhance screen
+     *  lets the user swipe through every page, pick a filter
+     *  per page (or one for all), and re-crop a page. */
+    private fun openBatchEnhance() {
+        if (pages.isEmpty()) {
+            Toast.makeText(this, "Scan at least one page first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val intent = Intent(this, EnhanceActivity::class.java)
+        intent.putExtra(EnhanceActivity.EXTRA_IMAGE_PATH, pages[0].absolutePath)
+        intent.putStringArrayListExtra(
+            EnhanceActivity.EXTRA_PAGE_PATHS,
+            ArrayList(pages.map { it.absolutePath })
+        )
+        intent.putExtra(EnhanceActivity.EXTRA_APPLY_ALL_CHECKED, true)
+        enhanceLauncher.launch(intent)
     }
 
     /** Batch mode: review, reorder and save all pages. */

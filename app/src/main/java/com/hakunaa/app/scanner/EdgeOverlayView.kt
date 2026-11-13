@@ -155,9 +155,13 @@ class EdgeOverlayView @JvmOverloads constructor(
                 }
             }
         }
-        // Step 2: fitCenter — scale the display image into this
-        // view, centred. The preview is the same aspect, so the
-        // rect matches the camera preview exactly.
+        // Step 2: fitStart — scale the display image into this
+        // view, TOP-aligned (v0.1.58: the preview is top-aligned
+        // now, not centred, so the capture area sits higher and
+        // uses the top space). The image fills the width, so
+        // it is centred horizontally; vertically it starts at
+        // the top (offsetY = 0), under the translucent top bar,
+        // the way professional scanners do it.
         val viewW = width.toFloat()
         val viewH = height.toFloat()
         if (viewW <= 0f || viewH <= 0f || dispW <= 0f || dispH <= 0f) {
@@ -165,7 +169,7 @@ class EdgeOverlayView @JvmOverloads constructor(
         }
         val scale = minOf(viewW / dispW, viewH / dispH)
         val offsetX = (viewW - dispW * scale) / 2f
-        val offsetY = (viewH - dispH * scale) / 2f
+        val offsetY = 0f
         val out = FloatArray(8)
         for (i in 0 until 4) {
             out[i * 2] = offsetX + rotated[i * 2] * scale

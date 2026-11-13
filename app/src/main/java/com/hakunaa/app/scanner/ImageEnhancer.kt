@@ -226,7 +226,7 @@ object ImageEnhancer {
         }
         if (sharpness > 0.01f) {
             // 0..100 maps to an unsharp amount of 0..1.8 — the
-            // ENHANCE filter's own sharpen is 0.9, so 50 is
+            // ENHANCE filter's own sharpen is 1.1, so 60 is
             // about the same strength again on top of it.
             val amount = sharpness / 100f * 1.8f
             val sharp = sharpen(result, amount)
@@ -290,15 +290,17 @@ object ImageEnhancer {
 
     /** Unsharp mask — the "clear scan" step. A blurred copy is
      *  subtracted from the original and the difference is added
-     *  back (amount 0.9), so text and ruled lines get crisp edges
+     *  back (amount 1.1), so text and ruled lines get crisp edges
      *  without changing colours. Pure Kotlin, separable box blur
      *  (radius 2, about the same as a Gaussian radius 2) so it
      *  stays fast even on full-resolution pages. Runs on a
      *  background thread in the caller, never on the UI thread.
-     *  The amount is a parameter now (default 0.9, the ENHANCE
-     *  filter's strength) so the Adjust panel can add more or
+     *  The amount is a parameter now (default 1.1, raised from
+     *  0.9 in v0.1.58 — the user asked for a little more
+     *  sharpness by default, everywhere, so text is always
+     *  clearly visible) so the Adjust panel can add more or
      *  less sharpening on top of any filter. */
-    private fun sharpen(bitmap: Bitmap, amount: Float = 0.9f): Bitmap {
+    private fun sharpen(bitmap: Bitmap, amount: Float = 1.1f): Bitmap {
         val w = bitmap.width
         val h = bitmap.height
         val src = IntArray(w * h)
