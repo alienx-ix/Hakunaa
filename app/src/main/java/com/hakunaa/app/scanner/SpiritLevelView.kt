@@ -21,6 +21,11 @@ import kotlin.math.sqrt
  * about 2 degrees on both axes) the bubble sits in the centre
  * and turns teal.
  *
+ * Style 01 Classic Bullseye (v0.1.62): the user picked this
+ * style from the animation preview page — a classic bullseye
+ * with a YELLOW bubble (the way a real spirit level looks),
+ * gliding smoothly, teal when level.
+ *
  * Tilt comes from the accelerometer, two axes:
  *  roll  = atan2(x, sqrt(y^2 + z^2)) — left / right tilt.
  *  pitch = atan2(y, sqrt(x^2 + z^2)) — top / bottom tilt.
@@ -61,7 +66,10 @@ class SpiritLevelView @JvmOverloads constructor(
     }
 
     private val bubblePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
+        // Style 01 Classic Bullseye (v0.1.62): a yellow bubble,
+        // like a real spirit level — the style the user picked
+        // from the animation preview page.
+        color = Color.parseColor("#FFD600")
         style = Paint.Style.FILL
     }
 

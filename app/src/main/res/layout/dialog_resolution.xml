@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Capture resolution picker (v0.1.62, CamScanner-style) —
+     the HD button opens it. A dark rounded card like the
+     Settings panel: title + a list of radio options built
+     in code from what this phone's camera really supports
+     (Full sensor + each size + Standard 1920x1080). -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/dialog_dark_bg"
+    android:orientation="vertical"
+    android:padding="20dp">
+
+    <!-- Title -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:maxLines="1"
+            android:text="Capture resolution"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <ImageButton
+            android:id="@+id/btnCloseResolution"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@drawable/circle_button_bg"
+            android:contentDescription="Close"
+            android:src="@drawable/ic_close"
+            android:tint="#FFFFFF" />
+    </LinearLayout>
+
+    <!-- Options — built in code (the phone's real sizes). -->
+    <RadioGroup
+        android:id="@+id/rgResolution"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:orientation="vertical" />
+</LinearLayout>

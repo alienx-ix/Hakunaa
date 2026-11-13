@@ -5,6 +5,7 @@ import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.Manifest
 import android.app.Dialog
+import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
@@ -25,6 +26,7 @@ import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
@@ -45,6 +47,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import com.hakunaa.app.R
 import com.hakunaa.app.core.FileUtils
 import java.io.File
@@ -143,7 +146,11 @@ class ScannerActivity : AppCompatActivity() {
     // Full camera quality is the DEFAULT: HD on means the sensor's
     // full resolution, no artificial cap. HD off drops to 1920x1080
     // for users who want smaller files.
-    private var hdOn = true
+    // Capture resolution (v0.1.62, HD picker): "max" = full
+    // sensor, no cap (the old HD-on behaviour); "std" =
+    // 1920x1080 (the old HD-off behaviour); or "WxH" for a
+    // resolution picked from the HD picker.
+    private var captureRes = "max"
     private var autoCaptureOn = true
     private var gridOn = false
     private var isCapturing = false
@@ -193,6 +200,7 @@ class ScannerActivity : AppCompatActivity() {
         private const val PREF_AUTO_CAPTURE_ON = "auto_capture_on"
         private const val PREF_SOUND_ON = "sound_on"
         private const val PREF_SPIRIT_LEVEL_ON = "spirit_level_on"
+        private const val PREF_CAPTURE_RES = "capture_res"
     }
 
     // Settings (the CamScanner-style panel, opened from the
@@ -336,15 +344,14 @@ class ScannerActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.btnClose).setOnClickListener { finish() }
         findViewById<ImageButton>(R.id.btnCapture).setOnClickListener { capturePhoto() }
         findViewById<ImageButton>(R.id.btnFlash).setOnClickListener { toggleTorch() }
-        // HD is on by default (full camera quality) — show it teal.
-        findViewById<com.google.android.material.button.MaterialButton>(R.id.btnHd).apply {
-            setTextColor(getColor(R.color.hakunaa_teal))
-            strokeColor = android.content.res.ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
-        }
+        // HD button (v0.1.62): opens the resolution picker
+        // (CamScanner-style) and shows the current resolution.
+        captureRes = prefs().getString(PREF_CAPTURE_RES, "max") ?: "max"
+        updateHdButton()
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnAuto)
             .setOnClickListener { toggleAutoCapture() }
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnHd)
-            .setOnClickListener { toggleHd() }
+            .setOnClickListener { showResolutionDialog() }
         findViewById<ImageButton>(R.id.btnMenu).setOnClickListener {
             showSettingsDialog()
         }
@@ -682,11 +689,6 @@ class ScannerActivity : AppCompatActivity() {
             }
             prefs().edit().putLong(PREF_AUTO_CAPTURE_DELAY_MS, autoCaptureDelayMs).apply()
         }
-        val swHd = view.findViewById<SwitchMaterial>(R.id.swHd)
-        swHd.isChecked = hdOn
-        swHd.setOnCheckedChangeListener { _, checked ->
-            if (checked != hdOn) toggleHd()
-        }
         view.findViewById<ImageButton>(R.id.btnCloseMoreSettings)
             .setOnClickListener { dialog.dismiss() }
         dialog.show()
@@ -701,17 +703,114 @@ class ScannerActivity : AppCompatActivity() {
         )
     }
 
-    private fun toggleHd() {
-        hdOn = !hdOn
-        // Re-bind the camera with the new capture setting.
-        val btn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnHd)
-        val color = if (hdOn) getColor(R.color.hakunaa_teal) else getColor(android.R.color.white)
-        btn.setTextColor(color)
-        btn.strokeColor = android.content.res.ColorStateList.valueOf(color)
-        findViewById<TextView>(R.id.tvStatus).text =
-            if (hdOn) "Full quality — original camera resolution"
-            else "HD off — captures at 1920x1080"
-        startCamera()
+    /** The HD resolution picker (v0.1.62, CamScanner-style):
+     *  the HD button opens it; it lists what THIS phone's
+     *  camera really supports, so every option works — nothing
+     *  is premium-locked (CamScanner crowns some sizes). The
+     *  choice is saved and the camera re-binds with it. */
+    private fun showResolutionDialog() {
+        val sizes = supportedCaptureSizes()
+        val labels = mutableListOf<String>()
+        val values = mutableListOf<String>()
+        labels.add("Full sensor (max)")
+        values.add("max")
+        for (size in sizes) {
+            labels.add("${mpLabel(size)} (${size.width}x${size.height})")
+            values.add("${size.width}x${size.height}")
+        }
+        labels.add("Standard (1920x1080)")
+        values.add("std")
+        val checked = values.indexOf(captureRes).takeIf { it >= 0 } ?: 0
+        val dialog = Dialog(this)
+        dialog.setContentView(R.layout.dialog_resolution)
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        dialog.setCancelable(true)
+        val rg = dialog.findViewById<RadioGroup>(R.id.rgResolution)
+        for (i in labels.indices) {
+            val rb = RadioButton(this)
+            rb.id = View.generateViewId()
+            rb.text = labels[i]
+            rb.setTextColor(Color.WHITE)
+            rb.textSize = 15f
+            rb.isChecked = (i == checked)
+            rb.setOnClickListener {
+                captureRes = values[i]
+                prefs().edit().putString(PREF_CAPTURE_RES, captureRes).apply()
+                updateHdButton()
+                findViewById<TextView>(R.id.tvStatus).text =
+                    "Resolution: ${labels[i]}"
+                dialog.dismiss()
+                startCamera()
+            }
+            rg.addView(rb)
+        }
+        dialog.findViewById<ImageButton>(R.id.btnCloseResolution)
+            .setOnClickListener { dialog.dismiss() }
+        dialog.show()
+        dialog.window?.setLayout(
+            (resources.displayMetrics.widthPixels * 0.9f).toInt(),
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+    }
+
+    /** "16M" / "12M" / "5M" for a size — the megapixel label
+     *  CamScanner shows next to each resolution. */
+    private fun mpLabel(size: android.util.Size): String {
+        val mp = size.width.toDouble() * size.height.toDouble() / 1_000_000.0
+        return if (mp >= 10) "${mp.roundToInt()}M"
+        else String.format("%.1fM", mp)
+    }
+
+    /** The camera's real supported JPEG sizes (back camera,
+     *  via Camera2) — at least 1280 wide, biggest first, at
+     *  most 8. Empty when the camera cannot be read: the
+     *  picker then offers only Full sensor + Standard, so it
+     *  never breaks on a phone whose camera list is odd. */
+    private fun supportedCaptureSizes(): List<android.util.Size> {
+        return try {
+            val manager =
+                getSystemService(Context.CAMERA_SERVICE) as android.hardware.camera2.CameraManager
+            val cameraId = manager.cameraIdList.firstOrNull { id ->
+                manager.getCameraCharacteristics(id).get(
+                    android.hardware.camera2.CameraCharacteristics.LENS_FACING
+                ) == android.hardware.camera2.CameraCharacteristics.LENS_FACING_BACK
+            } ?: return emptyList()
+            val chars = manager.getCameraCharacteristics(cameraId)
+            val map = chars.get(
+                android.hardware.camera2.CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP
+            )
+            val sizes = map?.getOutputSizes(android.graphics.ImageFormat.JPEG)
+                ?.toList() ?: emptyList()
+            sizes.filter { it.width >= 1280 }
+                .distinct()
+                .sortedByDescending { it.width * it.height }
+                .take(8)
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /** The HD button shows the current resolution: "HD" for
+     *  the full sensor, "16M" / "12M" for a picked size,
+     *  "1080p" for Standard. Always teal — it is a setting
+     *  that opens the picker, not an on/off toggle. */
+    private fun updateHdButton() {
+        val btn =
+            findViewById<com.google.android.material.button.MaterialButton>(R.id.btnHd)
+        val label = when {
+            captureRes == "max" -> "HD"
+            captureRes == "std" -> "1080p"
+            else -> {
+                val parts = captureRes.split("x")
+                val w = parts.getOrNull(0)?.toIntOrNull() ?: 0
+                val h = parts.getOrNull(1)?.toIntOrNull() ?: 0
+                if (w > 0 && h > 0) mpLabel(android.util.Size(w, h)) else "HD"
+            }
+        }
+        btn.text = label
+        btn.setTextColor(getColor(R.color.hakunaa_teal))
+        btn.strokeColor =
+            android.content.res.ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
     }
 
     private fun startCamera() {
@@ -747,14 +846,29 @@ class ScannerActivity : AppCompatActivity() {
                 // ORIGINAL CAMERA QUALITY: MAXIMIZE_QUALITY captures
                 // at the sensor's full resolution with full processing
                 // (MINIMIZE_LATENCY used the fast, lower-quality path),
-                // JPEG quality 100, and no resolution cap while HD is
-                // on. HD off caps at 1920x1080 for smaller files.
+                // JPEG quality 100. The capture resolution comes
+                // from the HD picker (v0.1.62): "max" = no cap
+                // (full sensor), "std" = 1920x1080, or the picked
+                // WxH — applied as the target resolution.
                 val captureBuilder = ImageCapture.Builder()
                     .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
                     .setJpegQuality(100)
                     .setTargetRotation(Surface.ROTATION_0)
-                if (!hdOn) {
-                    captureBuilder.setTargetResolution(android.util.Size(1920, 1080))
+                when (captureRes) {
+                    "max" -> { /* no cap — full sensor */ }
+                    "std" -> captureBuilder.setTargetResolution(
+                        android.util.Size(1920, 1080)
+                    )
+                    else -> {
+                        val parts = captureRes.split("x")
+                        val w = parts.getOrNull(0)?.toIntOrNull()
+                        val h = parts.getOrNull(1)?.toIntOrNull()
+                        if (w != null && h != null) {
+                            captureBuilder.setTargetResolution(
+                                android.util.Size(w, h)
+                            )
+                        }
+                    }
                 }
                 imageCapture = captureBuilder.build().also {
                     it.flashMode = ImageCapture.FLASH_MODE_AUTO

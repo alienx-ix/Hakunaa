@@ -78,42 +78,7 @@
             android:textSize="15sp" />
     </RadioGroup>
 
-    <!-- HD -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="20dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="HD"
-                android:textColor="#FFFFFF"
-                android:textSize="16sp" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:maxLines="1"
-                android:text="Full camera resolution"
-                android:textColor="#00BFA5"
-                android:textSize="14sp" />
-        </LinearLayout>
-
-        <com.google.android.material.switchmaterial.SwitchMaterial
-            android:id="@+id/swHd"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            app:thumbTint="@color/switch_thumb"
-            app:trackTint="@color/switch_track" />
-    </LinearLayout>
+    <!-- (v0.1.62) The HD switch is gone — the HD button on the
+         top bar now opens the resolution picker, which owns
+         the capture resolution. -->
 </LinearLayout>
