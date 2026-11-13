@@ -630,6 +630,10 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.70 — Apply to all now actually changes the preview
+
+The user tested Batch and reported: tapping "Apply to all" changed nothing in the preview. Root cause: the checkbox only affected the SAVE step — picking a filter only ever updated the CURRENT page's filter, so swiping to another page showed that page's old filter. Fixed, Enhance screen only: picking a filter while "Apply to all" is ticked now sets that filter for EVERY page, so swiping to any page shows it; and ticking the box itself immediately syncs all pages to the current filter. Unticked, each page keeps its own filter exactly as before. Single mode (one page) is untouched.
+
 ## v0.1.69 — Batch now goes Enhance → Preview (reorder) → Export
 
 The user tested Batch and reported: after taking captures and choosing filters, no Preview came and no reorder was possible — it went straight to export. Fixed, Batch only: after Enhance (green check) the Preview screen (Pages) now opens — every page as a thumbnail, long-press drag to reorder, rotate, delete, tap a page for full-screen preview — and Save there goes to Export. Single mode is untouched (its Enhance runs from the Crop screen, straight to Export as before), and so is the Book flow. Also, a Discard confirmed on the export screen reached via the Preview now propagates back correctly (Preview closes, camera drops the pages and comes back fresh) instead of landing back in the Preview with the pages still there.

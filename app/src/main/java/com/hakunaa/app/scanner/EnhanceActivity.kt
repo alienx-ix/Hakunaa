@@ -157,6 +157,16 @@ class EnhanceActivity : AppCompatActivity() {
             }
             updatePageIndicator()
         }
+        // Ticking "Apply to all pages" applies the current
+        // filter to every page right away (v0.1.70), so the
+        // preview shows it on every page — swiping to any page
+        // shows this filter. Unticking leaves each page's own
+        // filter as it was.
+        findViewById<CheckBox>(R.id.cbApplyAll).setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                for (path in allPages) pageFilters[path] = selectedFilter
+            }
+        }
 
         val path = imagePath
         if (path == null) {
@@ -347,13 +357,26 @@ class EnhanceActivity : AppCompatActivity() {
         )
     }
 
+    /** "Apply to all pages" is ticked (and there is more than one page). */
+    private fun isApplyAllChecked(): Boolean =
+        allPages.size > 1 &&
+            findViewById<CheckBox>(R.id.cbApplyAll)?.isChecked == true
+
     /** Filter + adjustments, on the preview bitmap. */
     private fun applyFilterToPreview(filter: ImageEnhancer.Filter) {
         val bmp = previewBitmap ?: return
         selectedFilter = filter
         // Remember this filter for the page being shown, so a
-        // swipe to another page and back keeps it.
-        imagePath?.let { pageFilters[it] = filter }
+        // swipe to another page and back keeps it. When "Apply
+        // to all pages" is ticked, remember it for EVERY page
+        // (v0.1.70) — otherwise swiping to another page showed
+        // that page's old filter and the preview never changed,
+        // even though Apply to all was on.
+        if (isApplyAllChecked()) {
+            for (path in allPages) pageFilters[path] = filter
+        } else {
+            imagePath?.let { pageFilters[it] = filter }
+        }
         // The Adjust panel does NOT open here — a filter tap
         // only changes the filter. The panel opens only from
         // its own menu button.
