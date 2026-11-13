@@ -629,19 +629,28 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   ValueAnimator on the UI thread (60 fps, vsync); full means
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
-- **v0.1.55 crop handles always grabbable.**
-  The user found the right-side crop handles half off the
-  screen on a book photo, so they could not press and drag
-  them. Fix: CropView clamps every corner 2% inside the photo
-  when the corners are set, so the handles stay fully visible
-  and grabbable; the user can still drag a corner back out to
-  the edge. (The bent-page question the user also asked: the
-  perspective warp straightens the page's overall shape, but
-  a page that curls near the spine stays curved there — true
-  flattening needs a mesh dewarp, which is not built yet. For
-  a book, Book mode is the best option now: it splits the
-  spread and warps each page on its own, so the spine curl
-  affects each half less.)
+- **v0.1.56 coloured-cover detection (Hough path).**
+  The user found the detector only works on white paper —
+  a notebook cover is not detected. Root cause, verified on
+  their Camlin HOLLAND cover photo on the woven mat: the
+  texture mask covers only 4.7% (the printed windmill/tulips
+  are textured, not smooth paper) and the bright mask returns
+  a wrong quad. Canny + connected components fragments, and
+  bright + morphological CLOSE merges the cover with the
+  mat's bright weave (the whole image at r=15) — both fail.
+  Fix: a third detection path — Canny edges + a Hough
+  transform find the object's boundary lines by their edges
+  (colour-independent), and the OUTERMOST strong horizontal
+  and vertical lines are the border. The printed design
+  inside the cover has STRONGER internal lines (the stamp's
+  top, 161 votes, beats the cover's top, 82), so the
+  strongest lines are NOT the border — the outermost are.
+  Verified in Python on the cover photo first: Hough finds
+  the cover (top y=15, bottom y=215, left x=51, right x=269
+  in 320x240 coords). Validated by size, aspect ratio and
+  real edges — NOT by paper fraction, since a printed
+  cover's interior is textured. A mat-only scene is guarded
+  by a 95% size cap (its lines span the whole frame).
 - **Not yet live-tested on a phone.** No control has been clicked live
   yet. Next step: install the APK on a real phone and live-check every
   control below, then compare a real video output against the reference.

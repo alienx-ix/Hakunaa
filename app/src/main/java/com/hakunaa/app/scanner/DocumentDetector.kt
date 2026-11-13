@@ -42,10 +42,20 @@ import kotlin.math.sqrt
  *    Both checks together reject it.
  * 6. Falls back to the plain bright-mask detector when the
  *    texture path finds nothing.
- * 7. Warp the full-resolution photo with Matrix.setPolyToPoly,
+ * 7. (v0.1.56) Falls back further to a HOUGH path for a
+ *    COLOURED object (a notebook cover, an ID card): Canny
+ *    edges + a Hough transform find the object's boundary
+ *    lines by their edges — which do not depend on colour or
+ *    brightness — and the OUTERMOST strong horizontal and
+ *    vertical lines are the object's border (a printed design
+ *    inside the object has stronger internal lines, so the
+ *    strongest lines are NOT the border). Validated by size,
+ *    aspect ratio and real edges — NOT by paper fraction, since
+ *    a printed cover's interior is textured, not paper.
+ * 8. Warp the full-resolution photo with Matrix.setPolyToPoly,
  *    which maps the four corners to a flat rectangle — the page
  *    looks straight and flat, like a real scan.
- * 8. If detection fails (corners invalid, page too small, or
+ * 9. If detection fails (corners invalid, page too small, or
  *    the photo has no clear bright page), returns null and the
  *    caller keeps the original photo. The Crop screen also lets
  *    the user adjust the corners by hand — auto + manual, the
@@ -57,7 +67,11 @@ import kotlin.math.sqrt
  * the whole image; it finds the real pages on clean backgrounds
  * too (edge 0.73–0.77, paper 0.52–0.63); and a mat-only scene
  * is rejected (paper fraction 0.36) even though its pattern
- * edges are strong. */
+ * edges are strong. The Hough path was verified on the user's
+ * Camlin HOLLAND cover photo on the same mat: it finds the
+ * cover (top y=15, bottom y=215, left x=51, right x=269 in
+ * 320x240 coords) where the texture mask covers only 4.7%
+ * and the bright mask returns a wrong quad. */
 object DocumentDetector {
 
     private data class Line(val a: Float, val b: Float, val c: Float)
@@ -105,7 +119,9 @@ object DocumentDetector {
      *     the true page edge — and intersect the four snapped lines.
      *  3. VALIDATE twice (interior paper fraction AND real edges).
      *  Falls back to the plain bright-mask detector when the
-     *  texture path finds nothing. */
+     *  texture path finds nothing, and then (v0.1.56) to the
+     *  HOUGH path, which finds a COLOURED object (a notebook
+     *  cover) by its boundary edges — no paper needed. */
     fun detectCorners(bitmap: Bitmap): FloatArray? {
         // Downscale for speed.
         val maxSide = 800
@@ -154,6 +170,15 @@ object DocumentDetector {
         val quad = quadFromMask(brightMask, gray, w, h, threshold)
         if (quad != null && isRealDocument(gray, stdMap, w, h, quad, threshold)) {
             return scaleQuad(quad, scale, bitmap.width, bitmap.height)
+        }
+        // Last fallback (v0.1.56): the HOUGH path for a coloured
+        // object — a notebook cover, an ID card — whose interior
+        // is printed/textured, not paper. It finds the object's
+        // boundary by its edges (colour-independent) and takes
+        // the OUTERMOST strong lines as the border.
+        val houghQuad = houghQuad(gray, w, h)
+        if (houghQuad != null) {
+            return scaleQuad(houghQuad, scale, bitmap.width, bitmap.height)
         }
         return null
     }
@@ -446,6 +471,228 @@ object DocumentDetector {
             out[i] = sqrt(max(0f, v))
         }
         return out
+    }
+
+    /** A Hough line: (rho, thetaDeg). rho = x*cos(theta) +
+     *  y*sin(theta) is the signed distance from the origin
+     *  along the line's normal; theta is the normal's angle
+     *  in degrees (0..179). */
+    private data class HoughLine(val rho: Float, val theta: Int, val votes: Int)
+
+    /** Find a coloured object's quad (a notebook cover, an ID
+     *  card) by its boundary edges — the third fallback in
+     *  detectCorners (v0.1.56). Canny edges + a Hough transform
+     *  find the boundary lines, which do not depend on colour
+     *  or brightness; the OUTERMOST strong horizontal and
+     *  vertical lines are the object's border. A printed design
+     *  inside the object has stronger internal lines, so the
+     *  strongest lines are NOT the border — that is why this
+     *  takes the outermost, not the strongest.
+     *  Returns the quad in small-image coords (TL TR BR BL),
+     *  or null. Validated by size, aspect ratio and real
+     *  edges — NOT by paper fraction, since a printed cover's
+     *  interior is textured, not paper. */
+    private fun houghQuad(gray: FloatArray, w: Int, h: Int): FloatArray? {
+        val edges = cannyEdges(gray, w, h)
+        val maxRho = sqrt((w * w + h * h).toFloat()).toInt() + 1
+        val rhoCount = 2 * maxRho + 1
+        val acc = IntArray(rhoCount * 180)
+        val cosT = FloatArray(180)
+        val sinT = FloatArray(180)
+        for (t in 0 until 180) {
+            val rad = Math.toRadians(t.toDouble())
+            cosT[t] = kotlin.math.cos(rad).toFloat()
+            sinT[t] = kotlin.math.sin(rad).toFloat()
+        }
+        var edgeCount = 0
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                if (!edges[y * w + x]) continue
+                edgeCount++
+                for (t in 0 until 180) {
+                    val rho = (x * cosT[t] + y * sinT[t]).roundToInt() + maxRho
+                    acc[rho * 180 + t]++
+                }
+            }
+        }
+        if (edgeCount < 200) return null
+        var maxVotes = 0
+        for (v in acc) if (v > maxVotes) maxVotes = v
+        val voteThreshold = max(35, (maxVotes * 0.25f).toInt())
+        val candidates = mutableListOf<HoughLine>()
+        for (rho in 0 until rhoCount) {
+            for (t in 0 until 180) {
+                val v = acc[rho * 180 + t]
+                if (v >= voteThreshold) {
+                    candidates.add(HoughLine((rho - maxRho).toFloat(), t, v))
+                }
+            }
+        }
+        candidates.sortByDescending { it.votes }
+        val peaks = mutableListOf<HoughLine>()
+        for (c in candidates) {
+            var suppressed = false
+            for (p in peaks) {
+                val dTheta = min(abs(c.theta - p.theta), 180 - abs(c.theta - p.theta))
+                if (abs(c.rho - p.rho) < 12f && dTheta < 8) {
+                    suppressed = true
+                    break
+                }
+            }
+            if (!suppressed) peaks.add(c)
+            if (peaks.size >= 40) break
+        }
+        if (peaks.size < 4) return null
+        // Split into horizontal-ish (normal near vertical) and
+        // vertical-ish (normal near horizontal) lines.
+        val horizontal = mutableListOf<HoughLine>()
+        val vertical = mutableListOf<HoughLine>()
+        for (p in peaks) {
+            if (p.theta in 45..135) {
+                horizontal.add(p)
+            } else {
+                // Canonicalise a near-vertical line so its rho
+                // is ~x: (rho, theta>90) == (-rho, theta-180).
+                if (p.theta > 90) {
+                    vertical.add(HoughLine(-p.rho, p.theta - 180, p.votes))
+                } else {
+                    vertical.add(p)
+                }
+            }
+        }
+        if (horizontal.size < 2 || vertical.size < 2) return null
+        // OUTERMOST pair in each direction = the object's border.
+        val top = horizontal.minByOrNull { it.rho }!!
+        val bottom = horizontal.maxByOrNull { it.rho }!!
+        val left = vertical.minByOrNull { it.rho }!!
+        val right = vertical.maxByOrNull { it.rho }!!
+        if (top.rho >= bottom.rho - 10f || left.rho >= right.rho - 10f) return null
+        val tl = intersectHough(top, left) ?: return null
+        val tr = intersectHough(top, right) ?: return null
+        val br = intersectHough(bottom, right) ?: return null
+        val bl = intersectHough(bottom, left) ?: return null
+        val pts = floatArrayOf(
+            tl.first, tl.second, tr.first, tr.second,
+            br.first, br.second, bl.first, bl.second
+        )
+        val minX = pts.filterIndexed { i, _ -> i % 2 == 0 }.min()
+        val maxX = pts.filterIndexed { i, _ -> i % 2 == 0 }.max()
+        val minY = pts.filterIndexed { i, _ -> i % 2 == 1 }.min()
+        val maxY = pts.filterIndexed { i, _ -> i % 2 == 1 }.max()
+        if (minX < -w * 0.05f || maxX > w * 1.05f || minY < -h * 0.05f || maxY > h * 1.05f) return null
+        if (maxX - minX < w * 0.25f || maxY - minY < h * 0.25f) return null
+        // Not the whole frame (a mat-only scene's lines span
+        // the image; a real object leaves a margin).
+        if (maxX - minX > w * 0.95f || maxY - minY > h * 0.95f) return null
+        // Aspect ratio: the longer side at most twice the shorter.
+        val topW = dist(pts[0], pts[1], pts[2], pts[3])
+        val bottomW = dist(pts[4], pts[5], pts[6], pts[7])
+        val leftH = dist(pts[0], pts[1], pts[6], pts[7])
+        val rightH = dist(pts[2], pts[3], pts[4], pts[5])
+        val avgW = (topW + bottomW) / 2f
+        val avgH = (leftH + rightH) / 2f
+        if (avgW < 1f || avgH < 1f) return null
+        val ratio = max(avgW, avgH) / min(avgW, avgH)
+        if (ratio > 2.0f) return null
+        // Real edges: the border must be a real brightness step.
+        if (!hasRealEdges(gray, w, h, pts)) return null
+        return pts
+    }
+
+    /** Intersect two Hough lines (rho = x*cos(theta) +
+     *  y*sin(theta)). Returns (x, y) or null if parallel. */
+    private fun intersectHough(l1: HoughLine, l2: HoughLine): Pair<Float, Float>? {
+        val t1 = Math.toRadians(l1.theta.toDouble())
+        val t2 = Math.toRadians(l2.theta.toDouble())
+        val c1 = kotlin.math.cos(t1).toFloat()
+        val s1 = kotlin.math.sin(t1).toFloat()
+        val c2 = kotlin.math.cos(t2).toFloat()
+        val s2 = kotlin.math.sin(t2).toFloat()
+        val det = c1 * s2 - s1 * c2
+        if (abs(det) < 1e-6f) return null
+        val x = (l1.rho * s2 - l2.rho * s1) / det
+        val y = (c1 * l2.rho - c2 * l1.rho) / det
+        return Pair(x, y)
+    }
+
+    /** Canny edge map (Sobel gradients + non-maximum
+     *  suppression + hysteresis). Returns true for edge
+     *  pixels. Thresholds low=50, high=150 (on the Sobel
+     *  magnitude, which is ~4x the grey step). */
+    private fun cannyEdges(gray: FloatArray, w: Int, h: Int): BooleanArray {
+        val g = boxBlurGray(gray, w, h, 2)
+        val mag = FloatArray(w * h)
+        val angle = FloatArray(w * h)
+        for (y in 1 until h - 1) {
+            for (x in 1 until w - 1) {
+                val i = y * w + x
+                val sx = -g[i - w - 1] + g[i - w + 1] - 2f * g[i - 1] + 2f * g[i + 1] - g[i + w - 1] + g[i + w + 1]
+                val sy = -g[i - w - 1] - 2f * g[i - w] - g[i - w + 1] + g[i + w - 1] + 2f * g[i + w] + g[i + w + 1]
+                mag[i] = sqrt(sx * sx + sy * sy)
+                var a = Math.toDegrees(kotlin.math.atan2(sy.toDouble(), sx.toDouble())).toFloat() % 180f
+                if (a < 0f) a += 180f
+                angle[i] = a
+            }
+        }
+        // Non-maximum suppression (4 directions, along the gradient).
+        val nms = BooleanArray(w * h)
+        for (y in 1 until h - 1) {
+            for (x in 1 until w - 1) {
+                val i = y * w + x
+                val m = mag[i]
+                if (m < 50f) continue
+                val a = angle[i]
+                val dx1: Int
+                val dy1: Int
+                val dx2: Int
+                val dy2: Int
+                when {
+                    a < 22.5f || a >= 157.5f -> {
+                        dx1 = 1; dy1 = 0; dx2 = -1; dy2 = 0
+                    }
+                    a < 67.5f -> {
+                        dx1 = 1; dy1 = -1; dx2 = -1; dy2 = 1
+                    }
+                    a < 112.5f -> {
+                        dx1 = 0; dy1 = -1; dx2 = 0; dy2 = 1
+                    }
+                    else -> {
+                        dx1 = -1; dy1 = -1; dx2 = 1; dy2 = 1
+                    }
+                }
+                val m1 = mag[(y + dy1) * w + (x + dx1)]
+                val m2 = mag[(y + dy2) * w + (x + dx2)]
+                if (m >= m1 && m >= m2) nms[i] = true
+            }
+        }
+        // Hysteresis: strong edges (>=150) grow into weak (>=50).
+        val edge = BooleanArray(w * h)
+        val stack = ArrayDeque<Int>()
+        for (i in nms.indices) {
+            if (nms[i] && mag[i] >= 150f) {
+                edge[i] = true
+                stack.addLast(i)
+            }
+        }
+        while (stack.isNotEmpty()) {
+            val i = stack.removeLast()
+            val y = i / w
+            val x = i % w
+            for (dy in -1..1) {
+                for (dx in -1..1) {
+                    if (dx == 0 && dy == 0) continue
+                    val nx = x + dx
+                    val ny = y + dy
+                    if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
+                    val j = ny * w + nx
+                    if (nms[j] && mag[j] >= 50f && !edge[j]) {
+                        edge[j] = true
+                        stack.addLast(j)
+                    }
+                }
+            }
+        }
+        return edge
     }
 
     /** Scale a small-image quad back to full resolution. */
