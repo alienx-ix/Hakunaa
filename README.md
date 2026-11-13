@@ -630,6 +630,10 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.68 — Batch default now actually SHOWS (the v0.1.67 fix was half-done)
+
+The user tested v0.1.67 and Single was still highlighted on open — "Okthan But, Batch Default a Mathu". Honest root cause: v0.1.67 only changed the mode FIELD to BATCH, but the tab UI never synced on a fresh launch — setMode(mode) ran only when pages already existed, and the layout hard-coded Single as the selected tab (teal pill + bold). So the mode WAS Batch internally, but the screen still SHOWED Single. Fixed: setMode(mode) now runs on EVERY launch (fresh or restored), and the layout no longer hard-codes Single as selected — the tabs always match the real mode, so Batch is highlighted on open.
+
 ## v0.1.67 — Export Cancel now asks before discarding (CamScanner-style) + Batch is the default mode
 
 The user tested v0.1.66 and pressed Cancel on the export screen: it went straight back to the camera with the page still kept ("1 page(s) • Done" still at the bottom) — no warning at all. Wrong for Single, where Cancel should mean "throw this away". Now Cancel (and back) on the export screen asks FIRST, in a centred white dialog like CamScanner: "Note — Are you sure to discard this image?" for a single page, "Are you sure to discard all N pages?" for a batch, with Cancel (grey) / Discard (teal). Discard returns RESULT_DISCARD, the scanner drops every page and the camera comes back fresh (no Done button left at the bottom); Cancel just closes the dialog and stays on export. Same in Single and Batch. Also: the scanner now opens on **Batch by default** (user: "default aa.. Batch la irukanum") — most scans are multi-page, Single is one tap away.

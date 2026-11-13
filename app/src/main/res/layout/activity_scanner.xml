@@ -152,15 +152,13 @@
                 android:id="@+id/tvModeSingle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:background="@drawable/mode_tab_selected"
                 android:paddingStart="16dp"
                 android:paddingEnd="16dp"
                 android:paddingTop="6dp"
                 android:paddingBottom="6dp"
                 android:text="Single"
                 android:textColor="#FFFFFF"
-                android:textSize="16sp"
-                android:textStyle="bold" />
+                android:textSize="16sp" />
 
             <TextView
                 android:id="@+id/tvModeBatch"

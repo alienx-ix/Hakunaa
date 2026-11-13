@@ -432,7 +432,13 @@ class ScannerActivity : AppCompatActivity() {
         savedInstanceState?.getString("mode")?.let {
             try { mode = Mode.valueOf(it) } catch (_: Throwable) { }
         }
-        if (pages.isNotEmpty()) setMode(mode)
+        // Always sync the mode tabs with the actual mode
+        // (v0.1.68): the field defaults to BATCH, but setMode
+        // used to run only when pages existed — so on a fresh
+        // launch the layout's hardcoded Single highlight stayed
+        // and Batch never LOOKED like the default, even though
+        // the mode itself was Batch. Now the tabs always match.
+        setMode(mode)
         setupTapToFocus()
         updatePagesLabel()
     }
