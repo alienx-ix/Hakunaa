@@ -630,6 +630,10 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.74 — Capture flies to Done in Single + Batch, and a clearer Done button
+
+The same professional fly animation from Book now works in Single and Batch. Single: after the Filter (Enhance), the thumbnail flies to Done and then the export screen opens. Batch: right after Crop, the thumbnail flies to the right side of the capture row — where Import Images was — and the count ticks up when it lands. In Batch, once the first page is captured, Import Images goes away and a small thumbnail with the pages count takes its place, like CamScanner; tapping it opens the filters (Enhance) so the user can check them, then comes back and keeps capturing (the green check saves the filters and returns to the camera, it never jumps to Preview). The Done button is clearer now — bigger (48dp), teal with bold white text, and a plain count ("Done • 3 pages", "Done • 1 page"). In Book, a small thumbnail of the latest capture now sits beside the Pages count (like CamScanner) — tapping it opens Pages. Leaving a Batch with pages captured now asks first — "Discard batch?" — so a draft is never lost by an accidental Back or Close tap.
+
 ## v0.1.73 — Book Capture flies to the Pages count (preview removed)
 
 The user rejected the v0.1.72 capture preview as the worst — it is gone (activity, layout and manifest entry deleted). Instead, Book now does what professional scanner apps do: after every capture, a thumbnail of the page appears at the centre of the screen and flies to the Pages button, shrinking as it goes, and the count ticks up the moment it lands. The pages join the book at once (no confirmation screen in the way); the animation is the feedback. Single shows its one page flying the same way.

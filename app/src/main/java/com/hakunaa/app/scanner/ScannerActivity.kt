@@ -9,6 +9,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.hardware.Sensor
@@ -21,6 +23,7 @@ import android.os.Bundle
 import android.view.MotionEvent
 import android.view.Surface
 import android.view.View
+import android.view.ViewGroup
 import android.view.animation.LinearInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageButton
@@ -31,6 +34,7 @@ import android.widget.TextView
 import android.widget.Toast
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.switchmaterial.SwitchMaterial
+import androidx.activity.addCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.Camera
@@ -158,6 +162,9 @@ class ScannerActivity : AppCompatActivity() {
     private var autoCaptureOn = true
     private var gridOn = false
     private var isCapturing = false
+    // The leave-batch confirmation dialog (v0.1.74) — kept
+    // so it is never shown twice at once.
+    private var leaveDialog: Dialog? = null
     // Auto-capture state: the last detected corners, when the
     // current steady hold started, and when the last capture
     // happened (cooldown so it does not fire twice). The hold
@@ -267,14 +274,135 @@ class ScannerActivity : AppCompatActivity() {
                     if (file.exists()) {
                         pages.add(file)
                         docName = result.data?.getStringExtra("doc_name") ?: docName
-                        updatePagesLabel()
-                        if (mode == Mode.SINGLE) {
-                            saveAsPdf()
-                        }
+                        // Capture fly animation (v0.1.74), like a
+                        // professional scanner: a thumbnail of
+                        // the page appears at the centre and
+                        // flies to the Done button — the count
+                        // ticks up when it lands. Batch: right
+                        // after Crop (the page is in). Single:
+                        // after Filter (Enhance already ran
+                        // inside Crop for Single) — then Export
+                        // opens. The thumbnail is decoded off
+                        // the UI thread so the animation never
+                        // hitches. Single blocks a second
+                        // capture while the thumbnail is flying.
+                        if (mode == Mode.SINGLE) isCapturing = true
+                        Thread {
+                            val thumbBmp = decodeThumb(file)
+                            runOnUiThread {
+                                playCaptureFlyAnimation(thumbBmp) {
+                                    if (mode == Mode.SINGLE) {
+                                        isCapturing = false
+                                        saveAsPdf()
+                                    }
+                                }
+                            }
+                        }.start()
                     }
                 }
             }
         }
+
+    /** Small downsampled bitmap of a page file, for the
+     *  fly-to-Done thumbnail (longest side 256). Null when
+     *  the file cannot be read — the caller then skips the
+     *  animation and updates the count at once. */
+    private fun decodeThumb(file: File): Bitmap? {
+        return try {
+            val options = BitmapFactory.Options()
+            options.inJustDecodeBounds = true
+            BitmapFactory.decodeFile(file.absolutePath, options)
+            var sample = 1
+            val maxSide = maxOf(options.outWidth, options.outHeight)
+            while (maxSide / sample > 256) sample *= 2
+            options.inJustDecodeBounds = false
+            options.inSampleSize = sample
+            BitmapFactory.decodeFile(file.absolutePath, options)
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /** Capture animation (v0.1.74), like a professional
+     *  scanner: a thumbnail of the capture appears at the
+     *  centre of the screen and flies to the pages count,
+     *  shrinking as it goes — and the count ticks up the
+     *  moment it lands. Runs on the UI thread. Any animation
+     *  still in flight is cancelled first, so a fast second
+     *  capture never leaves a stuck thumbnail.
+     *
+     *  The target: Single flies to the Done button, then
+     *  Export opens. Batch flies to the right side of the
+     *  capture row — the Import button before the first
+     *  capture, the small pages thumbnail after it (v0.1.74)
+     *  — which is where the thumbnail + count live, like
+     *  CamScanner. */
+    private fun playCaptureFlyAnimation(thumbBmp: Bitmap?, onLanded: () -> Unit) {
+        val status = findViewById<TextView>(R.id.tvStatus)
+        // The fly target depends on the mode (see above).
+        val targetView: View = if (mode == Mode.BATCH) {
+            val thumbContainer = findViewById<View>(R.id.pagesThumbContainer)
+            if (thumbContainer.visibility == View.VISIBLE) thumbContainer
+            else findViewById(R.id.btnImportImages)
+        } else {
+            findViewById(R.id.btnSavePdf)
+        }
+        if (thumbBmp == null) {
+            updatePagesLabel()
+            if (mode == Mode.BATCH) refreshPagesThumb()
+            onLanded()
+            return
+        }
+        val thumb = findViewById<ImageView>(R.id.ivCaptureThumb)
+        thumb.animate().cancel()
+        thumb.setImageBitmap(thumbBmp)
+        thumb.alpha = 1f
+        thumb.scaleX = 1f
+        thumb.scaleY = 1f
+        thumb.translationX = 0f
+        thumb.translationY = 0f
+        thumb.visibility = View.VISIBLE
+        // Wait for the thumbnail to be laid out (it was GONE),
+        // then fly its centre onto the target's centre.
+        thumb.post {
+            val thumbLoc = IntArray(2)
+            val targetLoc = IntArray(2)
+            thumb.getLocationOnScreen(thumbLoc)
+            targetView.getLocationOnScreen(targetLoc)
+            val dx = (targetLoc[0] + targetView.width / 2f) - (thumbLoc[0] + thumb.width / 2f)
+            val dy = (targetLoc[1] + targetView.height / 2f) - (thumbLoc[1] + thumb.height / 2f)
+            thumb.animate()
+                .translationXBy(dx)
+                .translationYBy(dy)
+                .scaleX(0.25f)
+                .scaleY(0.25f)
+                .alpha(0.5f)
+                .setDuration(450)
+                .withEndAction {
+                    thumb.visibility = View.GONE
+                    thumb.setImageBitmap(null)
+                    thumb.translationX = 0f
+                    thumb.translationY = 0f
+                    thumb.scaleX = 1f
+                    thumb.scaleY = 1f
+                    thumb.alpha = 1f
+                    try {
+                        thumbBmp.recycle()
+                    } catch (_: Throwable) {
+                    }
+                    updatePagesLabel()
+                    if (mode == Mode.BATCH) {
+                        refreshPagesThumb()
+                        val n = pages.size
+                        status.text =
+                            if (n == 1) "1 page added — tap Capture for the next page, Done when finished"
+                            else "$n pages added — tap Capture for the next page, Done when finished"
+                    }
+                    onLanded()
+                }
+                .start()
+        }
+    }
 
     private val pagesLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -330,6 +458,30 @@ class ScannerActivity : AppCompatActivity() {
             }
         }
 
+    /** Thumbnail → Filter (Enhance) in "review" mode (v0.1.74):
+     *  the user checks the filters mid-batch, then comes back
+     *  and keeps capturing. Unlike Done → Enhance, the green
+     *  check here does NOT go to Preview — it saves the
+     *  filters and returns to the camera. Back (CANCELED)
+     *  also returns to the camera, pages kept. */
+    private val reviewEnhanceLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) {
+                val enhancedPath =
+                    result.data?.getStringExtra(EnhanceActivity.EXTRA_ENHANCED_PATH)
+                if (enhancedPath != null && pages.isNotEmpty()) {
+                    val file = File(enhancedPath)
+                    if (file.exists()) pages[0] = file
+                }
+                docName = result.data?.getStringExtra("doc_name") ?: docName
+                updatePagesLabel()
+                refreshPagesThumb()
+                findViewById<TextView>(R.id.tvStatus).text =
+                    "Filters applied — tap Capture to keep scanning"
+            }
+            // CANCELED (back): stay on the camera, pages kept.
+        }
+
     // Export is a separate screen: while it is open this
     // activity stops and the camera is released — no scan runs
     // in the background. On save, clear the pages; on discard
@@ -376,9 +528,14 @@ class ScannerActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_scanner)
 
+        // Back (system or gesture) leaves the scanner — in
+        // Batch with pages captured, ask first (v0.1.74),
+        // because leaving discards the draft batch.
+        onBackPressedDispatcher.addCallback(this) { attemptLeave() }
+
         cameraExecutor = Executors.newSingleThreadExecutor()
 
-        findViewById<ImageButton>(R.id.btnClose).setOnClickListener { finish() }
+        findViewById<ImageButton>(R.id.btnClose).setOnClickListener { attemptLeave() }
         findViewById<ImageButton>(R.id.btnCapture).setOnClickListener { capturePhoto() }
         findViewById<ImageButton>(R.id.btnFlash).setOnClickListener { toggleTorch() }
         // HD button (v0.1.62): opens the resolution picker
@@ -406,6 +563,9 @@ class ScannerActivity : AppCompatActivity() {
         // listener here at all.
         findViewById<LinearLayout>(R.id.btnImportImages).setOnClickListener {
             pickPhoto.launch("image/*")
+        }
+        findViewById<LinearLayout>(R.id.pagesThumbContainer).setOnClickListener {
+            openReviewEnhance()
         }
         findViewById<TextView>(R.id.tvModeSingle).setOnClickListener { setMode(Mode.SINGLE) }
         findViewById<TextView>(R.id.tvModeBatch).setOnClickListener { setMode(Mode.BATCH) }
@@ -578,6 +738,10 @@ class ScannerActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.tvStatus).text =
             if (newMode == Mode.SINGLE) "Single mode — one page, then save"
             else "Batch mode — keep capturing, save when done"
+        // The Done button and the right side of the capture row
+        // follow the mode (Batch: thumbnail + count after the
+        // first capture; Single: Import Images) — refresh both.
+        updatePagesLabel()
     }
 
     /** Torch: the flashlight stays ON while scanning, so the
@@ -1532,19 +1696,66 @@ class ScannerActivity : AppCompatActivity() {
     }
 
     private fun updatePagesLabel() {
-        // ONE compact Done button (v0.1.57) — it shows the page
-        // count and finishes the batch. Its space is reserved
-        // (INVISIBLE, not GONE, when empty) so the bottom bar
-        // never grows when a page is captured and the capture
-        // area stays large and stable.
+        // ONE clear Done button (v0.1.74) — big, teal, bold,
+        // with the page count, so no user has to guess what it
+        // does. Its space is reserved (INVISIBLE, not GONE,
+        // when empty) so the bottom bar never grows when a
+        // page is captured and the capture area stays large
+        // and stable.
         val btn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnSavePdf)
         if (pages.isEmpty()) {
             btn.text = ""
             btn.visibility = View.INVISIBLE
         } else {
-            btn.text = "${pages.size} page(s) • Done"
+            val n = pages.size
+            btn.text = "Done • $n ${if (n == 1) "page" else "pages"}"
             btn.visibility = View.VISIBLE
         }
+        // The right side of the capture row follows the same
+        // state (Batch: thumbnail + count after the first
+        // capture, Import Images before it) — keep them in
+        // sync here so no call site can forget it.
+        updateRightSide()
+    }
+
+    /** Leave the scanner (Back button or the Close X).
+     *  In Batch with pages captured, ask first (v0.1.74) —
+     *  the batch is a draft, and leaving discards it. With
+     *  no pages (or in Single, where a capture goes straight
+     *  to Enhance), leave at once. */
+    private fun attemptLeave() {
+        if (mode == Mode.BATCH && pages.isNotEmpty()) {
+            showLeaveBatchDialog()
+        } else {
+            finish()
+        }
+    }
+
+    /** "Discard this batch?" warning (v0.1.74, CamScanner-style
+     *  centred white card, same as the export discard dialog).
+     *  Cancel keeps editing (the dialog just closes); Discard
+     *  leaves the scanner and the draft batch is gone. */
+    private fun showLeaveBatchDialog() {
+        if (leaveDialog?.isShowing == true) return
+        val dialog = Dialog(this)
+        dialog.setContentView(R.layout.dialog_discard)
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        val width = (resources.displayMetrics.widthPixels * 0.85).toInt()
+        dialog.window?.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
+        val n = pages.size
+        dialog.findViewById<TextView>(R.id.tvDiscardTitle).text = "Discard batch?"
+        dialog.findViewById<TextView>(R.id.tvDiscardMessage).text =
+            if (n == 1) "You have 1 scanned page in this batch. Leave now and discard it?"
+            else "You have $n scanned pages in this batch. Leave now and discard them?"
+        dialog.findViewById<View>(R.id.btnDiscardCancel).setOnClickListener { dialog.dismiss() }
+        dialog.findViewById<View>(R.id.btnDiscardConfirm).setOnClickListener {
+            dialog.dismiss()
+            finish()
+        }
+        dialog.setCancelable(true)
+        dialog.setOnDismissListener { leaveDialog = null }
+        leaveDialog = dialog
+        dialog.show()
     }
 
     /** Save button: Batch reviews pages first, Single goes
@@ -1578,6 +1789,64 @@ class ScannerActivity : AppCompatActivity() {
         )
         intent.putExtra(EnhanceActivity.EXTRA_APPLY_ALL_CHECKED, true)
         enhanceLauncher.launch(intent)
+    }
+
+    /** Thumbnail → Filter (Enhance) for a mid-batch review
+     *  (v0.1.74): same Enhance screen as Done, but the result
+     *  comes back to the camera (reviewEnhanceLauncher) so the
+     *  user can keep capturing — it never goes to Preview. */
+    private fun openReviewEnhance() {
+        if (pages.isEmpty()) {
+            Toast.makeText(this, "Scan at least one page first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val intent = Intent(this, EnhanceActivity::class.java)
+        intent.putExtra(EnhanceActivity.EXTRA_IMAGE_PATH, pages[0].absolutePath)
+        intent.putStringArrayListExtra(
+            EnhanceActivity.EXTRA_PAGE_PATHS,
+            ArrayList(pages.map { it.absolutePath })
+        )
+        intent.putExtra(EnhanceActivity.EXTRA_APPLY_ALL_CHECKED, true)
+        reviewEnhanceLauncher.launch(intent)
+    }
+
+    /** Right side of the capture row (v0.1.74): in Batch, once
+     *  the first page is captured, Import Images goes away and
+     *  a small thumbnail with the pages count takes its place
+     *  — like CamScanner. In Single (or with no pages yet),
+     *  Import Images stays. Only the visibility and the count
+     *  text change here — the thumbnail image itself is set
+     *  by refreshPagesThumb(). */
+    private fun updateRightSide() {
+        val importBtn = findViewById<LinearLayout>(R.id.btnImportImages)
+        val thumbContainer = findViewById<LinearLayout>(R.id.pagesThumbContainer)
+        if (mode == Mode.BATCH && pages.isNotEmpty()) {
+            importBtn.visibility = View.GONE
+            thumbContainer.visibility = View.VISIBLE
+            val n = pages.size
+            findViewById<TextView>(R.id.tvPagesCount).text =
+                if (n == 1) "1 page" else "$n pages"
+        } else {
+            importBtn.visibility = View.VISIBLE
+            thumbContainer.visibility = View.GONE
+        }
+    }
+
+    /** Set the small thumbnail beside the Batch pages count to
+     *  the most recent page (v0.1.74). Decoded off the UI
+     *  thread so it never hitches. */
+    private fun refreshPagesThumb() {
+        if (mode != Mode.BATCH || pages.isEmpty()) return
+        val lastFile = pages.last()
+        Thread {
+            val bmp = decodeThumb(lastFile)
+            runOnUiThread {
+                if (mode == Mode.BATCH && pages.isNotEmpty()) {
+                    val iv = findViewById<ImageView>(R.id.ivPagesThumb)
+                    if (bmp != null) iv.setImageBitmap(bmp)
+                }
+            }
+        }.start()
     }
 
     /** Batch mode: review, reorder and save all pages. */

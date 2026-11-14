@@ -286,6 +286,39 @@
                     android:textColor="#FFFFFF"
                     android:textSize="11sp" />
             </LinearLayout>
+
+            <!-- Pages thumbnail + count (v0.1.74, Batch only):
+                 once the first page is captured, Import Images
+                 goes away and this takes its place — a small
+                 thumbnail of the latest page with the pages
+                 count, like CamScanner. Tapping it opens the
+                 filters (Enhance) so the user can check them,
+                 then comes back and keeps capturing. Hidden
+                 until the first Batch capture (or in Single). -->
+            <LinearLayout
+                android:id="@+id/pagesThumbContainer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <ImageView
+                    android:id="@+id/ivPagesThumb"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:background="#FFFFFF"
+                    android:scaleType="fitCenter" />
+
+                <TextView
+                    android:id="@+id/tvPagesCount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="1 page"
+                    android:textColor="#FFFFFF"
+                    android:textSize="11sp" />
+            </LinearLayout>
         </LinearLayout>
 
         <!-- Pages count + status -->
@@ -299,24 +332,44 @@
             android:textColor="#B0B0B0"
             android:textSize="13sp" />
 
-        <!-- Pages count + finish — ONE compact button, NOT a big
-             full-width Save bar. (v0.1.57: the big Save button
-             made the bottom bar grow by 68dp after the first
-             capture, shrinking the capture area and pushing the
-             detection frame's edges off-screen. The compact
-             button keeps the capture area large and stable: its
-             space is reserved (invisible when empty), so the
-             layout never shifts when a page is captured.)
-             Batch: opens the Pages screen to review + save.
+        <!-- Pages count + finish — ONE clear primary button
+             (v0.1.74), like a professional scanner: big enough
+             to tap easily, teal like the app's accent, bold
+             white text with the page count, so no user has to
+             guess what it does or where it is. (v0.1.57 made
+             it compact because a big Save bar grew the bottom
+             bar by 68dp and shrank the capture area — this one
+             keeps its space reserved (invisible when empty),
+             so the layout never shifts when a page is captured.)
+             Batch: opens the Filter (Enhance) screen.
              Single: goes straight to the export screen. -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnSavePdf"
             android:layout_width="wrap_content"
-            android:layout_height="40dp"
+            android:layout_height="48dp"
             android:layout_gravity="center_horizontal"
             android:layout_marginTop="8dp"
+            android:minWidth="180dp"
             android:text="Done"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold"
+            app:backgroundTint="#00BFA5"
+            app:cornerRadius="24dp"
             android:visibility="invisible" />
     </LinearLayout>
+
+    <!-- Capture thumbnail (v0.1.74): after a capture, a small
+         image of the page appears here (centre) and flies to
+         the Done button, like a professional scanner. Hidden
+         until a capture lands. White background so it reads as
+         a page card. -->
+    <ImageView
+        android:id="@+id/ivCaptureThumb"
+        android:layout_width="120dp"
+        android:layout_height="120dp"
+        android:layout_gravity="center"
+        android:background="#FFFFFF"
+        android:scaleType="fitCenter"
+        android:visibility="gone" />
 
 </FrameLayout>

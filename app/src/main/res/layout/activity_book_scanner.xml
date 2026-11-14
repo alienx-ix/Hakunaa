@@ -135,6 +135,21 @@
             android:layout_height="0dp"
             android:layout_weight="1" />
 
+        <!-- Latest page thumbnail (v0.1.74): a small image of
+             the most recent capture, beside the Pages count —
+             like CamScanner, not just a number changing.
+             Hidden until the first page is captured. Tapping
+             it opens Pages, like the Pages button. -->
+        <ImageView
+            android:id="@+id/ivLastPageThumb"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="8dp"
+            android:background="#FFFFFF"
+            android:scaleType="fitCenter"
+            android:visibility="gone" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnPages"
             android:layout_width="match_parent"

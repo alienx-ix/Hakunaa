@@ -68,6 +68,10 @@ class BookScannerActivity : AppCompatActivity() {
 
     private val pages = mutableListOf<File>()
     private var docName: String? = null
+    // The bitmap shown in the small persistent thumbnail
+    // beside the Pages count (v0.1.74) — kept so it can be
+    // recycled when a newer capture replaces it.
+    private var lastPageThumbBmp: Bitmap? = null
     private var camera: Camera? = null
     private var imageCapture: ImageCapture? = null
 
@@ -162,6 +166,8 @@ class BookScannerActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.tvSingle).setOnClickListener { setDoubleMode(false) }
         findViewById<TextView>(R.id.tvDouble).setOnClickListener { setDoubleMode(true) }
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnPages)
+            .setOnClickListener { openPages() }
+        findViewById<ImageView>(R.id.ivLastPageThumb)
             .setOnClickListener { openPages() }
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnSavePdf)
             .setOnClickListener { saveAsPdf() }
@@ -395,8 +401,13 @@ class BookScannerActivity : AppCompatActivity() {
      *  shrinking as it goes — and the count ticks up the
      *  moment it lands. Runs on the UI thread. isCapturing
      *  is released only when the animation ends, so no second
-     *  capture can start mid-flight. */
-    private fun playCaptureFlyAnimation(thumbBmp: Bitmap?, newCount: Int) {
+     *  capture can start mid-flight.
+     *
+     *  `lastBmp` (v0.1.74) is a small thumbnail of the most
+     *  recent page — when the fly lands, it becomes the small
+     *  persistent thumbnail beside the Pages count, like
+     *  CamScanner (not just the number changing). */
+    private fun playCaptureFlyAnimation(thumbBmp: Bitmap?, newCount: Int, lastBmp: Bitmap?) {
         val status = findViewById<TextView>(R.id.tvStatus)
         val doneText =
             if (newCount == 2) "2 pages added — flip the book and capture the next spread"
@@ -404,6 +415,7 @@ class BookScannerActivity : AppCompatActivity() {
         if (thumbBmp == null) {
             isCapturing = false
             updateLabels()
+            setLastPageThumb(lastBmp)
             status.text = doneText
             return
         }
@@ -446,9 +458,29 @@ class BookScannerActivity : AppCompatActivity() {
                     }
                     isCapturing = false
                     updateLabels()
+                    setLastPageThumb(lastBmp)
                     status.text = doneText
                 }
                 .start()
+        }
+    }
+
+    /** Show `bmp` as the small persistent thumbnail beside
+     *  the Pages count (v0.1.74). A null bitmap hides it.
+     *  The previous thumbnail bitmap is recycled. */
+    private fun setLastPageThumb(bmp: Bitmap?) {
+        val lastThumb = findViewById<ImageView>(R.id.ivLastPageThumb)
+        try {
+            lastPageThumbBmp?.recycle()
+        } catch (_: Throwable) {
+        }
+        lastPageThumbBmp = bmp
+        if (bmp == null) {
+            lastThumb.visibility = View.GONE
+            lastThumb.setImageBitmap(null)
+        } else {
+            lastThumb.setImageBitmap(bmp)
+            lastThumb.visibility = View.VISIBLE
         }
     }
 
@@ -500,16 +532,20 @@ class BookScannerActivity : AppCompatActivity() {
             // The spine line stays where the user put it
             // (manual only) — it is not reset between spreads.
             // A small thumbnail of the first new page, for the
-            // fly-to-Pages animation (decoded here, off the UI
-            // thread, so the animation never hitches).
+            // fly-to-Pages animation, and one of the most
+            // recent page, for the small persistent thumbnail
+            // beside the count (v0.1.74) — both decoded here,
+            // off the UI thread, so the animation never
+            // hitches.
             val thumbBmp = decodeThumb(newPages[0])
+            val lastBmp = decodeThumb(newPages.last())
             runOnUiThread {
                 pages.addAll(newPages)
                 // The count ticks up only when the thumbnail
                 // lands on the Pages button (v0.1.73) — the
                 // fly animation finishes that (or, if the
                 // thumbnail could not be made, right away).
-                playCaptureFlyAnimation(thumbBmp, newPages.size)
+                playCaptureFlyAnimation(thumbBmp, newPages.size, lastBmp)
             }
         } catch (_: Throwable) {
             runOnUiThread {
@@ -524,6 +560,18 @@ class BookScannerActivity : AppCompatActivity() {
             "Pages (${pages.size})"
         findViewById<View>(R.id.btnSavePdf).visibility =
             if (pages.isNotEmpty()) View.VISIBLE else View.GONE
+        // No pages left (saved / discarded) — the small
+        // thumbnail beside the count goes away too.
+        if (pages.isEmpty()) {
+            val lastThumb = findViewById<ImageView>(R.id.ivLastPageThumb)
+            lastThumb.visibility = View.GONE
+            lastThumb.setImageBitmap(null)
+            try {
+                lastPageThumbBmp?.recycle()
+            } catch (_: Throwable) {
+            }
+            lastPageThumbBmp = null
+        }
     }
 
     /** Book → Filter (Enhance) for the first page, with
