@@ -630,6 +630,10 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.73 — Book Capture flies to the Pages count (preview removed)
+
+The user rejected the v0.1.72 capture preview as the worst — it is gone (activity, layout and manifest entry deleted). Instead, Book now does what professional scanner apps do: after every capture, a thumbnail of the page appears at the centre of the screen and flies to the Pages button, shrinking as it goes, and the count ticks up the moment it lands. The pages join the book at once (no confirmation screen in the way); the animation is the feedback. Single shows its one page flying the same way.
+
 ## v0.1.72 — Book Capture now shows a preview (A top, B bottom)
 
 The user reported: pressing Capture in Book gave no sign the photo was taken. Instead of just an animation, Book now shows a preview after every capture — one screen, both pages: A on top, B on the bottom (Double); a Single capture shows just that one page, full height. Keep adds the pages to the book and goes back to the camera for the next spread; Retake (or Back) discards them and the user captures again. The preview is landscape like the Book camera, so the screen never rotates, and the images are downsampled so a full-resolution spread never blows up memory.

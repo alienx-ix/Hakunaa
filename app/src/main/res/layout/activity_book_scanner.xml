@@ -28,6 +28,20 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- Capture thumbnail (v0.1.73): after a capture, a small
+         image of the page appears here (centre) and flies to
+         the Pages button, like a professional scanner. Hidden
+         until a capture lands. White background so it reads as
+         a page card. -->
+    <ImageView
+        android:id="@+id/ivCaptureThumb"
+        android:layout_width="120dp"
+        android:layout_height="120dp"
+        android:layout_gravity="center"
+        android:background="#FFFFFF"
+        android:scaleType="fitCenter"
+        android:visibility="gone" />
+
     <!-- Status line — overlaid at the bottom of the preview,
          so it never covers the book or squeezes the screen. -->
     <TextView

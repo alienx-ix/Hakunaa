@@ -9,6 +9,7 @@ import android.graphics.RectF
 import android.os.Bundle
 import android.view.View
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -48,16 +49,15 @@ import java.util.Locale
  * Capture is MANUAL (a book's pages change while you flip, so
  * auto-capture would fire at the wrong moment). Each page is
  * auto-enhanced with the NO_SHADOW filter at capture (the
- * default, with sharpening). After every capture the preview
- * screen shows what was taken — A on top, B on the bottom
- * (v0.1.72) — Keep adds the pages to the book, Retake discards
- * them and the user captures again. When the user is done —
- * Pages or Save PDF — the book goes through the Filter
- * (Enhance) screen first, like a Batch (v0.1.71): pick a filter
- * per page (or one for all), crop or adjust a page, then the
- * Preview (Pages) screen to reorder, rotate or delete, then
- * Export. Review and reorder on the Pages screen; save the
- * whole book as one PDF.
+ * default, with sharpening). After every capture a thumbnail
+ * of the page flies from the centre to the Pages button
+ * (v0.1.73) and the count ticks up when it lands, like a
+ * professional scanner. When the user is done — Pages or
+ * Save PDF — the book goes through the Filter (Enhance) screen
+ * first, like a Batch (v0.1.71): pick a filter per page (or one
+ * for all), crop or adjust a page, then the Preview (Pages)
+ * screen to reorder, rotate or delete, then Export. Review and
+ * reorder on the Pages screen; save the whole book as one PDF.
  *
  * The camera permission is asked the same way as the main
  * scanner (it is normally already granted by then).
@@ -67,11 +67,6 @@ import java.util.Locale
 class BookScannerActivity : AppCompatActivity() {
 
     private val pages = mutableListOf<File>()
-    // Pages from the latest capture, waiting for the user to
-    // confirm them on the capture preview (v0.1.72). They join
-    // `pages` only on Keep; Retake deletes the files.
-    private var pendingPages = mutableListOf<File>()
-    private var pendingLabels = listOf<String>()
     private var docName: String? = null
     private var camera: Camera? = null
     private var imageCapture: ImageCapture? = null
@@ -129,38 +124,6 @@ class BookScannerActivity : AppCompatActivity() {
                 }
                 docName = result.data?.getStringExtra("doc_name") ?: docName
                 openPagesAfterEnhance()
-            }
-        }
-
-    // Capture preview result (v0.1.72): Keep adds the pending
-    // pages to the book; Retake (or Back) deletes their files
-    // and the user captures again. Either way the capture is
-    // finished here, so isCapturing is released.
-    private val capturePreviewLauncher =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            val status = findViewById<TextView>(R.id.tvStatus)
-            if (result.resultCode == RESULT_OK) {
-                val count = pendingPages.size
-                pages.addAll(pendingPages)
-                pendingPages.clear()
-                pendingLabels = emptyList()
-                isCapturing = false
-                updateLabels()
-                status.text =
-                    if (count == 2) "2 pages added — flip the book and capture the next spread"
-                    else "1 page added — flip the book and capture the next spread"
-            } else {
-                for (file in pendingPages) {
-                    try {
-                        file.delete()
-                    } catch (_: Throwable) {
-                    }
-                }
-                pendingPages.clear()
-                pendingLabels = emptyList()
-                isCapturing = false
-                updateLabels()
-                status.text = "Retaken — point the camera at the book and capture again"
             }
         }
 
@@ -406,12 +369,96 @@ class BookScannerActivity : AppCompatActivity() {
         )
     }
 
-    /** Split the spread, enhance each page, and show them on
-     *  the capture preview (A on top, B on the bottom) for the
-     *  user to Keep or Retake (v0.1.72). The pages join the
-     *  book only on Keep — Retake deletes them. Runs off the
-     *  UI thread — the split + enhance of two full-resolution
-     *  pages takes a moment. */
+    /** Small downsampled bitmap of a page file, for the
+     *  fly-to-Pages thumbnail (longest side 256). Null when
+     *  the file cannot be read — the caller then skips the
+     *  animation and updates the count at once. */
+    private fun decodeThumb(file: File): Bitmap? {
+        return try {
+            val options = BitmapFactory.Options()
+            options.inJustDecodeBounds = true
+            BitmapFactory.decodeFile(file.absolutePath, options)
+            var sample = 1
+            val maxSide = maxOf(options.outWidth, options.outHeight)
+            while (maxSide / sample > 256) sample *= 2
+            options.inJustDecodeBounds = false
+            options.inSampleSize = sample
+            BitmapFactory.decodeFile(file.absolutePath, options)
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /** Capture animation (v0.1.73), like a professional
+     *  scanner: a thumbnail of the capture appears at the
+     *  centre of the screen and flies to the Pages button,
+     *  shrinking as it goes — and the count ticks up the
+     *  moment it lands. Runs on the UI thread. isCapturing
+     *  is released only when the animation ends, so no second
+     *  capture can start mid-flight. */
+    private fun playCaptureFlyAnimation(thumbBmp: Bitmap?, newCount: Int) {
+        val status = findViewById<TextView>(R.id.tvStatus)
+        val doneText =
+            if (newCount == 2) "2 pages added — flip the book and capture the next spread"
+            else "1 page added — flip the book and capture the next spread"
+        if (thumbBmp == null) {
+            isCapturing = false
+            updateLabels()
+            status.text = doneText
+            return
+        }
+        val thumb = findViewById<ImageView>(R.id.ivCaptureThumb)
+        val pagesBtn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnPages)
+        thumb.setImageBitmap(thumbBmp)
+        thumb.alpha = 1f
+        thumb.scaleX = 1f
+        thumb.scaleY = 1f
+        thumb.translationX = 0f
+        thumb.translationY = 0f
+        thumb.visibility = View.VISIBLE
+        // Wait for the thumbnail to be laid out (it was GONE),
+        // then fly its centre onto the Pages button's centre.
+        thumb.post {
+            val thumbLoc = IntArray(2)
+            val btnLoc = IntArray(2)
+            thumb.getLocationOnScreen(thumbLoc)
+            pagesBtn.getLocationOnScreen(btnLoc)
+            val dx = (btnLoc[0] + pagesBtn.width / 2f) - (thumbLoc[0] + thumb.width / 2f)
+            val dy = (btnLoc[1] + pagesBtn.height / 2f) - (thumbLoc[1] + thumb.height / 2f)
+            thumb.animate()
+                .translationXBy(dx)
+                .translationYBy(dy)
+                .scaleX(0.25f)
+                .scaleY(0.25f)
+                .alpha(0.5f)
+                .setDuration(450)
+                .withEndAction {
+                    thumb.visibility = View.GONE
+                    thumb.setImageBitmap(null)
+                    thumb.translationX = 0f
+                    thumb.translationY = 0f
+                    thumb.scaleX = 1f
+                    thumb.scaleY = 1f
+                    thumb.alpha = 1f
+                    try {
+                        thumbBmp.recycle()
+                    } catch (_: Throwable) {
+                    }
+                    isCapturing = false
+                    updateLabels()
+                    status.text = doneText
+                }
+                .start()
+        }
+    }
+
+    /** Split the spread, enhance each page, and add them in
+     *  order (A then B in Double; the tapped side in Single).
+     *  Runs off the UI thread — the split + enhance of two
+     *  full-resolution pages takes a moment. On success the
+     *  pages join the book at once and a thumbnail of the
+     *  capture flies to the Pages button (v0.1.73) — the count
+     *  ticks up when it lands, like a professional scanner. */
     private fun processBookPhoto(photoFile: File) {
         try {
             val bitmap = BitmapFactory.decodeFile(photoFile.absolutePath)
@@ -433,14 +480,12 @@ class BookScannerActivity : AppCompatActivity() {
             }
             val (left, right) = split
             val newPages = mutableListOf<File>()
-            val newLabels = mutableListOf<String>()
             if (doubleMode || selectedSide == SpineLineView.SIDE_LEFT) {
                 val enhanced = ImageEnhancer.apply(left, ImageEnhancer.Filter.NO_SHADOW)
                 val file = File(cacheDir, "book_page_${System.currentTimeMillis()}_a.jpg")
                 FileOutputStream(file).use { enhanced.compress(Bitmap.CompressFormat.JPEG, 95, it) }
                 enhanced.recycle()
                 newPages.add(file)
-                newLabels.add("A")
             }
             if (doubleMode || selectedSide == SpineLineView.SIDE_RIGHT) {
                 val enhanced = ImageEnhancer.apply(right, ImageEnhancer.Filter.NO_SHADOW)
@@ -448,30 +493,23 @@ class BookScannerActivity : AppCompatActivity() {
                 FileOutputStream(file).use { enhanced.compress(Bitmap.CompressFormat.JPEG, 95, it) }
                 enhanced.recycle()
                 newPages.add(file)
-                newLabels.add("B")
             }
             left.recycle()
             right.recycle()
             photoFile.delete()
             // The spine line stays where the user put it
             // (manual only) — it is not reset between spreads.
+            // A small thumbnail of the first new page, for the
+            // fly-to-Pages animation (decoded here, off the UI
+            // thread, so the animation never hitches).
+            val thumbBmp = decodeThumb(newPages[0])
             runOnUiThread {
-                // Hold the pages as pending — they join the book
-                // only when the user Keeps them on the preview.
-                // isCapturing stays true until the preview
-                // returns, so no second capture can start.
-                pendingPages = newPages
-                pendingLabels = newLabels
-                val intent = Intent(this, BookCapturePreviewActivity::class.java)
-                intent.putStringArrayListExtra(
-                    BookCapturePreviewActivity.EXTRA_PAGE_PATHS,
-                    ArrayList(newPages.map { it.absolutePath })
-                )
-                intent.putStringArrayListExtra(
-                    BookCapturePreviewActivity.EXTRA_LABELS,
-                    ArrayList(newLabels)
-                )
-                capturePreviewLauncher.launch(intent)
+                pages.addAll(newPages)
+                // The count ticks up only when the thumbnail
+                // lands on the Pages button (v0.1.73) — the
+                // fly animation finishes that (or, if the
+                // thumbnail could not be made, right away).
+                playCaptureFlyAnimation(thumbBmp, newPages.size)
             }
         } catch (_: Throwable) {
             runOnUiThread {
