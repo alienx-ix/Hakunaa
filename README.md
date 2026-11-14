@@ -630,6 +630,11 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.98 — Status bar done the professional way (transparent + dynamic)
+
+- **Problem in v0.1.97:** the solid status bar colour showed a visible band — white on the black scanner screen (time invisible), and a shade edge on Home.
+- **Fix (rewrote `core/StatusBar.kt`):** like other professional apps — the status bar is TRANSPARENT, the screen's own background runs seamlessly behind it (NO colour difference, NO edge), and the icons adapt dynamically (DARK on light screens, LIGHT on dark screens). The root layout takes the status bar inset as padding, so content sits below the bar while the background extends behind it. Same 17 Activities, same light/dark split.
+
 ## v0.1.97 — Status bar fixed across the entire app
 
 - **Root cause:** on Android 15 the app runs edge-to-edge — content went UNDER the status bar (white icons invisible on light screens; top bar overlapped on the dark scanner screen).
