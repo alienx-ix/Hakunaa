@@ -318,8 +318,8 @@ class ScannerActivity : AppCompatActivity() {
                         // Capture fly animation (v0.1.74), like a
                         // professional scanner: a thumbnail of
                         // the page appears at the centre and
-                        // flies to the Done button — the count
-                        // ticks up when it lands. Batch: right
+                        // flies to the pages thumbnail — the
+                        // count ticks up when it lands. Batch: right
                         // after Crop (the page is in). Single:
                         // after Filter (Enhance already ran
                         // inside Crop for Single) — then Export
@@ -372,9 +372,9 @@ class ScannerActivity : AppCompatActivity() {
      *  still in flight is cancelled first, so a fast second
      *  capture never leaves a stuck thumbnail.
      *
-     *  The target: Single flies to the Done button, then
-     *  Export opens. Batch flies to the right side of the
-     *  capture row — the Import button before the first
+     *  The target: Single flies to the capture button,
+     *  then Export opens. Batch flies to the right side of
+     *  the capture row — the Import button before the first
      *  capture, the small pages thumbnail after it (v0.1.74)
      *  — which is where the thumbnail + count live, like
      *  CamScanner. */
@@ -386,8 +386,8 @@ class ScannerActivity : AppCompatActivity() {
             if (thumbContainer.visibility == View.VISIBLE) thumbContainer
             else findViewById(R.id.btnImportImages)
         } else {
-            // Single: no Done button any more (v0.1.93) — fly
-            // to the capture button, then Export opens.
+            // Single: fly to the capture button, then Export
+            // opens.
             findViewById(R.id.btnCapture)
         }
         if (thumbBmp == null) {
@@ -438,8 +438,8 @@ class ScannerActivity : AppCompatActivity() {
                         refreshPagesThumb()
                         val n = pages.size
                         status.text =
-                            if (n == 1) "1 page added — tap Capture for the next page, Done when finished"
-                            else "$n pages added — tap Capture for the next page, Done when finished"
+                            if (n == 1) "1 page added — tap Capture for the next page, Export when finished"
+                            else "$n pages added — tap Capture for the next page, Export when finished"
                     }
                     onLanded()
                 }
@@ -457,7 +457,7 @@ class ScannerActivity : AppCompatActivity() {
                 docName = null
                 updatePagesLabel()
                 findViewById<TextView>(R.id.tvStatus).text =
-                    "Done — PDF saved. Scan another document when ready"
+                    "PDF saved. Scan another document when ready"
             } else if (result.resultCode == PdfExportActivity.RESULT_DISCARD) {
                 // Discard confirmed on the export screen reached
                 // via the Preview (v0.1.69): drop every page so
@@ -574,7 +574,7 @@ class ScannerActivity : AppCompatActivity() {
                 val sizeBytes = result.data?.getLongExtra(PdfExportActivity.EXTRA_SIZE_BYTES, 0L)
                     ?: 0L
                 val size = FileUtils.formatSize(sizeBytes)
-                status.text = "Done — scanned PDF saved to Documents/Hakunaa/$fileName (${pages.size} page(s), $size)"
+                status.text = "Exported — scanned PDF saved to Documents/Hakunaa/$fileName (${pages.size} page(s), $size)"
                 Toast.makeText(this, "PDF saved ($size)", Toast.LENGTH_SHORT).show()
                 pages.clear()
                 rawPaths.clear()
@@ -584,7 +584,7 @@ class ScannerActivity : AppCompatActivity() {
             } else if (result.resultCode == PdfExportActivity.RESULT_DISCARD) {
                 // User confirmed discard on the export screen
                 // (v0.1.67): drop every page so the camera comes
-                // back fresh — no "N page(s) • Done" left at the
+                // back fresh — no "Export • N pages" left at the
                 // bottom, in Single or Batch.
                 val count = pages.size
                 pages.clear()
@@ -645,9 +645,15 @@ class ScannerActivity : AppCompatActivity() {
             pickPhoto.launch("image/*")
         }
         findViewById<LinearLayout>(R.id.pagesThumbContainer).setOnClickListener {
-            // The thumbnail IS the way forward (v0.1.93,
+            // The thumbnail IS a way forward (v0.1.93,
             // professional pattern): tap it to open the
             // Filter (Enhance) screen, then Preview, Export.
+            onSavePdfClicked()
+        }
+        // Export button (v0.1.94): same place as the old Done
+        // button, same destination as the thumbnail tap —
+        // both ways go forward.
+        findViewById<MaterialButton>(R.id.btnSavePdf).setOnClickListener {
             onSavePdfClicked()
         }
         findViewById<TextView>(R.id.tvModeSingle).setOnClickListener { setMode(Mode.SINGLE) }
@@ -657,8 +663,6 @@ class ScannerActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.tvModeBook).setOnClickListener {
             startActivity(Intent(this, BookScannerActivity::class.java))
         }
-        // (v0.1.93) No Done button any more — the thumbnail
-        // is the way forward (see the click above).
 
         // Ask for the camera permission the way every app does.
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
@@ -1795,12 +1799,15 @@ class ScannerActivity : AppCompatActivity() {
     }
 
     private fun updatePagesLabel() {
-        // No Done button any more (v0.1.93) — the thumbnail
-        // with the page count is the way forward. The right
-        // side of the capture row follows the state (Batch:
-        // thumbnail + count after the first capture, Import
-        // Images before it) — keep it in sync here so no call
-        // site can forget it.
+        // Export button (v0.1.94): visible once a page is
+        // captured, with the page count — "Export • N pages".
+        // Its space stays reserved (invisible when empty) so
+        // the layout never shifts. The thumbnail tap does the
+        // same thing, so both ways go forward.
+        val btn = findViewById<MaterialButton>(R.id.btnSavePdf)
+        val n = pages.size
+        btn.visibility = if (n == 0) View.INVISIBLE else View.VISIBLE
+        if (n > 0) btn.text = "Export • $n page" + if (n == 1) "" else "s"
         updateRightSide()
     }
 
@@ -1886,13 +1893,13 @@ class ScannerActivity : AppCompatActivity() {
     /** Right side of the capture row (v0.1.74): in Batch, once
      *  the first page is captured, Import Images goes away and
      *  a small thumbnail with the pages count takes its place
-     *  — like CamScanner. Tapping it is the way forward
+     *  — like CamScanner. Tapping it is a way forward
      *  (v0.1.93): it opens the Filter (Enhance) screen, then
-     *  Preview, then Export — there is no Done button any
-     *  more. In Single (or with no pages yet), Import Images
-     *  stays. Only the visibility and the count text change
-     *  here — the thumbnail image itself is set by
-     *  refreshPagesThumb(). */
+     *  Preview, then Export — the Export button below does
+     *  the same thing. In Single (or with no pages yet),
+     *  Import Images stays. Only the visibility and the count
+     *  text change here — the thumbnail image itself is set
+     *  by refreshPagesThumb(). */
     private fun updateRightSide() {
         val importBtn = findViewById<LinearLayout>(R.id.btnImportImages)
         val thumbContainer = findViewById<LinearLayout>(R.id.pagesThumbContainer)

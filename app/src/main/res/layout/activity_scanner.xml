@@ -332,12 +332,32 @@
             android:textColor="#B0B0B0"
             android:textSize="13sp" />
 
-        <!-- The Done button is GONE (v0.1.93): professional
-             scanners (CamScanner, Adobe Scan) have no big
-             Done button on the capture screen — the thumbnail
-             with the page count IS the way forward. Tapping
-             the thumbnail opens the Filter (Enhance) screen,
-             then Preview, then Export. -->
+        <!-- Export button (v0.1.94): back in the same place
+             the Done button was — a big teal pill with bold
+             white text and the page count, so no user has to
+             guess what it does or where it is. (v0.1.57 made
+             it compact because a big Save bar grew the bottom
+             bar by 68dp and shrank the capture area — this one
+             keeps its space reserved (invisible when empty),
+             so the layout never shifts when a page is captured.)
+             The label is "Export" now (user pick, v0.1.94),
+             not "Done" — and the thumbnail tap does the same
+             thing, so both ways go forward. Batch: opens the
+             Filter (Enhance) screen. Single: goes straight
+             to the export screen. -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnSavePdf"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="8dp"
+            android:minWidth="180dp"
+            android:text="Export"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold"
+            app:backgroundTint="#00BFA5"
+            app:cornerRadius="24dp"
+            android:visibility="invisible" />
     </LinearLayout>
 
     <!-- Capture thumbnail (v0.1.74): after a capture, a small

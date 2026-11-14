@@ -524,14 +524,16 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- Bottom bar (v0.1.93): back-arrow / Rotate / Crop /
-         Draw / Erase / Text / Sign + confirm (tick), in that
-         order. Adjust is GONE from this bar — it lives on the
-         selected filter's thumbnail now (CamScanner-style).
-         The six tools SHARE the width evenly (each one
-         layout_weight 1); the back arrow (56dp, left) returns
-         to the camera to capture more, and the confirm tick
-         (56dp, right) goes to the next stage. -->
+    <!-- Bottom bar (v0.1.94): Rotate / Crop / Draw / Erase /
+         Text / Sign + confirm (tick), in that order. Adjust
+         is NOT in this bar — it lives on the selected
+         filter's thumbnail (CamScanner-style). There is NO
+         left back-arrow here (user, v0.1.94): Export means
+         going forward, so only the right tick is needed —
+         the old design, tick symbol only. The six tools
+         SHARE the width evenly (each one layout_weight 1);
+         the confirm tick (56dp, right) goes to the next
+         stage. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="72dp"
@@ -540,19 +542,6 @@
         android:orientation="horizontal"
         android:paddingStart="8dp"
         android:paddingEnd="8dp">
-
-        <!-- Back — returns to the camera to capture more
-             pages (v0.1.93). The pages stay; tapping the
-             thumbnail later brings you back here. -->
-        <ImageButton
-            android:id="@+id/btnBackToCapture"
-            android:layout_width="56dp"
-            android:layout_height="56dp"
-            android:layout_marginEnd="4dp"
-            android:background="@drawable/bg_teal_button"
-            android:contentDescription="Back to capture"
-            android:src="@drawable/ic_arrow_back"
-            android:tint="#FFFFFF" />
 
         <!-- Rotate — turns the page 90 degrees (the old
              "Left" button, renamed v0.1.82). -->

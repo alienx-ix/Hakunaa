@@ -630,6 +630,11 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.94 — Export button back (same place, label Export); Enhance bar tick-only
+
+- **Export button restored (user pick):** the Done button is back in the SAME place — a big teal pill, same size and style — but labelled **"Export • N pages"** instead of "Done". Both the Export button AND the thumbnail tap open the SAME Filter (Enhance) screen, then Preview → Export.
+- **Enhance bar tick-only (user rule, v0.1.94):** NO left back-arrow — Export means going forward, so only the right tick is needed (the old design). Adjust stays on the selected filter's thumbnail.
+
 ## v0.1.93 — No Done button; Enhance bar: back-arrow + tick; Adjust on the filter
 
 - **Done button removed (professional pattern):** CamScanner / Adobe Scan have no big Done button on the capture screen — the thumbnail with the page count IS the way forward. Tapping the thumbnail now opens the Filter (Enhance) screen, then Preview, then Export. The mid-batch review is gone; you review in Preview and add more pages from there. Single mode's fly animation now lands on the capture button.

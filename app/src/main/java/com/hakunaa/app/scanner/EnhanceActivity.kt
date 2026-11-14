@@ -270,14 +270,13 @@ class EnhanceActivity : AppCompatActivity() {
             if (intent.getStringExtra(EXTRA_CONFIRM_LABEL) == "Continue")
                 R.drawable.ic_arrow_right else R.drawable.ic_check
         )
-        // Back to capture (v0.1.93): returns to the camera
-        // to capture more pages. The pages stay.
-        findViewById<ImageButton>(R.id.btnBackToCapture).setOnClickListener { finish() }
         // Adjust opens from the tune icon on the SELECTED
         // filter's thumbnail (v0.1.93, CamScanner-style) —
         // never on its own after a capture, and no longer
         // from a bottom-bar button. The panel stays hidden
-        // until the user asks for it.
+        // until the user asks for it. (v0.1.94: no left
+        // back-arrow in this bar — Export means going
+        // forward, so only the right tick is needed.)
         findViewById<TextView>(R.id.btnAdjustReset).setOnClickListener { resetAdjustments() }
         findViewById<TextView>(R.id.btnAdjustClose).setOnClickListener {
             setAdjustPanelVisible(false)
