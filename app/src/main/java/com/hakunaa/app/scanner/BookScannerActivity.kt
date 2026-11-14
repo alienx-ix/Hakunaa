@@ -2,27 +2,20 @@ package com.hakunaa.app.scanner
 
 import android.Manifest
 import android.app.Dialog
-import android.content.Context
 import android.content.Intent
-import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Color
-import android.graphics.ImageFormat
-import android.graphics.drawable.ColorDrawable
 import android.graphics.RectF
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import android.hardware.camera2.CameraCharacteristics
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageButton
 import android.widget.ImageView
-import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -46,7 +39,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import com.hakunaa.app.core.StatusBar
-import kotlin.math.roundToInt
 
 /**
  * Book Scan — scan a whole book, two pages at a time.
@@ -142,10 +134,6 @@ class BookScannerActivity : AppCompatActivity() {
     private var cameraBound = false
     private var cameraStarting = false
     private var torchOn = false
-    // Capture quality (v0.1.109) — the HD button's tier,
-    // shared with the main scanner's picker (same pref key,
-    // so one quality setting for the whole scanner).
-    private var captureRes = "max"
     private var isCapturing = false
     private var doubleMode = true
     private var selectedSide = SpineLineView.SIDE_LEFT
@@ -192,14 +180,6 @@ class BookScannerActivity : AppCompatActivity() {
         controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
     }
-
-    companion object {
-        private const val PREFS_NAME = "hakunaa_prefs"
-        private const val PREF_CAPTURE_RES = "capture_res"
-    }
-
-    private fun prefs(): SharedPreferences =
-        getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
 
     private val requestCameraPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -370,14 +350,6 @@ class BookScannerActivity : AppCompatActivity() {
 
         findViewById<ImageButton>(R.id.btnClose).setOnClickListener { attemptLeave() }
         findViewById<ImageButton>(R.id.btnTorch).setOnClickListener { toggleTorch() }
-        // HD quality (v0.1.109) — below the Torch, opens the
-        // same quality-tier picker as the main scanner.
-        captureRes = prefs().getString(PREF_CAPTURE_RES, "max") ?: "max"
-        if (captureRes !in setOf("max", "veryhigh", "high", "medium", "low")) {
-            captureRes = "max"
-        }
-        updateHdButton()
-        findViewById<TextView>(R.id.btnHd).setOnClickListener { showResolutionDialog() }
         findViewById<ImageButton>(R.id.btnCapture).setOnClickListener { captureBook() }
         // Exit (v0.1.104, Book only) — right by the Capture
         // button, so leaving does not mean hunting for the
@@ -526,172 +498,6 @@ class BookScannerActivity : AppCompatActivity() {
         )
     }
 
-    /** Quality-tier picker (v0.1.109) — the same bottom-sheet
-     *  list as the main scanner's HD button: Full Sensor /
-     *  Very High / High / Medium / Low, each with its real
-     *  resolution in grey. The choice is saved (shared pref
-     *  with the main scanner) and the camera re-binds with it
-     *  right away — startCamera() returns early while the
-     *  camera is bound, so the old use cases are unbound
-     *  first (the same release onPause does). */
-    private fun showResolutionDialog() {
-        val tiers = qualityTiers()
-        data class ResOption(
-            val mp: String,
-            val dims: String,
-            val value: String,
-            val best: Boolean = false
-        )
-        val options = tiers.map { tier ->
-            ResOption(
-                tier.name,
-                if (tier.size == null) "(max)"
-                else "${tier.size.width}x${tier.size.height} \u2022 ${mpLabel(tier.size)}",
-                tier.key,
-                tier.best
-            )
-        }
-        val checked = options.indexOfFirst { it.value == captureRes }
-            .takeIf { it >= 0 } ?: 0
-        val dialog = Dialog(this)
-        dialog.setContentView(R.layout.dialog_resolution)
-        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-        dialog.setCancelable(true)
-        val rows = dialog.findViewById<LinearLayout>(R.id.resolutionRows)
-        for (i in options.indices) {
-            val opt = options[i]
-            val row = layoutInflater.inflate(R.layout.item_resolution, rows, false)
-            row.findViewById<TextView>(R.id.tvMp).text = opt.mp
-            row.findViewById<TextView>(R.id.tvDims).text = opt.dims
-            if (opt.best) {
-                row.findViewById<TextView>(R.id.tvBadge).visibility = View.VISIBLE
-            }
-            val check = row.findViewById<ImageView>(R.id.ivCheck)
-            check.setImageResource(
-                if (i == checked) R.drawable.ic_radio_checked
-                else R.drawable.ic_radio_unchecked
-            )
-            row.setOnClickListener {
-                captureRes = opt.value
-                prefs().edit().putString(PREF_CAPTURE_RES, captureRes).apply()
-                updateHdButton()
-                dialog.dismiss()
-                try { cameraProvider?.unbindAll() } catch (_: Throwable) {}
-                cameraBound = false
-                startCamera()
-            }
-            rows.addView(row)
-        }
-        dialog.findViewById<ImageButton>(R.id.btnCloseResolution)
-            .setOnClickListener { dialog.dismiss() }
-        dialog.findViewById<TextView>(R.id.tvHideResolution)
-            .setOnClickListener { dialog.dismiss() }
-        dialog.show()
-        dialog.window?.apply {
-            setGravity(android.view.Gravity.BOTTOM)
-            setLayout(
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        }
-    }
-
-    /** "16M" / "12M" / "5M" for a size — the megapixel label
-     *  shown next to each resolution in the picker. */
-    private fun mpLabel(size: android.util.Size): String {
-        val mp = size.width.toDouble() * size.height.toDouble() / 1_000_000.0
-        return if (mp >= 10) "${mp.roundToInt()}M"
-        else String.format("%.1fM", mp)
-    }
-
-    /** Quality tiers for the HD picker (v0.1.109, same
-     *  rules as the main scanner): QUALITY only — Low /
-     *  Medium / High / Very High / Full Sensor. Every tier
-     *  is a 4:3 size from THIS phone's camera, so every
-     *  option works; only the MP changes, never the
-     *  framing. Full Sensor = the largest 4:3 size (the
-     *  sensor's absolute max can be a wide 16:9 size).
-     *  Camera unreadable = only Full Sensor, never a crash. */
-    private data class QualityTier(
-        val key: String,
-        val name: String,
-        val size: android.util.Size?,
-        val best: Boolean = false
-    )
-
-    private fun qualityTiers(): List<QualityTier> {
-        val allSizes: List<android.util.Size> = try {
-            val manager =
-                getSystemService(Context.CAMERA_SERVICE) as android.hardware.camera2.CameraManager
-            val cameraId = manager.cameraIdList.firstOrNull { id ->
-                manager.getCameraCharacteristics(id).get(
-                    CameraCharacteristics.LENS_FACING
-                ) == CameraCharacteristics.LENS_FACING_BACK
-            } ?: return listOf(QualityTier("max", "Full Sensor", null, true))
-            val chars = manager.getCameraCharacteristics(cameraId)
-            val map = chars.get(
-                CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP
-            )
-            map?.getOutputSizes(ImageFormat.JPEG)?.toList()
-                ?: return listOf(QualityTier("max", "Full Sensor", null, true))
-        } catch (e: Exception) {
-            return listOf(QualityTier("max", "Full Sensor", null, true))
-        }
-        val sizes43 = allSizes
-            .filter {
-                it.width >= 1280 &&
-                    kotlin.math.abs(it.width.toDouble() / it.height - 4.0 / 3.0) < 0.03
-            }
-            .distinct()
-            .sortedByDescending { it.width * it.height }
-        if (sizes43.isEmpty()) {
-            return listOf(QualityTier("max", "Full Sensor", null, true))
-        }
-        val tiers = mutableListOf(QualityTier("max", "Full Sensor", sizes43[0], true))
-        val avail = sizes43.drop(1)
-        if (avail.isEmpty()) return tiers
-        fun at(frac: Double): android.util.Size {
-            val idx = ((avail.size - 1) * frac).roundToInt()
-                .coerceIn(0, avail.size - 1)
-            return avail[idx]
-        }
-        val distinct = listOf(at(0.0), at(0.33), at(0.66), at(1.0)).distinct()
-        val names = when (distinct.size) {
-            4 -> listOf("Very High", "High", "Medium", "Low")
-            3 -> listOf("Very High", "High", "Low")
-            2 -> listOf("Very High", "Low")
-            1 -> listOf("Very High")
-            else -> emptyList()
-        }
-        val keys = when (distinct.size) {
-            4 -> listOf("veryhigh", "high", "medium", "low")
-            3 -> listOf("veryhigh", "high", "low")
-            2 -> listOf("veryhigh", "low")
-            1 -> listOf("veryhigh")
-            else -> emptyList()
-        }
-        distinct.forEachIndexed { i, size ->
-            tiers.add(QualityTier(keys[i], names[i], size))
-        }
-        return tiers
-    }
-
-    /** The HD circle shows the current tier's short label
-     *  (v0.1.109): "HD" for Full Sensor, "VH" / "High" /
-     *  "Med" / "Low" for a picked tier — the full names
-     *  would not fit the 56dp circle. White, always. */
-    private fun updateHdButton() {
-        val btn = findViewById<TextView>(R.id.btnHd)
-        btn.text = when (captureRes) {
-            "max" -> "HD"
-            "veryhigh" -> "VH"
-            "high" -> "High"
-            "medium" -> "Med"
-            "low" -> "Low"
-            else -> "HD"
-        }
-    }
-
     private fun startCamera() {
         // One bind at a time — onResume calls this too, and the
         // provider future from onCreate may still be pending.
@@ -716,29 +522,13 @@ class BookScannerActivity : AppCompatActivity() {
                         it.setSurfaceProvider(findViewById<PreviewView>(R.id.previewView).surfaceProvider)
                     }
                 // ORIGINAL CAMERA QUALITY: MAXIMIZE_QUALITY, JPEG
-                // 100, full sensor resolution. The capture
-                // resolution comes from the HD picker (v0.1.109):
-                // every tier is a 4:3 size — applied LANDSCAPE
-                // here (Book is landscape-locked, so width >
-                // height); the main scanner applies the same
-                // sizes as portrait. Unknown key / unreadable
-                // camera = no cap (safe fallback).
-                val captureBuilder = ImageCapture.Builder()
+                // 100, full sensor resolution.
+                imageCapture = ImageCapture.Builder()
                     .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
                     .setJpegQuality(100)
-                val tierSize = qualityTiers()
-                    .firstOrNull { it.key == captureRes }?.size
-                if (tierSize != null) {
-                    captureBuilder.setTargetResolution(
-                        android.util.Size(
-                            maxOf(tierSize.width, tierSize.height),
-                            minOf(tierSize.width, tierSize.height)
-                        )
-                    )
-                }
-                imageCapture = captureBuilder.build().also {
-                    it.flashMode = ImageCapture.FLASH_MODE_AUTO
-                }
+                    .build().also {
+                        it.flashMode = ImageCapture.FLASH_MODE_AUTO
+                    }
                 // No live spine analysis (v0.1.71): the spine
                 // line is MANUAL only — the user drags it to
                 // the fold. No analysis use case is bound, so

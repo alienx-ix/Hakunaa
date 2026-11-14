@@ -630,6 +630,11 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.110 — HD button removed, torch level with the X (on v0.1.109)
+
+- **HD button REMOVED:** the circle under the Torch is gone, and the whole Book quality-tier feature goes with it (picker, tier code, shared-pref wiring) — Book captures at full sensor again, like before v0.1.109. The big X and the bolt torch stay (the user's picks).
+- **Torch moved up, level with the X:** marginTop 36dp → 0dp — the strip's 12dp padding puts the torch's top at 12dp from the screen, exactly the same height as the X on the left.
+
 ## v0.1.109 — Book icons picked + HD button (on v0.1.108)
 
 - **Back arrow → big X (user pick #3):** the top-left button is now a bold white X (`ic_close_big`, strokes spanning most of the viewport) — bigger and clearly visible at 56dp. Same button, same Discard-book warning on tap.

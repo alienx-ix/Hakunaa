@@ -164,6 +164,10 @@
          vertical centre (centerInParent). The old LinearLayout
          with two equal spacers pushed Capture below centre,
          because the Torch took space at the top.
+         v0.1.110: the Torch sits LEVEL with the X on the left
+         (marginTop 0dp — the strip's 12dp padding puts its top
+         at 12dp from the screen, same as the X). The HD button
+         is gone (removed v0.1.110).
          v0.1.104: an Exit button sits below Capture — Book's
          own way out, right where the shooting hand is, so
          leaving does not mean hunting for the corner arrow. -->
@@ -180,31 +184,10 @@
             android:layout_height="56dp"
             android:layout_alignParentTop="true"
             android:layout_centerHorizontal="true"
-            android:layout_marginTop="36dp"
+            android:layout_marginTop="0dp"
             android:background="@drawable/circle_button_bg"
             android:contentDescription="Torch"
             android:src="@drawable/ic_bolt" />
-
-        <!-- HD quality (v0.1.109) — right below the Torch,
-             like the main scanner's HD button. A circle with
-             the tier's short label ("HD" for Full Sensor).
-             Opens the same quality-tier picker. -->
-        <TextView
-            android:id="@+id/btnHd"
-            android:layout_width="56dp"
-            android:layout_height="56dp"
-            android:layout_below="@id/btnTorch"
-            android:layout_centerHorizontal="true"
-            android:layout_marginTop="16dp"
-            android:background="@drawable/circle_button_bg"
-            android:clickable="true"
-            android:contentDescription="Quality"
-            android:focusable="true"
-            android:gravity="center"
-            android:text="HD"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:textStyle="bold" />
 
         <!-- Big round capture button, at the true centre. -->
         <ImageButton
