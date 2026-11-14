@@ -14,23 +14,22 @@ import android.view.View
 import kotlin.math.abs
 
 /**
- * Book mode's spine line — CamScanner-style (v0.1.100). The
- * screen stays in PORTRAIT and the camera preview is a tall
- * 3:4 portrait band, so the landscape book appears ROTATED:
- * the spine is a HORIZONTAL dashed line across the middle,
- * page A on TOP and page B at the BOTTOM (exactly like the
- * CamScanner screenshot).
+ * Book mode's spine line — the dashed line down the middle of
+ * the open book, with a teal handle to drag it and big A / B
+ * letters for the two pages (A = left page, B = right page).
  *
- * - Drag the handle (or the line itself) to move the spine
- *   to the book's real fold — the spine moves UP / DOWN.
- *   A tap elsewhere picks a side — in Single mode that is
- *   the page the next capture takes (top = A, bottom = B).
+ * - Drag the handle (or the line itself) to move the spine to
+ *   the book's real fold. A tap elsewhere picks a side — in
+ *   Single mode that is the page the next capture takes.
  * - The line is clamped to the camera image (fitCenter bars
  *   excluded): set [contentRect] once the preview is laid out.
- * - [spineFraction] is a fraction of the content rect's
- *   HEIGHT (0 = top, 1 = bottom). It maps straight onto the
- *   landscape sensor image's WIDTH, so the split in
- *   DocumentDetector.splitSpread needs no conversion.
+ * - The auto spine detection moves the line (via
+ *   [setSpineFraction]) until the user drags it; the activity
+ *   decides when to stop following.
+ *
+ * Safe to call setSpineFraction from any thread (the analysis
+ * runs on a background thread); the update posts to the UI
+ * thread itself.
  */
 class SpineLineView @JvmOverloads constructor(
     context: Context,
@@ -43,12 +42,11 @@ class SpineLineView @JvmOverloads constructor(
         const val SIDE_RIGHT = 2
     }
 
-    /** Spine position as a fraction of the content rect's height. */
+    /** Spine position as a fraction of the content rect's width. */
     var spineFraction: Float = 0.5f
         private set
 
-    /** The side the user tapped in Single mode (none in Double).
-     *  SIDE_LEFT = top page (A), SIDE_RIGHT = bottom page (B). */
+    /** The side the user tapped in Single mode (none in Double). */
     var selectedSide: Int = SIDE_NONE
         set(value) {
             field = value
@@ -142,9 +140,9 @@ class SpineLineView @JvmOverloads constructor(
         return if (contentRect.isEmpty) RectF(0f, 0f, width.toFloat(), height.toFloat()) else contentRect
     }
 
-    private fun spineY(): Float {
+    private fun spineX(): Float {
         val r = rect()
-        return r.top + spineFraction * r.height()
+        return r.left + spineFraction * r.width()
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -156,7 +154,7 @@ class SpineLineView @JvmOverloads constructor(
                 dragging = false
                 // Only a grab near the line starts a drag — a
                 // swipe anywhere else must not move the spine.
-                canDrag = abs(event.y - spineY()) < 48f * density
+                canDrag = abs(event.x - spineX()) < 48f * density
                 parent?.requestDisallowInterceptTouchEvent(true)
                 return true
             }
@@ -165,7 +163,7 @@ class SpineLineView @JvmOverloads constructor(
                     dragging = true
                 }
                 if (dragging && canDrag) {
-                    spineFraction = ((event.y - r.top) / r.height()).coerceIn(0.05f, 0.95f)
+                    spineFraction = ((event.x - r.left) / r.width()).coerceIn(0.05f, 0.95f)
                     invalidate()
                     onSpineChanged?.invoke(spineFraction)
                 }
@@ -173,7 +171,7 @@ class SpineLineView @JvmOverloads constructor(
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 if (!dragging && event.action == MotionEvent.ACTION_UP) {
-                    val side = if (event.y < spineY()) SIDE_LEFT else SIDE_RIGHT
+                    val side = if (event.x < spineX()) SIDE_LEFT else SIDE_RIGHT
                     onSideTapped?.invoke(side)
                     performClick()
                 }
@@ -192,46 +190,45 @@ class SpineLineView @JvmOverloads constructor(
         super.onDraw(canvas)
         val r = rect()
         if (r.width() <= 0f || r.height() <= 0f) return
-        val sy = spineY()
+        val sx = spineX()
         // Selected side (Single mode): a light teal wash.
-        // SIDE_LEFT = top page (A), SIDE_RIGHT = bottom page (B).
         if (selectedSide == SIDE_LEFT) {
-            canvas.drawRect(r.left, r.top, r.right, sy, sideFillPaint)
+            canvas.drawRect(r.left, r.top, sx, r.bottom, sideFillPaint)
         } else if (selectedSide == SIDE_RIGHT) {
-            canvas.drawRect(r.left, sy, r.right, r.bottom, sideFillPaint)
+            canvas.drawRect(sx, r.top, r.right, r.bottom, sideFillPaint)
         }
-        // Big A / B letters at the centre of each half —
-        // A on TOP, B at the BOTTOM (the rotated book).
-        val cx = r.centerX()
-        val topCy = (r.top + sy) / 2f - (labelPaint.descent() + labelPaint.ascent()) / 2f
-        val bottomCy = (sy + r.bottom) / 2f - (labelPaint.descent() + labelPaint.ascent()) / 2f
-        canvas.drawText("A", cx, topCy, if (selectedSide == SIDE_LEFT) labelSelectedPaint else labelPaint)
-        canvas.drawText("B", cx, bottomCy, if (selectedSide == SIDE_RIGHT) labelSelectedPaint else labelPaint)
-        // Dashed spine line, left to right across the image.
-        canvas.drawLine(r.left, sy, r.right, sy, linePaint)
+        // Big A / B letters at the centre of each half.
+        val cy = r.centerY() - (labelPaint.descent() + labelPaint.ascent()) / 2f
+        val leftCx = (r.left + sx) / 2f
+        val rightCx = (sx + r.right) / 2f
+        canvas.drawText("A", leftCx, cy, if (selectedSide == SIDE_LEFT) labelSelectedPaint else labelPaint)
+        canvas.drawText("B", rightCx, cy, if (selectedSide == SIDE_RIGHT) labelSelectedPaint else labelPaint)
+        // Dashed spine line, top to bottom of the image.
+        canvas.drawLine(sx, r.top, sx, r.bottom, linePaint)
         // Teal handle at the centre, with a grip (two bars).
         val handleR = 22f * density
-        val hx = r.centerX()
-        canvas.drawCircle(hx, sy, handleR, handlePaint)
-        canvas.drawCircle(hx, sy, handleR, handleRingPaint)
-        // Grip: two small triangles pointing up / down — the
-        // handle drags the split vertically.
+        val hy = r.centerY()
+        canvas.drawCircle(sx, hy, handleR, handlePaint)
+        canvas.drawCircle(sx, hy, handleR, handleRingPaint)
+        // Grip: two small triangles pointing outward — the
+        // handle drags the split sideways. (Two bars read as a
+        // pause icon.)
         val tri = 6f * density
         val gap = 4f * density
-        val topTri = Path().apply {
-            moveTo(hx, sy - gap - tri)
-            lineTo(hx - tri, sy - gap)
-            lineTo(hx + tri, sy - gap)
+        val leftTri = Path().apply {
+            moveTo(sx - gap - tri, hy)
+            lineTo(sx - gap, hy - tri)
+            lineTo(sx - gap, hy + tri)
             close()
         }
-        val bottomTri = Path().apply {
-            moveTo(hx, sy + gap + tri)
-            lineTo(hx - tri, sy + gap)
-            lineTo(hx + tri, sy + gap)
+        val rightTri = Path().apply {
+            moveTo(sx + gap + tri, hy)
+            lineTo(sx + gap, hy - tri)
+            lineTo(sx + gap, hy + tri)
             close()
         }
-        canvas.drawPath(topTri, gripPaint)
-        canvas.drawPath(bottomTri, gripPaint)
+        canvas.drawPath(leftTri, gripPaint)
+        canvas.drawPath(rightTri, gripPaint)
         // Corner brackets at the four corners of the camera
         // image — the framing corners.
         val arm = 36f * density

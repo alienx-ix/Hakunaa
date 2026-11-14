@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Matrix
 import android.graphics.RectF
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -136,11 +135,11 @@ class BookScannerActivity : AppCompatActivity() {
     private var selectedSide = SpineLineView.SIDE_LEFT
     private var spineFraction = 0.5f
 
-    // Spirit Level (v0.1.99): the 2D bullseye in the All
-    // Features spot (far left of the capture row). Display-only,
-    // always on — it shows the phone's tilt live so the user
-    // holds the book level. Same sensor pattern as the main
-    // scanner, but no Settings toggle here.
+    // Spirit Level (v0.1.101): the 2D bullseye below the
+    // capture button. Display-only, always on — it shows the
+    // phone's tilt live so the user holds the book level.
+    // Same sensor pattern as the main scanner, but no Settings
+    // toggle here.
     private var sensorManager: SensorManager? = null
     private var levelSensor: Sensor? = null
     private var smoothRoll = 0f
@@ -344,15 +343,14 @@ class BookScannerActivity : AppCompatActivity() {
                 selectedSide = side
                 spineLine().selectedSide = side
                 findViewById<TextView>(R.id.tvStatus).text =
-                    if (side == SpineLineView.SIDE_LEFT) "Single — top page (A) selected, tap Capture"
-                    else "Single — bottom page (B) selected, tap Capture"
+                    if (side == SpineLineView.SIDE_LEFT) "Single — left page (A) selected, tap Capture"
+                    else "Single — right page (B) selected, tap Capture"
             }
         }
         // The spine line lives inside the camera image (the
         // fitCenter bars on the sides are not part of the book).
         findViewById<PreviewView>(R.id.previewView).post {
             spineLine().contentRect = previewContentRect()
-            updatePreviewOverlays()
         }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
@@ -416,18 +414,6 @@ class BookScannerActivity : AppCompatActivity() {
         }
     }
 
-    /** The Rotate hint and the Single / Double pill sit ON the
-     *  camera image (like the CamScanner screenshot), not on
-     *  the container's edges — the PreviewView can be taller
-     *  than the 3:4 image, so shift both pills by the top
-     *  letterbox bar: the hint down to the image top, the
-     *  pill up to the image bottom. */
-    private fun updatePreviewOverlays() {
-        val contentTop = previewContentRect().top
-        findViewById<View>(R.id.rotateHintPill).translationY = contentTop
-        findViewById<View>(R.id.singleDoublePill).translationY = -contentTop
-    }
-
     private fun setDoubleMode(double: Boolean) {
         doubleMode = double
         // (The locals are named *_view: a local called "double"
@@ -435,7 +421,7 @@ class BookScannerActivity : AppCompatActivity() {
         val singleView = findViewById<TextView>(R.id.tvSingle)
         val doubleView = findViewById<TextView>(R.id.tvDouble)
         if (double) {
-            doubleView.background = getDrawable(R.drawable.mode_tab_selected)
+            doubleView.background = getDrawable(R.drawable.mode_single_double_selected)
             doubleView.setTextColor(getColor(android.R.color.white))
             doubleView.setTypeface(null, android.graphics.Typeface.BOLD)
             singleView.background = null
@@ -445,7 +431,7 @@ class BookScannerActivity : AppCompatActivity() {
             findViewById<TextView>(R.id.tvStatus).text =
                 "Double — both pages at once (A then B)"
         } else {
-            singleView.background = getDrawable(R.drawable.mode_tab_selected)
+            singleView.background = getDrawable(R.drawable.mode_single_double_selected)
             singleView.setTextColor(getColor(android.R.color.white))
             singleView.setTypeface(null, android.graphics.Typeface.BOLD)
             doubleView.background = null
@@ -488,10 +474,8 @@ class BookScannerActivity : AppCompatActivity() {
                 val cameraProvider = cameraProviderFuture.get()
                 this.cameraProvider = cameraProvider
                 val preview = Preview.Builder()
-                    // The sensor's native 4:3 aspect — in this
-                    // portrait activity it shows as a tall 3:4
-                    // band, the landscape book rotated inside
-                    // it (A on top, B at the bottom).
+                    // The sensor's native 4:3 aspect, landscape —
+                    // the widest field of view for a spread.
                     .setTargetAspectRatio(AspectRatio.RATIO_4_3)
                     .build().also {
                         it.setSurfaceProvider(findViewById<PreviewView>(R.id.previewView).surfaceProvider)
@@ -528,22 +512,20 @@ class BookScannerActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
-    /** The preview is 3:4 fitCenter inside the PreviewView
-     *  (a portrait activity shows the 4:3 sensor as a tall
-     *  3:4 band), so the PreviewView can be taller than the
-     *  image — the top and bottom are black bars. Only the
-     *  image rect holds the book. */
+    /** The preview is 4:3 fitCenter inside the full-screen
+     *  PreviewView, so the sides are black bars in landscape.
+     *  Only the image rect holds the book. */
     private fun previewContentRect(): RectF {
         val previewView = findViewById<PreviewView>(R.id.previewView)
         val w = previewView.width.toFloat()
         val h = previewView.height.toFloat()
-        // Portrait preview: 3 wide, 4 tall.
-        val contentH = w * 4f / 3f
-        return if (contentH <= h) {
-            RectF(0f, (h - contentH) / 2f, w, (h + contentH) / 2f)
-        } else {
-            val contentW = h * 3f / 4f
+        // Landscape preview: 4 wide, 3 tall.
+        val contentW = h * 4f / 3f
+        return if (contentW <= w) {
             RectF((w - contentW) / 2f, 0f, (w + contentW) / 2f, h)
+        } else {
+            val contentH = w * 3f / 4f
+            RectF(0f, (h - contentH) / 2f, w, (h + contentH) / 2f)
         }
     }
 
@@ -696,27 +678,13 @@ class BookScannerActivity : AppCompatActivity() {
      *  ticks up when it lands, like a professional scanner. */
     private fun processBookPhoto(photoFile: File) {
         try {
-            var bitmap = BitmapFactory.decodeFile(photoFile.absolutePath)
+            val bitmap = BitmapFactory.decodeFile(photoFile.absolutePath)
             if (bitmap == null) {
                 runOnUiThread {
                     isCapturing = false
                     findViewById<TextView>(R.id.tvStatus).text = "Couldn't read that photo — try again"
                 }
                 return
-            }
-            // Portrait activity (v0.1.99): the sensor image can
-            // come back portrait — the split needs a LANDSCAPE
-            // spread, so turn it to landscape first. (The
-            // sensor is landscape, so this is normally a no-op;
-            // it is only a safety net.)
-            if (bitmap.height > bitmap.width) {
-                val matrix = Matrix()
-                matrix.postRotate(90f)
-                val rotated = Bitmap.createBitmap(
-                    bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
-                )
-                bitmap.recycle()
-                bitmap = rotated
             }
             val split = DocumentDetector.splitSpread(bitmap, spineFraction)
             bitmap.recycle()

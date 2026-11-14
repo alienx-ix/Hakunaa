@@ -630,16 +630,11 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
-## v0.1.100 — Book EXACT like the CamScanner screenshot (user: "totally wrong" on v0.1.99)
+## v0.1.101 — Spirit Level in Book (on the v0.1.98 base)
 
-- **What was wrong in v0.1.99:** the preview was a short landscape band with a VERTICAL spine. The screenshot shows a TALL portrait preview with the book ROTATED inside it.
-- **Fix:** the preview is a TALL 3:4 portrait band filling the middle of the portrait screen; the spine is now HORIZONTAL — page A on TOP, page B at the BOTTOM, dashed line across the middle, drag moves it UP / DOWN, tap picks top (A) / bottom (B). `SpineLineView` rewritten for horizontal (spineFraction = fraction of the image HEIGHT, maps straight onto the landscape sensor image's width for the split). `previewContentRect()` fixed to 3:4 portrait (was wrongly computing a landscape rect). The Rotate hint and the Single / Double pill are shifted onto the image itself in code (`updatePreviewOverlays`), not the container edges. Screen still NEVER rotates; menus stay portrait.
-
-## v0.1.99 — Book redesigned CamScanner-style, NO screen rotation
-
-- **No more forced rotation (user pick):** BookScannerActivity is PORTRAIT now — the screen never rotates when opening Book. The camera preview is a landscape (4:3) band in the middle of the portrait screen, with a "Rotate your camera to a landscape view" hint pill, like CamScanner. Simple.
-- **CamScanner Book UI:** top bar (X close + Torch); corner brackets, dashed spine, A / B letters on the preview; Single / Double pill at the bottom centre of the preview; the latest-page thumbnail sits ABOVE the capture button; Spirit Level (2D bullseye, live, always on) in the All Features spot at the far left of the capture row; Pages (count) left, Capture centre, Save PDF right; status line at the bottom.
-- **Capture still works:** the split needs a landscape spread, so a portrait sensor image is rotated to landscape first (normally a no-op — the sensor is landscape). Spine stays MANUAL (drag only), A/B split, Enhance → Preview → Export unchanged.
+- **Base:** v0.1.98 is the latest (v0.1.99 / v0.1.100 Book redesigns erased per user instruction — "totally waste"). Book is back to the landscape design (left/right strips, vertical spine). This version adds ONLY the Level on top of it.
+- **Level:** the 2D bullseye (SpiritLevelView, 56dp) below the Capture button in the right strip. Display-only, always on — it shows the phone's tilt live (traffic-light colours, same as the main scanner) so the user holds the book level. Sensor listens only while the Book screen is visible (starts in onResume, stops in onPause).
+- **Single / Double, exactly like the CamScanner screenshot:** moved out of the left strip to a HORIZONTAL pill at the bottom centre of the preview (above the status line) — dark outer pill, the selected mode a GREY pill (bold white text), the other plain. New drawable `mode_single_double_selected.xml` (#616161, 16dp corners); `setDoubleMode()` uses it instead of the teal `mode_tab_selected`.
 
 ## v0.1.98 — Status bar done the professional way (transparent + dynamic)
 
