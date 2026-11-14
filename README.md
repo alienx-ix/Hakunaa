@@ -630,6 +630,12 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.82 — Rotate renamed, Draw + Sign fully working
+
+- "Left" is now "Rotate" in the Enhance bottom bar.
+- Draw: freehand markup on the page — 5 pen colours, 3 pen sizes, Undo, Clear, Done. The drawing is saved onto the page (each page keeps its own drawing; it rotates with the page).
+- Sign: draw a signature in a pad, then drag it to where it belongs on the page (Remove / Done). The signature is saved onto the page (each page keeps its own).
+
 ## v0.1.81 — Confirm button is symbol-only (tick / arrow)
 
 The confirm button is a big round teal button (56dp), symbol only, no text. Finish shows a tick, Continue shows a right arrow (the icon is set from the confirm label). It sits centred in the 72dp bar with an even 8dp margin — a little inside from the bottom and the sides, professional placement.

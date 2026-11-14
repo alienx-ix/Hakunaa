@@ -1,14 +1,21 @@
 package com.hakunaa.app.scanner
 
+import android.app.Dialog
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Matrix
+import android.graphics.RectF
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -40,14 +47,19 @@ import kotlin.math.abs
  *   each page keeps the filter picked for it.
  * - Crop (bottom bar, next to Adjust): re-crop the current
  *   page from the Filter section.
- * - Rotate Left.
+ * - Rotate (was "Left", renamed v0.1.82).
+ * - Draw (v0.1.82): freehand markup on the page — pen
+ *   colours + sizes, Undo, Clear. The drawing is saved onto
+ *   the page.
+ * - Sign (v0.1.82): draw a signature in a pad, then drag it
+ *   to where it belongs on the page. It is saved onto the page.
  * - The green checkmark saves the page with the chosen filter.
  *
  * The preview is a downsampled copy (≤1200 px), so picking a
  * filter or moving a slider updates at once; the save always
  * uses the full-resolution page. Not here (and not possible
  * offline): Extract Text (OCR) and To Word — those are cloud
- * features in CamScanner. Markup and Sign are later steps.
+ * features in CamScanner.
  */
 class EnhanceActivity : AppCompatActivity() {
 
@@ -98,6 +110,38 @@ class EnhanceActivity : AppCompatActivity() {
     // "Apply to all pages", when ticked, overrides this on
     // save and puts the current page's filter on every page.
     private val pageFilters = mutableMapOf<String, ImageEnhancer.Filter>()
+
+    // Draw + Sign (v0.1.82) — each page keeps its own drawing
+    // and its own placed signature, in normalized coordinates
+    // (0..1 relative to the page), so they map to any size.
+    private val pageDrawings = mutableMapOf<String, MutableList<DrawView.Stroke>>()
+
+    /** A placed signature: its bitmap + its normalized rect
+     *  [left, top, right, bottom] on the page. */
+    private data class SignaturePlacement(
+        val bitmap: Bitmap,
+        var rectNorm: FloatArray
+    )
+
+    private val pageSignatures = mutableMapOf<String, SignaturePlacement>()
+
+    // Draw mode state.
+    private var drawMode = false
+    private val drawColors = listOf(
+        Color.BLACK, Color.parseColor("#D32F2F"), Color.parseColor("#1976D2"),
+        Color.parseColor("#388E3C"), Color.parseColor("#00BFA5")
+    )
+    private var drawColorIndex = 0
+    // Pen sizes in dp: thin / medium / thick.
+    private val drawSizesDp = listOf(5f, 9f, 15f)
+    private var drawSizeIndex = 1
+    private val drawDotViews = mutableListOf<ImageView>()
+    private val drawDotDrawables = mutableListOf<GradientDrawable>()
+
+    // Signature drag state (view pixels, within pageFrame).
+    private var sigDragOffsetX = 0f
+    private var sigDragOffsetY = 0f
+    private var sigDragging = false
 
     // Re-crop the current page from the Filter section
     // (v0.1.58): the Crop screen returns the cropped file,
@@ -190,7 +234,7 @@ class EnhanceActivity : AppCompatActivity() {
         loadPageBitmap(path)
         setupSwipe()
 
-        findViewById<LinearLayout>(R.id.btnRotateLeft).setOnClickListener { rotateLeft() }
+        findViewById<LinearLayout>(R.id.btnRotate).setOnClickListener { rotateLeft() }
         val btnSave = findViewById<ImageButton>(R.id.btnSave)
         btnSave.setOnClickListener { save() }
         // Symbol only, no text (user pick): the icon says what
@@ -213,6 +257,16 @@ class EnhanceActivity : AppCompatActivity() {
         // Crop — re-crop the current page from the Filter
         // section, right next to Adjust.
         findViewById<LinearLayout>(R.id.btnCrop).setOnClickListener { openCrop() }
+        // Draw — freehand markup (v0.1.82).
+        findViewById<LinearLayout>(R.id.btnDraw).setOnClickListener { toggleDrawMode() }
+        setupDrawPanel()
+        // Sign — signature pad + placement (v0.1.82).
+        findViewById<LinearLayout>(R.id.btnSign).setOnClickListener { openSignaturePad() }
+        findViewById<TextView>(R.id.btnSignRemove).setOnClickListener { removeSignature() }
+        findViewById<TextView>(R.id.btnSignDone).setOnClickListener {
+            findViewById<View>(R.id.signPanel).visibility = View.GONE
+        }
+        setupSignatureDrag()
         setupAdjustSliders()
     }
 
@@ -262,6 +316,8 @@ class EnhanceActivity : AppCompatActivity() {
                     applyFilterToPreview(selectedFilter)
                     buildFilterThumbnails(thumb)
                     updatePageIndicator()
+                    // This page's own drawing + signature.
+                    refreshOverlays()
                     onReady?.invoke()
                 }
             } catch (_: Throwable) {
@@ -337,9 +393,13 @@ class EnhanceActivity : AppCompatActivity() {
         if (next == currentPageIndex) return
         val pageView = findViewById<ImageView>(R.id.ivPage)
         val width = pageView.width.toFloat()
-        // Keep the filter picked for the page being left.
+        // Keep the filter picked for the page being left, and
+        // its drawing + signature.
         val current = imagePath
-        if (current != null) pageFilters[current] = selectedFilter
+        if (current != null) {
+            pageFilters[current] = selectedFilter
+            storeCurrentOverlays()
+        }
         val direction = if (next > currentPageIndex) -1f else 1f
         currentPageIndex = next
         imagePath = allPages[next]
@@ -594,11 +654,26 @@ class EnhanceActivity : AppCompatActivity() {
                         preview.recycle()
                         return@runOnUiThread
                     }
+                    val oldW = bmp.width
+                    val oldH = bmp.height
                     bitmap?.recycle()
                     previewBitmap?.recycle()
                     bitmap = rotated
                     previewBitmap = preview
                     findViewById<ImageView>(R.id.ivPage).setImageBitmap(previewBitmap)
+                    // The drawing + signature rotate with the
+                    // page (v0.1.82), so they stay where the
+                    // user put them.
+                    val drawView = findViewById<DrawView>(R.id.drawView)
+                    drawView.rotateStrokesCCW(oldW, oldH)
+                    drawView.setContentSize(rotated.width, rotated.height)
+                    if (path != null) {
+                        pageDrawings[path] = drawView.getStrokes().toMutableList()
+                        pageSignatures[path]?.let { sig ->
+                            sig.rectNorm = DrawView.rotateRectCCW(sig.rectNorm)
+                        }
+                    }
+                    refreshOverlays()
                     applyFilterToPreview(selectedFilter)
                 }
             } catch (_: Throwable) {
@@ -606,15 +681,286 @@ class EnhanceActivity : AppCompatActivity() {
         }.start()
     }
 
+    // ---------- Draw + Sign (v0.1.82) ----------
+
+    private fun dpToPx(dp: Float): Float =
+        dp * resources.displayMetrics.density
+
+    /** The page bitmap's displayed rect inside pageFrame
+     *  (fitCenter): [left, top, width, height] in view pixels. */
+    private fun displayedRect(): FloatArray {
+        val frame = findViewById<View>(R.id.pageFrame)
+        val bmp = bitmap
+        if (bmp == null || frame.width <= 0 || frame.height <= 0) {
+            return floatArrayOf(0f, 0f, frame.width.toFloat(), frame.height.toFloat())
+        }
+        val scale = minOf(
+            frame.width.toFloat() / bmp.width,
+            frame.height.toFloat() / bmp.height
+        )
+        val dw = bmp.width * scale
+        val dh = bmp.height * scale
+        return floatArrayOf((frame.width - dw) / 2f, (frame.height - dh) / 2f, dw, dh)
+    }
+
+    /** Load the current page's drawing + signature into the
+     *  overlays (called after a page loads, a swipe, or a
+     *  rotation). */
+    private fun refreshOverlays() {
+        val bmp = bitmap ?: return
+        val path = imagePath
+        val drawView = findViewById<DrawView>(R.id.drawView)
+        drawView.setContentSize(bmp.width, bmp.height)
+        drawView.setStrokes(if (path == null) emptyList() else pageDrawings[path] ?: emptyList())
+        layoutSignatureOverlay()
+    }
+
+    /** Store the on-screen drawing into this page's slot, so
+     *  a swipe or a save keeps it. The signature rect is
+     *  already kept live while dragging. */
+    private fun storeCurrentOverlays() {
+        val path = imagePath ?: return
+        val drawView = findViewById<DrawView>(R.id.drawView)
+        pageDrawings[path] = drawView.getStrokes().toMutableList()
+    }
+
+    /** Enter / leave Draw mode. While drawing, the DrawView
+     *  sits over the page and takes the touches (so a stroke
+     *  never becomes a page swipe), and the draw panel shows
+     *  colours, size, Undo, Clear and Done. */
+    private fun toggleDrawMode() {
+        drawMode = !drawMode
+        val drawView = findViewById<DrawView>(R.id.drawView)
+        val panel = findViewById<View>(R.id.drawPanel)
+        if (drawMode) {
+            // Close the Adjust panel first — the two panels
+            // never show together.
+            setAdjustPanelVisible(false)
+            val bmp = bitmap
+            if (bmp != null) drawView.setContentSize(bmp.width, bmp.height)
+            drawView.drawColor = drawColors[drawColorIndex]
+            drawView.strokeWidthPx = dpToPx(drawSizesDp[drawSizeIndex])
+            drawView.visibility = View.VISIBLE
+            panel.visibility = View.VISIBLE
+            findViewById<ImageView>(R.id.ivDrawIcon)
+                .setColorFilter(getColor(R.color.hakunaa_teal))
+            findViewById<TextView>(R.id.tvDrawLabel)
+                .setTextColor(getColor(R.color.hakunaa_teal))
+        } else {
+            storeCurrentOverlays()
+            drawView.visibility = View.GONE
+            panel.visibility = View.GONE
+            findViewById<ImageView>(R.id.ivDrawIcon).clearColorFilter()
+            findViewById<TextView>(R.id.tvDrawLabel)
+                .setTextColor(getColor(android.R.color.white))
+        }
+    }
+
+    /** Build the pen colour dots and wire the draw panel. */
+    private fun setupDrawPanel() {
+        val row = findViewById<LinearLayout>(R.id.colorRow)
+        val dotSize = dpToPx(28f).toInt()
+        val dotMargin = dpToPx(6f).toInt()
+        for ((index, color) in drawColors.withIndex()) {
+            val dot = ImageView(this)
+            val params = LinearLayout.LayoutParams(dotSize, dotSize)
+            params.marginEnd = dotMargin
+            dot.layoutParams = params
+            val drawable = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(color)
+            }
+            dot.background = drawable
+            drawDotViews.add(dot)
+            drawDotDrawables.add(drawable)
+            dot.setOnClickListener { selectDrawColor(index) }
+            row.addView(dot)
+        }
+        selectDrawColor(drawColorIndex)
+        updateDrawSizeLabel()
+        findViewById<TextView>(R.id.btnDrawSize).setOnClickListener {
+            drawSizeIndex = (drawSizeIndex + 1) % drawSizesDp.size
+            updateDrawSizeLabel()
+            findViewById<DrawView>(R.id.drawView).strokeWidthPx =
+                dpToPx(drawSizesDp[drawSizeIndex])
+        }
+        findViewById<TextView>(R.id.btnDrawUndo).setOnClickListener {
+            findViewById<DrawView>(R.id.drawView).undo()
+        }
+        findViewById<TextView>(R.id.btnDrawClear).setOnClickListener {
+            findViewById<DrawView>(R.id.drawView).clearAll()
+        }
+        findViewById<TextView>(R.id.btnDrawDone).setOnClickListener {
+            if (drawMode) toggleDrawMode()
+        }
+    }
+
+    private fun selectDrawColor(index: Int) {
+        drawColorIndex = index
+        findViewById<DrawView>(R.id.drawView).drawColor = drawColors[index]
+        for ((i, drawable) in drawDotDrawables.withIndex()) {
+            if (i == index) drawable.setStroke(dpToPx(3f).toInt(), Color.WHITE)
+            else drawable.setStroke(0, Color.TRANSPARENT)
+            drawDotViews[i].background = drawable
+        }
+    }
+
+    private fun updateDrawSizeLabel() {
+        val name = listOf("S", "M", "L")[drawSizeIndex]
+        findViewById<TextView>(R.id.btnDrawSize).text = "Size: $name"
+    }
+
+    /** Open the signature pad: draw a signature, then place
+     *  it on the page. */
+    private fun openSignaturePad() {
+        val dialog = Dialog(this)
+        dialog.setContentView(R.layout.dialog_signature)
+        dialog.window?.setLayout(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        val pad = dialog.findViewById<DrawView>(R.id.signPad)
+        // The pad's content is the pad itself.
+        pad.post { pad.setContentSize(pad.width, pad.height) }
+        pad.drawColor = Color.BLACK
+        pad.strokeWidthPx = dpToPx(6f)
+        dialog.findViewById<TextView>(R.id.btnSignPadClear).setOnClickListener {
+            pad.clearAll()
+        }
+        dialog.findViewById<TextView>(R.id.btnSignPadCancel).setOnClickListener {
+            dialog.dismiss()
+        }
+        dialog.findViewById<TextView>(R.id.btnSignPadUse).setOnClickListener {
+            if (!pad.hasStrokes()) {
+                Toast.makeText(this, "Draw your signature first", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val sigBmp = pad.renderCroppedBitmap()
+            dialog.dismiss()
+            if (sigBmp == null) {
+                Toast.makeText(this, "Couldn't read the signature", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            placeSignature(sigBmp)
+        }
+        dialog.show()
+    }
+
+    /** Put a signature bitmap on the current page: bottom
+     *  right by default (35% of the page width), draggable
+     *  after that. */
+    private fun placeSignature(sigBmp: Bitmap) {
+        val path = imagePath ?: return
+        val bmp = bitmap ?: return
+        // Drop any old signature bitmap for this page first.
+        pageSignatures[path]?.bitmap?.recycle()
+        val wFrac = 0.35f
+        val hFrac = wFrac * sigBmp.height / sigBmp.width * bmp.width / bmp.height
+        val top = (0.88f - hFrac).coerceAtLeast(0.05f)
+        val rect = floatArrayOf(0.60f, top, 0.95f, 0.88f)
+        pageSignatures[path] = SignaturePlacement(sigBmp, rect)
+        layoutSignatureOverlay()
+        findViewById<View>(R.id.signPanel).visibility = View.VISIBLE
+    }
+
+    /** Position the signature overlay from its stored
+     *  normalized rect (and show / hide it). */
+    private fun layoutSignatureOverlay() {
+        val path = imagePath
+        val sig = if (path == null) null else pageSignatures[path]
+        val overlay = findViewById<ImageView>(R.id.ivSignature)
+        if (sig == null || bitmap == null) {
+            overlay.visibility = View.GONE
+            return
+        }
+        val r = displayedRect()
+        val rect = sig.rectNorm
+        val w = ((rect[2] - rect[0]) * r[2]).toInt().coerceAtLeast(1)
+        val h = ((rect[3] - rect[1]) * r[3]).toInt().coerceAtLeast(1)
+        val params = FrameLayout.LayoutParams(w, h)
+        params.leftMargin = (r[0] + rect[0] * r[2]).toInt()
+        params.topMargin = (r[1] + rect[1] * r[3]).toInt()
+        overlay.layoutParams = params
+        if (overlay.drawable == null || overlay.getTag(R.id.ivSignature) !== sig.bitmap) {
+            overlay.setImageBitmap(sig.bitmap)
+            overlay.setTag(R.id.ivSignature, sig.bitmap)
+        }
+        overlay.visibility = View.VISIBLE
+    }
+
+    /** Drag the placed signature around the page. The stored
+     *  normalized rect follows the finger, clamped inside
+     *  the page. */
+    private fun setupSignatureDrag() {
+        val overlay = findViewById<ImageView>(R.id.ivSignature)
+        overlay.setOnTouchListener { _, event ->
+            val path = imagePath ?: return@setOnTouchListener false
+            val sig = pageSignatures[path] ?: return@setOnTouchListener false
+            val frame = findViewById<View>(R.id.pageFrame)
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    sigDragOffsetX = event.x
+                    sigDragOffsetY = event.y
+                    sigDragging = true
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (!sigDragging) return@setOnTouchListener false
+                    val r = displayedRect()
+                    val rect = sig.rectNorm
+                    val wFrac = rect[2] - rect[0]
+                    val hFrac = rect[3] - rect[1]
+                    // The finger's position in the frame, minus
+                    // where it grabbed the overlay, is the
+                    // overlay's new top-left. Convert it to a
+                    // normalized top-left, clamped so the
+                    // signature stays on the page.
+                    val loc = IntArray(2)
+                    frame.getLocationOnScreen(loc)
+                    val fx = event.rawX - loc[0] - sigDragOffsetX
+                    val fy = event.rawY - loc[1] - sigDragOffsetY
+                    val nx = ((fx - r[0]) / r[2]).coerceIn(0f, 1f - wFrac)
+                    val ny = ((fy - r[1]) / r[3]).coerceIn(0f, 1f - hFrac)
+                    sig.rectNorm = floatArrayOf(nx, ny, nx + wFrac, ny + hFrac)
+                    layoutSignatureOverlay()
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    sigDragging = false
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    private fun removeSignature() {
+        val path = imagePath ?: return
+        pageSignatures[path]?.bitmap?.recycle()
+        pageSignatures.remove(path)
+        findViewById<ImageView>(R.id.ivSignature).visibility = View.GONE
+        findViewById<View>(R.id.signPanel).visibility = View.GONE
+    }
+
+    // ---------- end Draw + Sign ----------
+
     private fun save() {
         val bmp = bitmap ?: return
         val currentPath = imagePath
+        // Keep the on-screen drawing in this page's slot
+        // before the background thread reads it.
+        storeCurrentOverlays()
         // "Apply to all pages" ticked: the current page's
         // filter goes on every page. Unticked: each page keeps
         // the filter picked for it while swiping (default
         // NO_SHADOW for a page never touched).
         val applyAll = findViewById<CheckBox>(R.id.cbApplyAll).isChecked && allPages.size > 1
         val currentFilter = selectedFilter
+        // Snapshot the drawings + signatures now (on the UI
+        // thread) — the background thread must not read the
+        // live maps while the user could still be drawing.
+        val drawingsSnapshot = pageDrawings.mapValues { it.value.toList() }
+        val signaturesSnapshot = pageSignatures.toMap()
         Thread {
             try {
                 val docName = findViewById<EditText>(R.id.etDocName).text.toString()
@@ -649,10 +995,43 @@ class EnhanceActivity : AppCompatActivity() {
                     if (pageBmp == null) continue
                     try {
                         val filtered = ImageEnhancer.apply(pageBmp, pageFilter)
-                        val final = ImageEnhancer.applyAdjustments(
+                        var final = ImageEnhancer.applyAdjustments(
                             filtered, brightness, contrast, sharpness
                         )
                         if (final != filtered) filtered.recycle()
+                        // Draw + Sign (v0.1.82): the drawing and
+                        // the placed signature go ON TOP of the
+                        // filtered page, so they stay crisp.
+                        // `final` is always a fresh bitmap (never
+                        // the input), so copying + recycling it
+                        // is safe.
+                        val strokes = drawingsSnapshot[path]
+                        val sig = signaturesSnapshot[path]
+                        if (!strokes.isNullOrEmpty() || sig != null) {
+                            val composited =
+                                final.copy(Bitmap.Config.ARGB_8888, true)
+                            final.recycle()
+                            val canvas = Canvas(composited)
+                            if (!strokes.isNullOrEmpty()) {
+                                DrawView.renderStrokesToBitmap(
+                                    strokes, composited.width, composited.height
+                                )?.let { overlay ->
+                                    canvas.drawBitmap(overlay, 0f, 0f, null)
+                                    overlay.recycle()
+                                }
+                            }
+                            if (sig != null) {
+                                val r = sig.rectNorm
+                                val dst = RectF(
+                                    r[0] * composited.width,
+                                    r[1] * composited.height,
+                                    r[2] * composited.width,
+                                    r[3] * composited.height
+                                )
+                                canvas.drawBitmap(sig.bitmap, null, dst, null)
+                            }
+                            final = composited
+                        }
                         val out = File(
                             cacheDir,
                             "scan_enhanced_${System.currentTimeMillis()}_$index.jpg"
@@ -694,5 +1073,6 @@ class EnhanceActivity : AppCompatActivity() {
         bitmap?.recycle()
         previewBitmap?.recycle()
         currentPreview?.recycle()
+        for (sig in pageSignatures.values) sig.bitmap.recycle()
     }
 }
