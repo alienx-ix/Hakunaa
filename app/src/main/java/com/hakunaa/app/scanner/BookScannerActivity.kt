@@ -29,6 +29,8 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.hakunaa.app.R
 import com.hakunaa.app.core.FileUtils
 import java.io.File
@@ -166,6 +168,18 @@ class BookScannerActivity : AppCompatActivity() {
 
     private fun spineLine(): SpineLineView =
         findViewById(R.id.spineLine)
+
+    /** Hide the status bar (v0.1.108): Book is a full-screen
+     *  camera and the user does not want the clock / battery
+     *  strip on it. A swipe from the top reveals it briefly
+     *  (transient), then it hides again. Called in onCreate
+     *  and onResume so it stays hidden on every return. */
+    private fun hideStatusBar() {
+        val controller = WindowInsetsControllerCompat(window, window.decorView)
+        controller.hide(WindowInsetsCompat.Type.statusBars())
+        controller.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    }
 
     private val requestCameraPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -323,13 +337,15 @@ class BookScannerActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_book_scanner)
 
-        // Status bar (v0.1.97): keep it visible, no overlap.
-        // Book is a full-screen camera: the preview must run
-        // truly edge-to-edge behind the status bar (v0.1.102)
-        // — no inset padding, no black band at the top, a
-        // bigger capture area. The buttons place themselves
-        // below the bar with explicit margins in the layout.
+        // Status bar (v0.1.108): HIDDEN in Book — the user
+        // does not want the clock / battery strip on the
+        // camera screen. The preview already runs truly
+        // edge-to-edge (v0.1.102, no inset padding), so
+        // hiding the bar just frees the top strip; the
+        // buttons keep their explicit margins in the layout.
+        // A swipe from the top reveals it briefly.
         StatusBar.setup(this, false, applyInsets = false)
+        hideStatusBar()
         docName = "Hakunaa Book " + SimpleDateFormat("dd-MM-yyyy HH.mm", Locale.US).format(Date())
 
         findViewById<ImageButton>(R.id.btnClose).setOnClickListener { attemptLeave() }
@@ -393,6 +409,10 @@ class BookScannerActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         cameraResumed = true
+        // Keep the status bar hidden on every return (v0.1.108)
+        // — coming back from Enhance / Pages must not bring
+        // the clock strip back onto the camera.
+        hideStatusBar()
         // Returning from another screen left the preview BLACK
         // — the Preview use case never re-attached to the
         // recreated surface. Rebind fresh on every resume so

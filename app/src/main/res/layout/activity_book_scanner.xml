@@ -110,6 +110,7 @@
                 android:id="@+id/tvDouble"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
                 android:background="@drawable/mode_tab_selected"
                 android:paddingStart="12dp"
                 android:paddingEnd="12dp"
@@ -175,8 +176,8 @@
 
         <ImageButton
             android:id="@+id/btnTorch"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
             android:layout_alignParentTop="true"
             android:layout_centerHorizontal="true"
             android:layout_marginTop="36dp"
@@ -210,20 +211,21 @@
     </RelativeLayout>
 
     <!-- Back arrow (v0.1.102) — top-LEFT corner, over the
-         preview. v0.1.105: marginTop 20dp (was 36dp) — sits
-         a little higher, in the true top-left corner.
-         v0.1.104: it MUST be the LAST child in this file.
-         The left strip is clickable and covers the corner, so
-         when the arrow sat before the strips the strip ate
-         every tap and the back button did nothing. Last child
-         = topmost = receives the tap. -->
+         preview. v0.1.108: BIGGER (56dp, was 48dp) and
+         HIGHER (marginTop 12dp, was 20dp) — the status bar
+         is hidden now, so the arrow sits in the true top
+         corner. v0.1.104: it MUST be the LAST child in this
+         file. The left strip is clickable and covers the
+         corner, so when the arrow sat before the strips the
+         strip ate every tap and the back button did nothing.
+         Last child = topmost = receives the tap. -->
     <ImageButton
         android:id="@+id/btnClose"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
+        android:layout_width="56dp"
+        android:layout_height="56dp"
         android:layout_gravity="top|start"
         android:layout_marginStart="16dp"
-        android:layout_marginTop="20dp"
+        android:layout_marginTop="12dp"
         android:background="@drawable/circle_button_bg"
         android:contentDescription="Close"
         android:src="@drawable/ic_arrow_back"

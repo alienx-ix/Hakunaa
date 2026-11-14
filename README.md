@@ -630,6 +630,13 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.108 — Book status bar hidden + bigger back arrow (on v0.1.107)
+
+- **Status bar hidden in Book:** the clock / battery strip is gone from the camera screen (immersive — a swipe from the top reveals it briefly). It stays hidden on every return from Enhance / Pages, and the other screens are untouched.
+- **Back arrow, bigger and higher:** 48dp → 56dp, marginTop 20dp → 12dp — in the true top corner now that the status bar is gone. (Still the last layout child, so it stays topmost and tappable.)
+- **Torch, bigger too:** 48dp → 56dp, matching the arrow.
+- **Single/Double gap:** a little 4dp gap between the two buttons now, so they read as two separate choices instead of one block.
+
 ## v0.1.107 — Multiple texts per page (on v0.1.106)
 
 - **Texts no longer delete each other:** Add Text was a single slot per page — a second text recycled the first. Now each page holds a LIST of texts (same shape as multiple signatures since v0.1.92): every new text APPENDS and stacks a little lower, so it never lands on top of the last one. Tap any plain text to select it (box + X + handle come back on THAT text); Erase-tap removes just that one; Remove takes the selected one (or the most recent); Done locks ALL texts on the page. Every text is drawn into the saved PDF and persists across Enhance sessions via the store (textFiles/textRects lists).
