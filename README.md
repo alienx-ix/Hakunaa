@@ -630,6 +630,10 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.75 — Thumbnail review opens on the last page; Finish button; clear Apply-to-all tick
+
+Small corrections, all about the filter step being obvious. Tapping the Batch thumbnail now opens Enhance on the LAST captured page (so the user sees at once whether the latest capture came out right; swiping shows the earlier pages), while Done still opens on the FIRST page. The bottom-right confirm in Enhance is now a clear teal "Finish" button with the tick (one label for every flow — thumbnail review, Done, Single, Book — since it always finishes the filter step). And "Apply to all pages" has a bold white tick on teal when checked, so the tick is unmistakable.
+
 ## v0.1.74 — Capture flies to Done in Single + Batch, and a clearer Done button
 
 The same professional fly animation from Book now works in Single and Batch. Single: after the Filter (Enhance), the thumbnail flies to Done and then the export screen opens. Batch: right after Crop, the thumbnail flies to the right side of the capture row — where Import Images was — and the count ticks up when it lands. In Batch, once the first page is captured, Import Images goes away and a small thumbnail with the pages count takes its place, like CamScanner; tapping it opens the filters (Enhance) so the user can check them, then comes back and keeps capturing (the green check saves the filters and returns to the camera, it never jumps to Preview). The Done button is clearer now — bigger (48dp), teal with bold white text, and a plain count ("Done • 3 pages", "Done • 1 page"). In Book, a small thumbnail of the latest capture now sits beside the Pages count (like CamScanner) — tapping it opens Pages. Leaving a Batch with pages captured now asks first — "Discard batch?" — so a draft is never lost by an accidental Back or Close tap.

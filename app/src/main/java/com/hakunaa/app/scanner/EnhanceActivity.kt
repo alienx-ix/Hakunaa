@@ -17,6 +17,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import com.google.android.material.button.MaterialButton
 import com.hakunaa.app.R
 import java.io.File
 import java.text.SimpleDateFormat
@@ -178,7 +179,7 @@ class EnhanceActivity : AppCompatActivity() {
         setupSwipe()
 
         findViewById<LinearLayout>(R.id.btnRotateLeft).setOnClickListener { rotateLeft() }
-        findViewById<ImageButton>(R.id.btnSave).setOnClickListener { save() }
+        findViewById<MaterialButton>(R.id.btnSave).setOnClickListener { save() }
         // Adjust opens ONLY from its menu button — never on its
         // own after a capture. The panel stays hidden until the
         // user asks for it.

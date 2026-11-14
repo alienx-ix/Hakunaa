@@ -1794,14 +1794,18 @@ class ScannerActivity : AppCompatActivity() {
     /** Thumbnail → Filter (Enhance) for a mid-batch review
      *  (v0.1.74): same Enhance screen as Done, but the result
      *  comes back to the camera (reviewEnhanceLauncher) so the
-     *  user can keep capturing — it never goes to Preview. */
+     *  user can keep capturing — it never goes to Preview.
+     *  It opens on the LAST captured page (v0.1.75), so the
+     *  user sees at once whether the latest capture came out
+     *  right; swiping shows the earlier pages. Done, by
+     *  contrast, opens on the FIRST page. */
     private fun openReviewEnhance() {
         if (pages.isEmpty()) {
             Toast.makeText(this, "Scan at least one page first", Toast.LENGTH_SHORT).show()
             return
         }
         val intent = Intent(this, EnhanceActivity::class.java)
-        intent.putExtra(EnhanceActivity.EXTRA_IMAGE_PATH, pages[0].absolutePath)
+        intent.putExtra(EnhanceActivity.EXTRA_IMAGE_PATH, pages.last().absolutePath)
         intent.putStringArrayListExtra(
             EnhanceActivity.EXTRA_PAGE_PATHS,
             ArrayList(pages.map { it.absolutePath })

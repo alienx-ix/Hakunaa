@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Apply-to-all checkbox (v0.1.75): bold white tick on teal
+     when checked, white outline when not — the tick is
+     always unmistakable. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_checked="true" android:drawable="@drawable/checkbox_checked" />
+    <item android:drawable="@drawable/checkbox_unchecked" />
+</selector>
