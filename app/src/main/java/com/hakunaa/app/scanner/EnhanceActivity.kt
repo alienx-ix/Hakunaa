@@ -60,6 +60,12 @@ class EnhanceActivity : AppCompatActivity() {
         // batch end step, where one filter choice covers the
         // whole batch.
         const val EXTRA_APPLY_ALL_CHECKED = "apply_all_checked"
+        // The confirm button's label (v0.1.76): "Continue" when
+        // opened from the Batch thumbnail (it returns to the
+        // camera to keep capturing), "Finish" everywhere else
+        // (Done / Single / Book — it goes on to Preview /
+        // Export). Defaults to "Finish" when not given.
+        const val EXTRA_CONFIRM_LABEL = "confirm_label"
     }
 
     private var bitmap: Bitmap? = null
@@ -180,6 +186,12 @@ class EnhanceActivity : AppCompatActivity() {
 
         findViewById<LinearLayout>(R.id.btnRotateLeft).setOnClickListener { rotateLeft() }
         findViewById<MaterialButton>(R.id.btnSave).setOnClickListener { save() }
+        // The confirm button says what happens next (v0.1.76):
+        // "Continue" from a thumbnail review (back to the
+        // camera), "Finish" from Done / Single / Book (on to
+        // Preview / Export). The tick icon stays, as before.
+        findViewById<MaterialButton>(R.id.btnSave).text =
+            intent.getStringExtra(EXTRA_CONFIRM_LABEL) ?: "Finish"
         // Adjust opens ONLY from its menu button — never on its
         // own after a capture. The panel stays hidden until the
         // user asks for it.

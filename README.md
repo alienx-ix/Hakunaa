@@ -630,6 +630,10 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.76 — Continue (thumbnail) vs Finish (Done); Markup + Sign removed for space
+
+Correction to v0.1.75's single "Finish": the filter confirm now says what actually happens next. From the Batch thumbnail it says "Continue" — pressing it returns to the camera to keep capturing. From Done (and Single / Book) it says "Finish" — pressing it goes on to Preview / Export. Markup and Sign are removed from the Enhance bottom bar (they are later steps and were only greyed-out labels taking space), so the Continue / Finish button sits cleanly at the bottom right: Left / Crop / Adjust / Finish.
+
 ## v0.1.75 — Thumbnail review opens on the last page; Finish button; clear Apply-to-all tick
 
 Small corrections, all about the filter step being obvious. Tapping the Batch thumbnail now opens Enhance on the LAST captured page (so the user sees at once whether the latest capture came out right; swiping shows the earlier pages), while Done still opens on the FIRST page. The bottom-right confirm in Enhance is now a clear teal "Finish" button with the tick (one label for every flow — thumbnail review, Done, Single, Book — since it always finishes the filter step). And "Apply to all pages" has a bold white tick on teal when checked, so the tick is unmistakable.

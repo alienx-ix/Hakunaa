@@ -1788,6 +1788,7 @@ class ScannerActivity : AppCompatActivity() {
             ArrayList(pages.map { it.absolutePath })
         )
         intent.putExtra(EnhanceActivity.EXTRA_APPLY_ALL_CHECKED, true)
+        intent.putExtra(EnhanceActivity.EXTRA_CONFIRM_LABEL, "Finish")
         enhanceLauncher.launch(intent)
     }
 
@@ -1811,6 +1812,7 @@ class ScannerActivity : AppCompatActivity() {
             ArrayList(pages.map { it.absolutePath })
         )
         intent.putExtra(EnhanceActivity.EXTRA_APPLY_ALL_CHECKED, true)
+        intent.putExtra(EnhanceActivity.EXTRA_CONFIRM_LABEL, "Continue")
         reviewEnhanceLauncher.launch(intent)
     }
 

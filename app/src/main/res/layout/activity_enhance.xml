@@ -274,7 +274,10 @@
             android:textSize="13sp" />
     </LinearLayout>
 
-    <!-- Bottom bar: Left / Markup / Extract Text / Sign / Save -->
+    <!-- Bottom bar: Left / Crop / Adjust / Finish (v0.1.76:
+         Markup and Sign were removed — they are later steps
+         and only took space; the Finish / Continue button
+         needs the room). -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="72dp"
@@ -306,28 +309,6 @@
                 android:textSize="12sp" />
         </LinearLayout>
 
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="24dp"
-            android:gravity="center"
-            android:orientation="vertical">
-
-            <ImageView
-                android:layout_width="26dp"
-                android:layout_height="26dp"
-                android:src="@drawable/ic_markup"
-                android:tint="#808080" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="Markup"
-                android:textColor="#808080"
-                android:textSize="12sp" />
-        </LinearLayout>
-
         <!-- Crop — re-crop the current page from the Filter
              section (v0.1.58). It takes the place of Extract
              Text in the bottom menu: Extract Text (OCR) is a
@@ -355,28 +336,6 @@
                 android:layout_marginTop="4dp"
                 android:text="Crop"
                 android:textColor="#FFFFFF"
-                android:textSize="12sp" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="24dp"
-            android:gravity="center"
-            android:orientation="vertical">
-
-            <ImageView
-                android:layout_width="26dp"
-                android:layout_height="26dp"
-                android:src="@drawable/ic_sign"
-                android:tint="#808080" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="Sign"
-                android:textColor="#808080"
                 android:textSize="12sp" />
         </LinearLayout>
 
