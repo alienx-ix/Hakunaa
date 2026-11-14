@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Eraser — a tilted eraser, the way professional scanner
+     apps draw it. Used by the Erase button in the Enhance
+     bottom bar (v0.1.83): rubs out drawn strokes. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M16.24,3.56L21.19,8.51c0.78,0.78 0.78,2.05 0,2.84L8.84,23.7L3.56,18.42c-0.78,-0.78 -0.78,-2.05 0,-2.84L16.24,3.56zM7.41,20.83L16.24,12L19.07,14.83L10.24,23.66L7.41,20.83z"
+        android:strokeColor="#00000000"
+        android:strokeWidth="0" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M5,19 L9,23"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round" />
+</vector>

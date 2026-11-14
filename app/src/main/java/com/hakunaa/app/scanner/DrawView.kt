@@ -51,6 +51,19 @@ class DrawView @JvmOverloads constructor(
     /** Stroke width in view pixels (set by the caller). */
     var strokeWidthPx: Float = 8f
 
+    /** When false the view only SHOWS the strokes and never
+     *  takes a touch — so the drawing stays visible on the
+     *  page after Done, while swipes reach the page below.
+     *  (v0.1.83 fix: hiding the view on Done made the
+     *  drawing vanish from the screen, so the user thought
+     *  it was lost.) */
+    var drawEnabled: Boolean = false
+    /** Erase mode (v0.1.83): a touch deletes the stroke it
+     *  lands on, instead of drawing a new one. */
+    var eraseMode: Boolean = false
+    /** Eraser radius in view pixels. */
+    var eraseRadiusPx: Float = 40f
+
     private val paint = Paint().apply {
         isAntiAlias = true
         style = Paint.Style.STROKE
@@ -66,16 +79,37 @@ class DrawView @JvmOverloads constructor(
         invalidate()
     }
 
-    /** The content's displayed rect inside this view (fitCenter). */
-    private fun displayedRect(): FloatArray {
+    /** Zoom state (v0.1.83): when the page is zoomed, the
+     *  strokes are drawn at the zoomed position, so they stay
+     *  on the page while the user inspects it. Set from the
+     *  activity's zoom; 1f = no zoom. */
+    var zoomScale: Float = 1f
+    var zoomFocusX: Float = 0f
+    var zoomFocusY: Float = 0f
+    var zoomPanX: Float = 0f
+    var zoomPanY: Float = 0f
+
+    /** The content's displayed rect inside this view
+     *  (fitCenter, zoom-aware). */
+    fun displayedRect(): FloatArray {
         // left, top, width, height (view pixels)
         if (contentW <= 0 || contentH <= 0 || width <= 0 || height <= 0) {
             return floatArrayOf(0f, 0f, width.toFloat(), height.toFloat())
         }
         val scale = min(width.toFloat() / contentW, height.toFloat() / contentH)
-        val dw = contentW * scale
-        val dh = contentH * scale
-        return floatArrayOf((width - dw) / 2f, (height - dh) / 2f, dw, dh)
+        var left = (width - contentW * scale) / 2f
+        var top = (height - contentH * scale) / 2f
+        var w = contentW * scale
+        var h = contentH * scale
+        if (zoomScale > 1f) {
+            // Zoomed: scale the rect around the focal point,
+            // then pan — the same transform the image gets.
+            left = zoomFocusX + (left - zoomFocusX) * zoomScale + zoomPanX
+            top = zoomFocusY + (top - zoomFocusY) * zoomScale + zoomPanY
+            w *= zoomScale
+            h *= zoomScale
+        }
+        return floatArrayOf(left, top, w, h)
     }
 
     /** View point → normalized content point, or null when the
@@ -95,9 +129,15 @@ class DrawView @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (contentW <= 0 || contentH <= 0) return false
+        // Not in a drawing mode — show the strokes only and
+        // let the touch reach the page below (swipe / zoom).
+        if (!drawEnabled || contentW <= 0 || contentH <= 0) return false
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
+                if (eraseMode) {
+                    eraseAt(event.x, event.y)
+                    return true
+                }
                 val p = toNormalized(event.x, event.y) ?: return false
                 val r = displayedRect()
                 val wNorm = strokeWidthPx / r[2]
@@ -106,6 +146,10 @@ class DrawView @JvmOverloads constructor(
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
+                if (eraseMode) {
+                    eraseAt(event.x, event.y)
+                    return true
+                }
                 val stroke = currentStroke ?: return false
                 val p = toNormalized(event.x, event.y) ?: return false
                 // Skip points that are too close together — they
@@ -129,6 +173,25 @@ class DrawView @JvmOverloads constructor(
             }
         }
         return super.onTouchEvent(event)
+    }
+
+    /** Delete every stroke that passes within the eraser
+     *  radius of the touch point. The distance is measured
+     *  in view pixels, so the radius feels the same whatever
+     *  the page shape is. */
+    private fun eraseAt(x: Float, y: Float) {
+        val r = displayedRect()
+        val before = strokes.size
+        strokes.removeAll { stroke ->
+            stroke.points.any { pt ->
+                val vx = pt.x * r[2] + r[0]
+                val vy = pt.y * r[3] + r[1]
+                val vdx = vx - x
+                val vdy = vy - y
+                kotlin.math.sqrt(vdx * vdx + vdy * vdy) <= eraseRadiusPx
+            }
+        }
+        if (strokes.size != before) invalidate()
     }
 
     override fun onDraw(canvas: Canvas) {

@@ -630,6 +630,16 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.83 — Draw/Sign stay visible, Erase + Text, 7-tool bar, preview up, zoom
+
+- **Draw / Sign stay on the page after Done (the fix):** the drawing and the signature used to vanish from the screen when Done was pressed, so the user thought they were lost. Now the DrawView stays visible (but stops taking touches, so swipes and zooms work again) and the signature stays put — both still saved onto the page at Finish.
+- **Erase:** a new bottom-bar tool — rub out drawn strokes by touching them (a stroke eraser; S / M / L eraser sizes share the Size button).
+- **Add Text:** a new bottom-bar tool — type the words, pick a size (Small / Medium / Large) and a colour, then drag the text to where it belongs (Remove / Done). The text is saved onto the page (each page keeps its own, and it rotates with the page).
+- **Bottom bar, in the user's order:** Rotate → Crop → Adjust → Draw → Erase → Text → Sign + the confirm button. Seven tools on one row, compact (22dp icons, 10sp labels, 8dp gaps, 12dp side padding) so nothing is clipped.
+- **Professional icons:** a new flowing signature icon and a new clean four-corner crop icon (plus a new eraser icon).
+- **Preview up:** the page's top margin is 8dp (was 32dp), so the preview sits higher and the space below is used by the filter strip + bottom bar.
+- **Zoom:** pinch to zoom the page (1x–4x), double-tap to toggle 2.5x, drag to pan while zoomed. The drawing, signature and text follow the zoom, so they stay on the page while it is inspected. Zoom resets when a new page loads.
+
 ## v0.1.82 — Rotate renamed, Draw + Sign fully working
 
 - "Left" is now "Rotate" in the Enhance bottom bar.

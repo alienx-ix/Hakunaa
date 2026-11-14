@@ -54,19 +54,18 @@
             android:textSize="14sp" />
     </LinearLayout>
 
-    <!-- Page preview — a little smaller than full height
-         (v0.1.61): a 32dp top margin leaves a little black
-         bar above the page, where things can be added later
-         (the user asked for the space). The page itself is a
-         touch smaller, so it no longer touches the top bar.
+    <!-- Page preview (v0.1.83: the top margin is 8dp, not
+         32dp — the preview sits higher, closer to the top
+         bar, so the space above it is small and the space
+         below is used by the filter strip + bottom bar).
          The page lives in a frame with the Draw overlay and
-         the placed signature on top of it (v0.1.82). -->
+         the placed signature / text on top of it. -->
     <FrameLayout
         android:id="@+id/pageFrame"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginTop="32dp">
+        android:layout_marginTop="8dp">
 
         <ImageView
             android:id="@+id/ivPage"
@@ -74,9 +73,11 @@
             android:layout_height="match_parent"
             android:scaleType="fitCenter" />
 
-        <!-- Draw overlay — only visible in Draw mode. It sits
-             exactly over the page, so a finger stroke lands
-             where the user draws. -->
+        <!-- Draw overlay — visible whenever the page has a
+             drawing (v0.1.83 fix: it used to hide on Done, so
+             the drawing vanished from the screen). It only
+             takes touches while drawing / erasing; otherwise
+             swipes and zooms reach the page below. -->
         <com.hakunaa.app.scanner.DrawView
             android:id="@+id/drawView"
             android:layout_width="match_parent"
@@ -86,6 +87,13 @@
         <!-- Placed signature — draggable when present. -->
         <ImageView
             android:id="@+id/ivSignature"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:visibility="gone" />
+
+        <!-- Placed text — draggable when present. -->
+        <ImageView
+            android:id="@+id/ivTextOverlay"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:visibility="gone" />
@@ -413,20 +421,67 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- Bottom bar: Rotate / Crop / Adjust / Draw / Sign /
-         confirm (v0.1.82: "Left" became "Rotate", Draw and
-         Sign joined. Markup and Sign were removed in v0.1.76
-         as later steps — now they are here, fully working).
-         The items are a little smaller and tighter so five
-         tools + the round confirm button fit on one row. -->
+    <!-- Text panel — only while a text is placed: drag it
+         to move it, Remove takes it off, Done hides this row
+         (the text stays on the page). -->
+    <LinearLayout
+        android:id="@+id/textPanel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#1A1A1A"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Drag the text to move it"
+            android:textColor="#B0B0B0"
+            android:textSize="13sp" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/btnTextRemove"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:padding="8dp"
+            android:text="Remove"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/btnTextDone"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:padding="8dp"
+            android:text="Done"
+            android:textColor="#00BFA5"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Bottom bar (v0.1.83): Rotate / Crop / Adjust / Draw /
+         Erase / Text / Sign + confirm, in that order. Seven
+         tools on one row, so they are compact — 22dp icons,
+         10sp labels, 8dp gaps, 12dp side padding — and the
+         row is centred with even spacing, nothing clipped. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="72dp"
         android:background="#1A1A1A"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp">
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp">
 
         <!-- Rotate — turns the page 90 degrees (the old
              "Left" button, renamed v0.1.82). -->
@@ -438,18 +493,18 @@
             android:orientation="vertical">
 
             <ImageView
-                android:layout_width="24dp"
-                android:layout_height="24dp"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
                 android:src="@drawable/ic_rotate_left"
                 android:tint="#FFFFFF" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="3dp"
                 android:text="Rotate"
                 android:textColor="#FFFFFF"
-                android:textSize="11sp" />
+                android:textSize="10sp" />
         </LinearLayout>
 
         <!-- Crop — re-crop the current page from the Filter
@@ -463,23 +518,23 @@
             android:id="@+id/btnCrop"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
+            android:layout_marginStart="8dp"
             android:gravity="center"
             android:orientation="vertical">
 
             <ImageView
-                android:layout_width="24dp"
-                android:layout_height="24dp"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
                 android:src="@drawable/ic_crop"
                 android:tint="#FFFFFF" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="3dp"
                 android:text="Crop"
                 android:textColor="#FFFFFF"
-                android:textSize="11sp" />
+                android:textSize="10sp" />
         </LinearLayout>
 
         <!-- Adjust — the menu button for the Adjust panel
@@ -489,14 +544,14 @@
             android:id="@+id/btnAdjust"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
+            android:layout_marginStart="8dp"
             android:gravity="center"
             android:orientation="vertical">
 
             <ImageView
                 android:id="@+id/ivAdjustIcon"
-                android:layout_width="24dp"
-                android:layout_height="24dp"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
                 android:src="@drawable/ic_tune"
                 android:tint="#FFFFFF" />
 
@@ -504,27 +559,28 @@
                 android:id="@+id/tvAdjustLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="3dp"
                 android:text="Adjust"
                 android:textColor="#FFFFFF"
-                android:textSize="11sp" />
+                android:textSize="10sp" />
         </LinearLayout>
 
         <!-- Draw — freehand markup on the page (v0.1.82):
-             pen colours + sizes, Undo, Clear. Fully working —
-             the drawing is saved onto the page. -->
+             pen colours + sizes, Undo, Clear. The drawing
+             stays visible on the page after Done and is saved
+             onto the page. -->
         <LinearLayout
             android:id="@+id/btnDraw"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
+            android:layout_marginStart="8dp"
             android:gravity="center"
             android:orientation="vertical">
 
             <ImageView
                 android:id="@+id/ivDrawIcon"
-                android:layout_width="24dp"
-                android:layout_height="24dp"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
                 android:src="@drawable/ic_markup"
                 android:tint="#FFFFFF" />
 
@@ -532,28 +588,84 @@
                 android:id="@+id/tvDrawLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="3dp"
                 android:text="Draw"
                 android:textColor="#FFFFFF"
-                android:textSize="11sp" />
+                android:textSize="10sp" />
+        </LinearLayout>
+
+        <!-- Erase — rubs out drawn strokes (v0.1.83): touch
+             a stroke to delete it. -->
+        <LinearLayout
+            android:id="@+id/btnErase"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <ImageView
+                android:id="@+id/ivEraseIcon"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:src="@drawable/ic_eraser"
+                android:tint="#FFFFFF" />
+
+            <TextView
+                android:id="@+id/tvEraseLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:text="Erase"
+                android:textColor="#FFFFFF"
+                android:textSize="10sp" />
+        </LinearLayout>
+
+        <!-- Text — type text and place it on the page
+             (v0.1.83): a dialog takes the words, size and
+             colour, then the text can be dragged to where it
+             belongs. It is saved onto the page. -->
+        <LinearLayout
+            android:id="@+id/btnText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <ImageView
+                android:id="@+id/ivTextIcon"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:src="@drawable/ic_text"
+                android:tint="#FFFFFF" />
+
+            <TextView
+                android:id="@+id/tvTextLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:text="Text"
+                android:textColor="#FFFFFF"
+                android:textSize="10sp" />
         </LinearLayout>
 
         <!-- Sign — draw a signature and place it on the page
              (v0.1.82): a signature pad opens, then the
              signature can be dragged to where it belongs.
-             Fully working — it is saved onto the page. -->
+             It is saved onto the page. -->
         <LinearLayout
             android:id="@+id/btnSign"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
+            android:layout_marginStart="8dp"
             android:gravity="center"
             android:orientation="vertical">
 
             <ImageView
                 android:id="@+id/ivSignIcon"
-                android:layout_width="24dp"
-                android:layout_height="24dp"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
                 android:src="@drawable/ic_sign"
                 android:tint="#FFFFFF" />
 
@@ -561,10 +673,10 @@
                 android:id="@+id/tvSignLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="3dp"
                 android:text="Sign"
                 android:textColor="#FFFFFF"
-                android:textSize="11sp" />
+                android:textSize="10sp" />
         </LinearLayout>
 
         <View

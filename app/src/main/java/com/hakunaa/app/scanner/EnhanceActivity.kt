@@ -7,10 +7,14 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
+import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.view.GestureDetector
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup
 import android.widget.CheckBox
@@ -111,22 +115,27 @@ class EnhanceActivity : AppCompatActivity() {
     // save and puts the current page's filter on every page.
     private val pageFilters = mutableMapOf<String, ImageEnhancer.Filter>()
 
-    // Draw + Sign (v0.1.82) — each page keeps its own drawing
-    // and its own placed signature, in normalized coordinates
-    // (0..1 relative to the page), so they map to any size.
+    // Draw + Sign + Text (v0.1.82/83) — each page keeps its
+    // own drawing and its own placed signature / text, in
+    // normalized coordinates (0..1 relative to the page), so
+    // they map to any size.
     private val pageDrawings = mutableMapOf<String, MutableList<DrawView.Stroke>>()
 
-    /** A placed signature: its bitmap + its normalized rect
-     *  [left, top, right, bottom] on the page. */
-    private data class SignaturePlacement(
+    /** A placed overlay (signature or text): its bitmap +
+     *  its normalized rect [left, top, right, bottom] on the
+     *  page. */
+    private data class PlacedOverlay(
         val bitmap: Bitmap,
         var rectNorm: FloatArray
     )
 
-    private val pageSignatures = mutableMapOf<String, SignaturePlacement>()
+    private val pageSignatures = mutableMapOf<String, PlacedOverlay>()
+    private val pageTexts = mutableMapOf<String, PlacedOverlay>()
 
-    // Draw mode state.
-    private var drawMode = false
+    // Draw / Erase mode state (v0.1.83).
+    private enum class ToolMode { NONE, DRAW, ERASE }
+
+    private var toolMode = ToolMode.NONE
     private val drawColors = listOf(
         Color.BLACK, Color.parseColor("#D32F2F"), Color.parseColor("#1976D2"),
         Color.parseColor("#388E3C"), Color.parseColor("#00BFA5")
@@ -138,10 +147,20 @@ class EnhanceActivity : AppCompatActivity() {
     private val drawDotViews = mutableListOf<ImageView>()
     private val drawDotDrawables = mutableListOf<GradientDrawable>()
 
-    // Signature drag state (view pixels, within pageFrame).
-    private var sigDragOffsetX = 0f
-    private var sigDragOffsetY = 0f
-    private var sigDragging = false
+    // Overlay drag state (view pixels, within pageFrame).
+    private var overlayDragOffsetX = 0f
+    private var overlayDragOffsetY = 0f
+    private var overlayDragging = false
+
+    // Pinch-zoom on the page (v0.1.83).
+    private var zoomScale = 1f
+    private var zoomBaseMatrix = Matrix()
+    private var zoomPanX = 0f
+    private var zoomPanY = 0f
+    private var zoomFocusX = 0f
+    private var zoomFocusY = 0f
+    private lateinit var zoomScaleDetector: android.view.ScaleGestureDetector
+    private lateinit var zoomTapDetector: android.view.GestureDetector
 
     // Re-crop the current page from the Filter section
     // (v0.1.58): the Crop screen returns the cropped file,
@@ -257,8 +276,12 @@ class EnhanceActivity : AppCompatActivity() {
         // Crop — re-crop the current page from the Filter
         // section, right next to Adjust.
         findViewById<LinearLayout>(R.id.btnCrop).setOnClickListener { openCrop() }
-        // Draw — freehand markup (v0.1.82).
-        findViewById<LinearLayout>(R.id.btnDraw).setOnClickListener { toggleDrawMode() }
+        // Draw — freehand markup (v0.1.82). Erase — rub out
+        // strokes (v0.1.83). Text — type text and place it
+        // (v0.1.83).
+        findViewById<LinearLayout>(R.id.btnDraw).setOnClickListener { setToolMode(ToolMode.DRAW) }
+        findViewById<LinearLayout>(R.id.btnErase).setOnClickListener { setToolMode(ToolMode.ERASE) }
+        findViewById<LinearLayout>(R.id.btnText).setOnClickListener { openAddTextDialog() }
         setupDrawPanel()
         // Sign — signature pad + placement (v0.1.82).
         findViewById<LinearLayout>(R.id.btnSign).setOnClickListener { openSignaturePad() }
@@ -267,6 +290,12 @@ class EnhanceActivity : AppCompatActivity() {
             findViewById<View>(R.id.signPanel).visibility = View.GONE
         }
         setupSignatureDrag()
+        // Text — the placed text's panel (v0.1.83).
+        findViewById<TextView>(R.id.btnTextRemove).setOnClickListener { removeText() }
+        findViewById<TextView>(R.id.btnTextDone).setOnClickListener {
+            findViewById<View>(R.id.textPanel).visibility = View.GONE
+        }
+        setupTextDrag()
         setupAdjustSliders()
     }
 
@@ -303,6 +332,9 @@ class EnhanceActivity : AppCompatActivity() {
                     currentPreview = null
                     bitmap = bmp
                     previewBitmap = preview
+                    // A new page — the zoom belongs to the old
+                    // one, so go back to the fit view.
+                    resetZoom()
                     // This page's own filter (default NO_SHADOW).
                     selectedFilter = pageFilters[path] ?: ImageEnhancer.Filter.NO_SHADOW
                     // Show the downsampled preview at once, then
@@ -340,12 +372,15 @@ class EnhanceActivity : AppCompatActivity() {
         }
     }
 
-    /** Swipe the page left / right to move between batch
-     *  pages (CamScanner-style). A swipe stores the current
-     *  page's filter first, so each page keeps the filter
-     *  picked for it.
+    /** Page gestures (v0.1.83): swipe to change pages
+     *  (CamScanner-style) + pinch-zoom to inspect the image
+     *  + double-tap to toggle zoom (1x <-> 2.5x) + drag to
+     *  pan while zoomed. One listener handles them all, so a
+     *  pinch never becomes a page swipe.
      *
-     *  This tracks the drag by hand (ACTION_DOWN → ACTION_UP)
+     *  A swipe stores the current page's filter first, so
+     *  each page keeps the filter picked for it. The swipe
+     *  tracks the drag by hand (ACTION_DOWN → ACTION_UP)
      *  instead of a GestureDetector fling: a fling only fires
      *  for a fast swipe, but the user swipes slowly, like
      *  turning pages in a gallery — a slow drag never fired
@@ -355,15 +390,78 @@ class EnhanceActivity : AppCompatActivity() {
         val pageView = findViewById<ImageView>(R.id.ivPage)
         var downX = 0f
         var downY = 0f
+        var pinchActive = false
+        var panLastX = 0f
+        var panLastY = 0f
+
+        val scaleListener = object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+                pinchActive = true
+                zoomFocusX = detector.focusX
+                zoomFocusY = detector.focusY
+                return true
+            }
+
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                zoomScale = (zoomScale * detector.scaleFactor).coerceIn(1f, 4f)
+                zoomFocusX = detector.focusX
+                zoomFocusY = detector.focusY
+                applyZoom()
+                return true
+            }
+
+            override fun onScaleEnd(detector: ScaleGestureDetector) {
+                pinchActive = false
+                if (zoomScale <= 1.01f) resetZoom()
+            }
+        }
+        zoomScaleDetector = ScaleGestureDetector(this, scaleListener)
+
+        val tapListener = object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                if (zoomScale > 1f) {
+                    resetZoom()
+                } else {
+                    zoomScale = 2.5f
+                    zoomFocusX = e.x
+                    zoomFocusY = e.y
+                    applyZoom()
+                }
+                return true
+            }
+        }
+        zoomTapDetector = GestureDetector(this, tapListener)
+
         pageView.setOnTouchListener { _, event ->
-            when (event.action) {
+            // The detectors see every event first.
+            zoomScaleDetector.onTouchEvent(event)
+            zoomTapDetector.onTouchEvent(event)
+            when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = event.x
                     downY = event.y
+                    panLastX = event.x
+                    panLastY = event.y
                     true
                 }
+                MotionEvent.ACTION_MOVE -> {
+                    if (pinchActive) {
+                        // Pinch is handling the zoom.
+                        true
+                    } else if (zoomScale > 1f) {
+                        // Zoomed in: drag pans the image.
+                        zoomPanX += event.x - panLastX
+                        zoomPanY += event.y - panLastY
+                        applyZoom()
+                        panLastX = event.x
+                        panLastY = event.y
+                        true
+                    } else {
+                        true
+                    }
+                }
                 MotionEvent.ACTION_UP -> {
-                    if (allPages.size > 1) {
+                    if (!pinchActive && zoomScale <= 1f && allPages.size > 1) {
                         val dx = event.x - downX
                         val dy = event.y - downY
                         if (abs(dx) > 100f && abs(dx) > abs(dy) * 1.5f) {
@@ -376,6 +474,83 @@ class EnhanceActivity : AppCompatActivity() {
                 else -> true
             }
         }
+    }
+
+    /** Apply the current zoom to the page image: the
+     *  fitCenter base matrix, scaled around the focal point,
+     *  plus the pan. The drawing + signature + text overlays
+     *  follow (they use the zoom-aware displayed rect). */
+    private fun applyZoom() {
+        val pageView = findViewById<ImageView>(R.id.ivPage)
+        val bmp = bitmap ?: return
+        if (pageView.width <= 0 || pageView.height <= 0) return
+        if (zoomScale <= 1f) {
+            resetZoom()
+            return
+        }
+        val vw = pageView.width.toFloat()
+        val vh = pageView.height.toFloat()
+        val scale = minOf(vw / bmp.width, vh / bmp.height)
+        val dw = bmp.width * scale
+        val dh = bmp.height * scale
+        val base = Matrix()
+        base.setScale(scale, scale)
+        base.postTranslate((vw - dw) / 2f, (vh - dh) / 2f)
+        val m = Matrix(base)
+        m.postScale(zoomScale, zoomScale, zoomFocusX, zoomFocusY)
+        m.postTranslate(zoomPanX, zoomPanY)
+        // Clamp the pan so the image can't be pushed away
+        // from the screen: keep at least half of it visible.
+        val rect = RectF(0f, 0f, bmp.width.toFloat(), bmp.height.toFloat())
+        m.mapRect(rect)
+        var dx = 0f
+        var dy = 0f
+        if (rect.width() > vw) {
+            if (rect.left > 0f) dx = -rect.left
+            else if (rect.right < vw) dx = vw - rect.right
+        } else {
+            dx = (vw - rect.width()) / 2f - rect.left
+        }
+        if (rect.height() > vh) {
+            if (rect.top > 0f) dy = -rect.top
+            else if (rect.bottom < vh) dy = vh - rect.bottom
+        } else {
+            dy = (vh - rect.height()) / 2f - rect.top
+        }
+        if (dx != 0f || dy != 0f) {
+            m.postTranslate(dx, dy)
+            zoomPanX += dx
+            zoomPanY += dy
+        }
+        pageView.scaleType = ImageView.ScaleType.MATRIX
+        pageView.imageMatrix = m
+        // Move the overlays with the zoom.
+        val drawView = findViewById<DrawView>(R.id.drawView)
+        drawView.zoomScale = zoomScale
+        drawView.zoomFocusX = zoomFocusX
+        drawView.zoomFocusY = zoomFocusY
+        drawView.zoomPanX = zoomPanX
+        drawView.zoomPanY = zoomPanY
+        drawView.invalidate()
+        layoutSignatureOverlay()
+        layoutTextOverlay()
+    }
+
+    /** Reset the zoom to the fit view. */
+    private fun resetZoom() {
+        zoomScale = 1f
+        zoomPanX = 0f
+        zoomPanY = 0f
+        val pageView = findViewById<ImageView>(R.id.ivPage)
+        pageView.scaleType = ImageView.ScaleType.FIT_CENTER
+        pageView.imageMatrix = null
+        val drawView = findViewById<DrawView>(R.id.drawView)
+        drawView.zoomScale = 1f
+        drawView.zoomPanX = 0f
+        drawView.zoomPanY = 0f
+        drawView.invalidate()
+        layoutSignatureOverlay()
+        layoutTextOverlay()
     }
 
     /** Show page [index] (clamped). Only the PAGE slides — a
@@ -672,6 +847,9 @@ class EnhanceActivity : AppCompatActivity() {
                         pageSignatures[path]?.let { sig ->
                             sig.rectNorm = DrawView.rotateRectCCW(sig.rectNorm)
                         }
+                        pageTexts[path]?.let { txt ->
+                            txt.rectNorm = DrawView.rotateRectCCW(txt.rectNorm)
+                        }
                     }
                     refreshOverlays()
                     applyFilterToPreview(selectedFilter)
@@ -687,7 +865,11 @@ class EnhanceActivity : AppCompatActivity() {
         dp * resources.displayMetrics.density
 
     /** The page bitmap's displayed rect inside pageFrame
-     *  (fitCenter): [left, top, width, height] in view pixels. */
+     *  (fitCenter, zoom-aware): [left, top, width, height]
+     *  in view pixels. When zoomed, the rect follows the
+     *  same scale-around-focus + pan transform the image
+     *  gets, so the signature / text overlays stay on the
+     *  page while it is zoomed. */
     private fun displayedRect(): FloatArray {
         val frame = findViewById<View>(R.id.pageFrame)
         val bmp = bitmap
@@ -698,21 +880,33 @@ class EnhanceActivity : AppCompatActivity() {
             frame.width.toFloat() / bmp.width,
             frame.height.toFloat() / bmp.height
         )
-        val dw = bmp.width * scale
-        val dh = bmp.height * scale
-        return floatArrayOf((frame.width - dw) / 2f, (frame.height - dh) / 2f, dw, dh)
+        var left = (frame.width - bmp.width * scale) / 2f
+        var top = (frame.height - bmp.height * scale) / 2f
+        var w = bmp.width * scale
+        var h = bmp.height * scale
+        if (zoomScale > 1f) {
+            left = zoomFocusX + (left - zoomFocusX) * zoomScale + zoomPanX
+            top = zoomFocusY + (top - zoomFocusY) * zoomScale + zoomPanY
+            w *= zoomScale
+            h *= zoomScale
+        }
+        return floatArrayOf(left, top, w, h)
     }
 
-    /** Load the current page's drawing + signature into the
-     *  overlays (called after a page loads, a swipe, or a
-     *  rotation). */
+    /** Load the current page's drawing + signature + text
+     *  into the overlays (called after a page loads, a swipe,
+     *  or a rotation). */
     private fun refreshOverlays() {
         val bmp = bitmap ?: return
         val path = imagePath
         val drawView = findViewById<DrawView>(R.id.drawView)
         drawView.setContentSize(bmp.width, bmp.height)
         drawView.setStrokes(if (path == null) emptyList() else pageDrawings[path] ?: emptyList())
+        // The drawing stays on screen after Done — show the
+        // view when this page has one (v0.1.83 fix).
+        updateDrawViewVisibility()
         layoutSignatureOverlay()
+        layoutTextOverlay()
     }
 
     /** Store the on-screen drawing into this page's slot, so
@@ -724,36 +918,81 @@ class EnhanceActivity : AppCompatActivity() {
         pageDrawings[path] = drawView.getStrokes().toMutableList()
     }
 
-    /** Enter / leave Draw mode. While drawing, the DrawView
-     *  sits over the page and takes the touches (so a stroke
-     *  never becomes a page swipe), and the draw panel shows
-     *  colours, size, Undo, Clear and Done. */
-    private fun toggleDrawMode() {
-        drawMode = !drawMode
+    /** Enter / leave a Draw / Erase tool. While drawing or
+     *  erasing, the DrawView sits over the page and takes the
+     *  touches (so a stroke never becomes a page swipe), and
+     *  the draw panel shows. When the tool is left, the
+     *  drawing STAYS VISIBLE on the page (v0.1.83 fix — the
+     *  DrawView used to hide on Done, so the drawing vanished
+     *  from the screen and the user thought it was lost); it
+     *  only stops taking touches, so swipes and zooms work
+     *  again. */
+    private fun setToolMode(mode: ToolMode) {
+        // Tapping the active tool again leaves it.
+        toolMode = if (toolMode == mode) ToolMode.NONE else mode
         val drawView = findViewById<DrawView>(R.id.drawView)
         val panel = findViewById<View>(R.id.drawPanel)
-        if (drawMode) {
+        val colorRow = findViewById<View>(R.id.colorRow)
+        if (toolMode == ToolMode.DRAW || toolMode == ToolMode.ERASE) {
             // Close the Adjust panel first — the two panels
             // never show together.
             setAdjustPanelVisible(false)
             val bmp = bitmap
             if (bmp != null) drawView.setContentSize(bmp.width, bmp.height)
-            drawView.drawColor = drawColors[drawColorIndex]
-            drawView.strokeWidthPx = dpToPx(drawSizesDp[drawSizeIndex])
+            drawView.drawEnabled = true
+            drawView.eraseMode = (toolMode == ToolMode.ERASE)
+            if (toolMode == ToolMode.DRAW) {
+                drawView.drawColor = drawColors[drawColorIndex]
+                drawView.strokeWidthPx = dpToPx(drawSizesDp[drawSizeIndex])
+                colorRow.visibility = View.VISIBLE
+            } else {
+                // Eraser: a wide rub, no colour.
+                drawView.eraseRadiusPx = dpToPx(20f)
+                colorRow.visibility = View.GONE
+            }
             drawView.visibility = View.VISIBLE
             panel.visibility = View.VISIBLE
-            findViewById<ImageView>(R.id.ivDrawIcon)
-                .setColorFilter(getColor(R.color.hakunaa_teal))
-            findViewById<TextView>(R.id.tvDrawLabel)
-                .setTextColor(getColor(R.color.hakunaa_teal))
+            updateToolButtonTints()
         } else {
             storeCurrentOverlays()
-            drawView.visibility = View.GONE
+            drawView.drawEnabled = false
+            drawView.eraseMode = false
+            // Keep the drawing on screen when this page has
+            // one; hide the (empty) view only when there is
+            // nothing to show.
+            updateDrawViewVisibility()
             panel.visibility = View.GONE
-            findViewById<ImageView>(R.id.ivDrawIcon).clearColorFilter()
-            findViewById<TextView>(R.id.tvDrawLabel)
-                .setTextColor(getColor(android.R.color.white))
+            updateToolButtonTints()
         }
+    }
+
+    /** Show the DrawView when this page has a drawing (so it
+     *  stays visible after Done), hide it when there is
+     *  nothing to show. Never called while a tool is active
+     *  — then the view is always up. */
+    private fun updateDrawViewVisibility() {
+        if (toolMode == ToolMode.DRAW || toolMode == ToolMode.ERASE) return
+        val drawView = findViewById<DrawView>(R.id.drawView)
+        drawView.drawEnabled = false
+        drawView.visibility =
+            if (drawView.hasStrokes()) View.VISIBLE else View.GONE
+    }
+
+    /** Tint the active tool's icon + label teal, the rest
+     *  white. */
+    private fun updateToolButtonTints() {
+        val teal = getColor(R.color.hakunaa_teal)
+        val white = getColor(android.R.color.white)
+        val drawActive = toolMode == ToolMode.DRAW
+        val eraseActive = toolMode == ToolMode.ERASE
+        findViewById<ImageView>(R.id.ivDrawIcon)
+            .setColorFilter(if (drawActive) teal else white)
+        findViewById<TextView>(R.id.tvDrawLabel)
+            .setTextColor(if (drawActive) teal else white)
+        findViewById<ImageView>(R.id.ivEraseIcon)
+            .setColorFilter(if (eraseActive) teal else white)
+        findViewById<TextView>(R.id.tvEraseLabel)
+            .setTextColor(if (eraseActive) teal else white)
     }
 
     /** Build the pen colour dots and wire the draw panel. */
@@ -778,11 +1017,15 @@ class EnhanceActivity : AppCompatActivity() {
         }
         selectDrawColor(drawColorIndex)
         updateDrawSizeLabel()
+        // The draw panel's Size button also sets the eraser
+        // radius in Erase mode (the eraser uses the same
+        // size steps: S / M / L).
         findViewById<TextView>(R.id.btnDrawSize).setOnClickListener {
             drawSizeIndex = (drawSizeIndex + 1) % drawSizesDp.size
             updateDrawSizeLabel()
-            findViewById<DrawView>(R.id.drawView).strokeWidthPx =
-                dpToPx(drawSizesDp[drawSizeIndex])
+            val dv = findViewById<DrawView>(R.id.drawView)
+            dv.strokeWidthPx = dpToPx(drawSizesDp[drawSizeIndex])
+            dv.eraseRadiusPx = dpToPx(drawSizesDp[drawSizeIndex] * 2f)
         }
         findViewById<TextView>(R.id.btnDrawUndo).setOnClickListener {
             findViewById<DrawView>(R.id.drawView).undo()
@@ -791,7 +1034,9 @@ class EnhanceActivity : AppCompatActivity() {
             findViewById<DrawView>(R.id.drawView).clearAll()
         }
         findViewById<TextView>(R.id.btnDrawDone).setOnClickListener {
-            if (drawMode) toggleDrawMode()
+            // Leave whichever tool is active (Draw or Erase);
+            // the drawing stays visible on the page.
+            if (toolMode != ToolMode.NONE) setToolMode(toolMode)
         }
     }
 
@@ -858,7 +1103,7 @@ class EnhanceActivity : AppCompatActivity() {
         val hFrac = wFrac * sigBmp.height / sigBmp.width * bmp.width / bmp.height
         val top = (0.88f - hFrac).coerceAtLeast(0.05f)
         val rect = floatArrayOf(0.60f, top, 0.95f, 0.88f)
-        pageSignatures[path] = SignaturePlacement(sigBmp, rect)
+        pageSignatures[path] = PlacedOverlay(sigBmp, rect)
         layoutSignatureOverlay()
         findViewById<View>(R.id.signPanel).visibility = View.VISIBLE
     }
@@ -888,49 +1133,69 @@ class EnhanceActivity : AppCompatActivity() {
         overlay.visibility = View.VISIBLE
     }
 
-    /** Drag the placed signature around the page. The stored
-     *  normalized rect follows the finger, clamped inside
-     *  the page. */
-    private fun setupSignatureDrag() {
-        val overlay = findViewById<ImageView>(R.id.ivSignature)
+    /** Drag a placed overlay (signature or text) around the
+     *  page. The stored normalized rect follows the finger,
+     *  clamped inside the page. */
+    private fun setupOverlayDrag(
+        overlayViewId: Int,
+        getPlacement: () -> PlacedOverlay?
+    ) {
+        val overlay = findViewById<ImageView>(overlayViewId)
         overlay.setOnTouchListener { _, event ->
-            val path = imagePath ?: return@setOnTouchListener false
-            val sig = pageSignatures[path] ?: return@setOnTouchListener false
+            val placement = getPlacement() ?: return@setOnTouchListener false
             val frame = findViewById<View>(R.id.pageFrame)
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    sigDragOffsetX = event.x
-                    sigDragOffsetY = event.y
-                    sigDragging = true
+                    overlayDragOffsetX = event.x
+                    overlayDragOffsetY = event.y
+                    overlayDragging = true
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (!sigDragging) return@setOnTouchListener false
+                    if (!overlayDragging) return@setOnTouchListener false
                     val r = displayedRect()
-                    val rect = sig.rectNorm
+                    val rect = placement.rectNorm
                     val wFrac = rect[2] - rect[0]
                     val hFrac = rect[3] - rect[1]
                     // The finger's position in the frame, minus
                     // where it grabbed the overlay, is the
                     // overlay's new top-left. Convert it to a
                     // normalized top-left, clamped so the
-                    // signature stays on the page.
+                    // overlay stays on the page.
                     val loc = IntArray(2)
                     frame.getLocationOnScreen(loc)
-                    val fx = event.rawX - loc[0] - sigDragOffsetX
-                    val fy = event.rawY - loc[1] - sigDragOffsetY
-                    val nx = ((fx - r[0]) / r[2]).coerceIn(0f, 1f - wFrac)
-                    val ny = ((fy - r[1]) / r[3]).coerceIn(0f, 1f - hFrac)
-                    sig.rectNorm = floatArrayOf(nx, ny, nx + wFrac, ny + hFrac)
-                    layoutSignatureOverlay()
+                    val fx = event.rawX - loc[0] - overlayDragOffsetX
+                    val fy = event.rawY - loc[1] - overlayDragOffsetY
+                    rect[0] = ((fx - r[0]) / r[2]).coerceIn(0f, 1f - wFrac)
+                    rect[1] = ((fy - r[1]) / r[3]).coerceIn(0f, 1f - hFrac)
+                    rect[2] = rect[0] + wFrac
+                    rect[3] = rect[1] + hFrac
+                    val params = overlay.layoutParams as FrameLayout.LayoutParams
+                    params.leftMargin = fx.toInt()
+                    params.topMargin = fy.toInt()
+                    overlay.layoutParams = params
                     true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    sigDragging = false
+                    overlayDragging = false
                     true
                 }
                 else -> false
             }
+        }
+    }
+
+    private fun setupSignatureDrag() {
+        setupOverlayDrag(R.id.ivSignature) {
+            val path = imagePath ?: return@setupOverlayDrag null
+            pageSignatures[path]
+        }
+    }
+
+    private fun setupTextDrag() {
+        setupOverlayDrag(R.id.ivTextOverlay) {
+            val path = imagePath ?: return@setupOverlayDrag null
+            pageTexts[path]
         }
     }
 
@@ -941,6 +1206,173 @@ class EnhanceActivity : AppCompatActivity() {
         findViewById<ImageView>(R.id.ivSignature).visibility = View.GONE
         findViewById<View>(R.id.signPanel).visibility = View.GONE
     }
+
+    // ---------- Add Text ----------
+
+    // Text sizes (sp) for the Add Text dialog: Small / Medium / Large.
+    private val addTextSizesSp = listOf(18f, 28f, 40f)
+    private var addTextSizeIndex = 1
+    private val addTextColors = listOf(
+        Color.BLACK, Color.parseColor("#D32F2F"), Color.parseColor("#1976D2"),
+        Color.parseColor("#388E3C"), Color.parseColor("#00BFA5")
+    )
+    private var addTextColorIndex = 0
+
+    /** Open the Add Text dialog: type the words, pick a size
+     *  and a colour, then place the text on the page. */
+    private fun openAddTextDialog() {
+        val dialog = Dialog(this)
+        dialog.setContentView(R.layout.dialog_add_text)
+        dialog.window?.setLayout(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        val etText = dialog.findViewById<EditText>(R.id.etAddText)
+        val sizeViews = listOf(
+            dialog.findViewById<TextView>(R.id.tvTextSizeS),
+            dialog.findViewById<TextView>(R.id.tvTextSizeM),
+            dialog.findViewById<TextView>(R.id.tvTextSizeL)
+        )
+        fun refreshSizeButtons() {
+            for ((i, v) in sizeViews.withIndex()) {
+                if (i == addTextSizeIndex) {
+                    v.setBackgroundColor(getColor(R.color.hakunaa_teal))
+                    v.setTextColor(Color.WHITE)
+                } else {
+                    v.setBackgroundColor(Color.parseColor("#E0E0E0"))
+                    v.setTextColor(Color.BLACK)
+                }
+            }
+        }
+        for ((i, v) in sizeViews.withIndex()) {
+            v.setOnClickListener { addTextSizeIndex = i; refreshSizeButtons() }
+        }
+        refreshSizeButtons()
+        // Colour dots, built in code like the draw panel's.
+        val colorRow = dialog.findViewById<LinearLayout>(R.id.textColorRow)
+        val dotSize = dpToPx(28f).toInt()
+        val dotMargin = dpToPx(6f).toInt()
+        val dotViews = mutableListOf<ImageView>()
+        val dotDrawables = mutableListOf<GradientDrawable>()
+        for ((index, color) in addTextColors.withIndex()) {
+            val dot = ImageView(this)
+            val params = LinearLayout.LayoutParams(dotSize, dotSize)
+            params.marginEnd = dotMargin
+            dot.layoutParams = params
+            val drawable = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(color)
+            }
+            dot.background = drawable
+            dotViews.add(dot)
+            dotDrawables.add(drawable)
+            dot.setOnClickListener {
+                addTextColorIndex = index
+                for ((i, d) in dotDrawables.withIndex()) {
+                    if (i == index) d.setStroke(dpToPx(3f).toInt(), Color.WHITE)
+                    else d.setStroke(0, Color.TRANSPARENT)
+                    dotViews[i].background = d
+                }
+            }
+            colorRow.addView(dot)
+        }
+        for ((i, d) in dotDrawables.withIndex()) {
+            if (i == addTextColorIndex) d.setStroke(dpToPx(3f).toInt(), Color.WHITE)
+            else d.setStroke(0, Color.TRANSPARENT)
+            dotViews[i].background = d
+        }
+        dialog.findViewById<TextView>(R.id.btnAddTextCancel).setOnClickListener {
+            dialog.dismiss()
+        }
+        dialog.findViewById<TextView>(R.id.btnAddTextAdd).setOnClickListener {
+            val text = etText.text.toString().trim()
+            if (text.isEmpty()) {
+                Toast.makeText(this, "Type the text first", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val textBmp = renderTextBitmap(
+                text, addTextSizesSp[addTextSizeIndex], addTextColors[addTextColorIndex]
+            )
+            dialog.dismiss()
+            if (textBmp == null) {
+                Toast.makeText(this, "Couldn't make the text", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            placeText(textBmp)
+        }
+        dialog.show()
+    }
+
+    /** Render typed text onto a transparent bitmap, at a
+     *  size that reads well on the page. */
+    private fun renderTextBitmap(text: String, sizeSp: Float, color: Int): Bitmap? {
+        val density = resources.displayMetrics.density
+        val sizePx = sizeSp * density
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = sizePx
+            this.color = color
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        val w = paint.measureText(text).toInt().coerceAtLeast(1)
+        val fm = paint.fontMetrics
+        val h = (fm.bottom - fm.top).toInt().coerceAtLeast(1)
+        val bmp = Bitmap.createBitmap(w + 8, h + 8, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        canvas.drawText(text, 4f, 4f - fm.top, paint)
+        return bmp
+    }
+
+    /** Put a text bitmap on the current page: centred near
+     *  the top by default (30% of the page width), draggable
+     *  after that. */
+    private fun placeText(textBmp: Bitmap) {
+        val path = imagePath ?: return
+        val bmp = bitmap ?: return
+        // Drop any old text bitmap for this page first.
+        pageTexts[path]?.bitmap?.recycle()
+        val wFrac = 0.30f
+        val hFrac = wFrac * textBmp.height / textBmp.width * bmp.width / bmp.height
+        val top = (0.10f).coerceAtLeast(0.02f)
+        val rect = floatArrayOf(0.35f, top, 0.35f + wFrac, top + hFrac)
+        pageTexts[path] = PlacedOverlay(textBmp, rect)
+        layoutTextOverlay()
+        findViewById<View>(R.id.textPanel).visibility = View.VISIBLE
+    }
+
+    /** Position the text overlay from its stored normalized
+     *  rect (and show / hide it). */
+    private fun layoutTextOverlay() {
+        val path = imagePath
+        val txt = if (path == null) null else pageTexts[path]
+        val overlay = findViewById<ImageView>(R.id.ivTextOverlay)
+        if (txt == null || bitmap == null) {
+            overlay.visibility = View.GONE
+            return
+        }
+        val r = displayedRect()
+        val rect = txt.rectNorm
+        val w = ((rect[2] - rect[0]) * r[2]).toInt().coerceAtLeast(1)
+        val h = ((rect[3] - rect[1]) * r[3]).toInt().coerceAtLeast(1)
+        val params = FrameLayout.LayoutParams(w, h)
+        params.leftMargin = (r[0] + rect[0] * r[2]).toInt()
+        params.topMargin = (r[1] + rect[1] * r[3]).toInt()
+        overlay.layoutParams = params
+        if (overlay.drawable == null || overlay.getTag(R.id.ivTextOverlay) !== txt.bitmap) {
+            overlay.setImageBitmap(txt.bitmap)
+            overlay.setTag(R.id.ivTextOverlay, txt.bitmap)
+        }
+        overlay.visibility = View.VISIBLE
+    }
+
+    private fun removeText() {
+        val path = imagePath ?: return
+        pageTexts[path]?.bitmap?.recycle()
+        pageTexts.remove(path)
+        findViewById<ImageView>(R.id.ivTextOverlay).visibility = View.GONE
+        findViewById<View>(R.id.textPanel).visibility = View.GONE
+    }
+
+    // ---------- end Add Text ----------
 
     // ---------- end Draw + Sign ----------
 
@@ -956,11 +1388,12 @@ class EnhanceActivity : AppCompatActivity() {
         // NO_SHADOW for a page never touched).
         val applyAll = findViewById<CheckBox>(R.id.cbApplyAll).isChecked && allPages.size > 1
         val currentFilter = selectedFilter
-        // Snapshot the drawings + signatures now (on the UI
-        // thread) — the background thread must not read the
-        // live maps while the user could still be drawing.
+        // Snapshot the drawings + signatures + texts now (on
+        // the UI thread) — the background thread must not read
+        // the live maps while the user could still be drawing.
         val drawingsSnapshot = pageDrawings.mapValues { it.value.toList() }
         val signaturesSnapshot = pageSignatures.toMap()
+        val textsSnapshot = pageTexts.toMap()
         Thread {
             try {
                 val docName = findViewById<EditText>(R.id.etDocName).text.toString()
@@ -999,15 +1432,17 @@ class EnhanceActivity : AppCompatActivity() {
                             filtered, brightness, contrast, sharpness
                         )
                         if (final != filtered) filtered.recycle()
-                        // Draw + Sign (v0.1.82): the drawing and
-                        // the placed signature go ON TOP of the
+                        // Draw + Sign + Text (v0.1.82/83): the
+                        // drawing, the placed signature and
+                        // the placed text go ON TOP of the
                         // filtered page, so they stay crisp.
                         // `final` is always a fresh bitmap (never
                         // the input), so copying + recycling it
                         // is safe.
                         val strokes = drawingsSnapshot[path]
                         val sig = signaturesSnapshot[path]
-                        if (!strokes.isNullOrEmpty() || sig != null) {
+                        val txt = textsSnapshot[path]
+                        if (!strokes.isNullOrEmpty() || sig != null || txt != null) {
                             val composited =
                                 final.copy(Bitmap.Config.ARGB_8888, true)
                             final.recycle()
@@ -1029,6 +1464,16 @@ class EnhanceActivity : AppCompatActivity() {
                                     r[3] * composited.height
                                 )
                                 canvas.drawBitmap(sig.bitmap, null, dst, null)
+                            }
+                            if (txt != null) {
+                                val r = txt.rectNorm
+                                val dst = RectF(
+                                    r[0] * composited.width,
+                                    r[1] * composited.height,
+                                    r[2] * composited.width,
+                                    r[3] * composited.height
+                                )
+                                canvas.drawBitmap(txt.bitmap, null, dst, null)
                             }
                             final = composited
                         }
@@ -1074,5 +1519,6 @@ class EnhanceActivity : AppCompatActivity() {
         previewBitmap?.recycle()
         currentPreview?.recycle()
         for (sig in pageSignatures.values) sig.bitmap.recycle()
+        for (txt in pageTexts.values) txt.bitmap.recycle()
     }
 }
