@@ -17,7 +17,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import com.google.android.material.button.MaterialButton
 import com.hakunaa.app.R
 import java.io.File
 import java.text.SimpleDateFormat
@@ -192,13 +191,13 @@ class EnhanceActivity : AppCompatActivity() {
         setupSwipe()
 
         findViewById<LinearLayout>(R.id.btnRotateLeft).setOnClickListener { rotateLeft() }
-        findViewById<MaterialButton>(R.id.btnSave).setOnClickListener { save() }
+        findViewById<ImageButton>(R.id.btnSave).setOnClickListener { save() }
         // The confirm label says what happens next (v0.1.76):
         // "Continue" from a thumbnail review (back to the
         // camera), "Finish" from Done / Single / Book (on to
-        // Preview / Export). It sits INSIDE the boxy button
-        // (v0.1.78), not as a label below it.
-        findViewById<MaterialButton>(R.id.btnSave).text =
+        // Preview / Export). It sits BELOW the round button
+        // (style 6, user pick), in bold white.
+        findViewById<TextView>(R.id.tvSaveLabel).text =
             intent.getStringExtra(EXTRA_CONFIRM_LABEL) ?: "Finish"
         // Adjust opens ONLY from its menu button — never on its
         // own after a capture. The panel stays hidden until the

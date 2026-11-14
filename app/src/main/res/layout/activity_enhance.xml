@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#000000"
@@ -277,10 +276,12 @@
     <!-- Bottom bar: Left / Crop / Adjust / Finish (v0.1.76:
          Markup and Sign were removed — they are later steps
          and only took space; the Finish / Continue button
-         needs the room). -->
+         needs the room). The bar is 80dp so the round
+         confirm button and its label fit INSIDE it with a
+         margin — nothing hidden at the bottom or the sides. -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="72dp"
+        android:layout_height="80dp"
         android:background="#1A1A1A"
         android:gravity="center_vertical"
         android:orientation="horizontal"
@@ -372,28 +373,37 @@
             android:layout_height="0dp"
             android:layout_weight="1" />
 
-        <!-- Confirm — the approved boxy button (v0.1.79,
-             user-approved from the preview image): 48dp tall,
-             tight fit around the text (no empty space inside),
-             deeper teal, 22sp bold text inside. From a
-             thumbnail review it says "Continue" (back to the
-             camera); from Done / Single / Book it says
-             "Finish" (on to Preview / Export). -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnSave"
+        <!-- Confirm — style 6, picked by the user: a big
+             round teal check (56dp) with the word below it
+             ("Continue" from a thumbnail review, back to the
+             camera; "Finish" from Done / Single / Book, on to
+             Preview / Export). It sits a little inside from
+             the bottom and the sides — fully visible, nothing
+             hidden at the edges. -->
+        <LinearLayout
             android:layout_width="wrap_content"
-            android:layout_height="48dp"
-            android:minWidth="0dp"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
-            android:text="Finish"
-            android:textColor="#FFFFFF"
-            android:textSize="22sp"
-            android:textStyle="bold"
-            app:backgroundTint="#00897B"
-            app:cornerRadius="8dp"
-            app:icon="@drawable/ic_check"
-            app:iconPadding="6dp"
-            app:iconTint="#FFFFFF" />
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <ImageButton
+                android:id="@+id/btnSave"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:background="@drawable/bg_teal_button"
+                android:contentDescription="Save"
+                android:src="@drawable/ic_check"
+                android:tint="#FFFFFF" />
+
+            <TextView
+                android:id="@+id/tvSaveLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Finish"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>
