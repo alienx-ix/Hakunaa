@@ -79,37 +79,17 @@ class DrawView @JvmOverloads constructor(
         invalidate()
     }
 
-    /** Zoom state (v0.1.83): when the page is zoomed, the
-     *  strokes are drawn at the zoomed position, so they stay
-     *  on the page while the user inspects it. Set from the
-     *  activity's zoom; 1f = no zoom. */
-    var zoomScale: Float = 1f
-    var zoomFocusX: Float = 0f
-    var zoomFocusY: Float = 0f
-    var zoomPanX: Float = 0f
-    var zoomPanY: Float = 0f
-
     /** The content's displayed rect inside this view
-     *  (fitCenter, zoom-aware). */
+     *  (fitCenter). */
     fun displayedRect(): FloatArray {
         // left, top, width, height (view pixels)
         if (contentW <= 0 || contentH <= 0 || width <= 0 || height <= 0) {
             return floatArrayOf(0f, 0f, width.toFloat(), height.toFloat())
         }
         val scale = min(width.toFloat() / contentW, height.toFloat() / contentH)
-        var left = (width - contentW * scale) / 2f
-        var top = (height - contentH * scale) / 2f
-        var w = contentW * scale
-        var h = contentH * scale
-        if (zoomScale > 1f) {
-            // Zoomed: scale the rect around the focal point,
-            // then pan — the same transform the image gets.
-            left = zoomFocusX + (left - zoomFocusX) * zoomScale + zoomPanX
-            top = zoomFocusY + (top - zoomFocusY) * zoomScale + zoomPanY
-            w *= zoomScale
-            h *= zoomScale
-        }
-        return floatArrayOf(left, top, w, h)
+        val dw = contentW * scale
+        val dh = contentH * scale
+        return floatArrayOf((width - dw) / 2f, (height - dh) / 2f, dw, dh)
     }
 
     /** View point → normalized content point, or null when the

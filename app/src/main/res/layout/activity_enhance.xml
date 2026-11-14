@@ -91,64 +91,55 @@
             android:layout_height="wrap_content"
             android:visibility="gone" />
 
-        <!-- Placed text — draggable when present. -->
-        <ImageView
-            android:id="@+id/ivTextOverlay"
+        <!-- Placed text — a Word-style text box (v0.1.85):
+             a teal border around the text, an X on top to
+             delete it, and a resize handle at the bottom-right
+             to make it bigger or smaller. Drag the box to move
+             it; drag the handle to resize it. -->
+        <FrameLayout
+            android:id="@+id/textBoxContainer"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:visibility="gone" />
-
-        <!-- Zoom controls (v0.1.84) — only while zoomed in:
-             + to zoom in, − to zoom out, 1:1 to go back to the
-             fit view. They sit at the bottom-right of the
-             page, on the screen, so the user can control the
-             zoom with a tap after lifting the fingers off a
-             pinch. -->
-        <LinearLayout
-            android:id="@+id/zoomControls"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="bottom|end"
-            android:layout_marginEnd="12dp"
-            android:layout_marginBottom="12dp"
-            android:orientation="vertical"
+            android:background="@drawable/bg_text_box"
+            android:padding="6dp"
             android:visibility="gone">
 
+            <ImageView
+                android:id="@+id/ivTextOverlay"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+
+            <!-- Delete — the X on top of the text box. -->
             <TextView
-                android:id="@+id/btnZoomIn"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
-                android:background="#CC000000"
+                android:id="@+id/btnTextDelete"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_gravity="top|end"
+                android:layout_marginTop="-14dp"
+                android:layout_marginEnd="-14dp"
+                android:background="@drawable/bg_text_delete"
                 android:gravity="center"
-                android:text="+"
+                android:text="×"
                 android:textColor="#FFFFFF"
-                android:textSize="24sp"
+                android:textSize="18sp"
                 android:textStyle="bold" />
 
+            <!-- Resize — the handle at the bottom-right corner.
+                 Drag it to make the text bigger or smaller. -->
             <TextView
-                android:id="@+id/btnZoomOut"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
-                android:layout_marginTop="6dp"
-                android:background="#CC000000"
+                android:id="@+id/btnTextResize"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_gravity="bottom|end"
+                android:layout_marginBottom="-14dp"
+                android:layout_marginEnd="-14dp"
+                android:background="@drawable/bg_text_delete"
                 android:gravity="center"
-                android:text="−"
+                android:text="⤢"
                 android:textColor="#FFFFFF"
-                android:textSize="24sp"
+                android:textSize="16sp"
                 android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/btnZoomReset"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
-                android:layout_marginTop="6dp"
-                android:background="#CC000000"
-                android:gravity="center"
-                android:text="1:1"
-                android:textColor="#FFFFFF"
-                android:textSize="13sp"
-                android:textStyle="bold" />
-        </LinearLayout>
+        </FrameLayout>
     </FrameLayout>
 
     <!-- Filter thumbnails -->
@@ -357,9 +348,13 @@
             android:textSize="13sp" />
     </LinearLayout>
 
-    <!-- Draw panel — only in Draw mode: pen colours, pen
+    <!-- Draw panel — only in Draw / Erase mode: pen colours,
          size, Undo, Clear, Done. The colour dots are built
-         in code (setupDrawPanel). -->
+         in code (setupDrawPanel). (v0.1.85: the panel was too
+         wide — the dots + buttons added up past the screen, so
+         Clear and Done hid off the right edge. Now the dots
+         are smaller, the padding is tighter, and everything
+         sits a little inside the edge.) -->
     <LinearLayout
         android:id="@+id/drawPanel"
         android:layout_width="match_parent"
@@ -367,8 +362,8 @@
         android:background="#1A1A1A"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
         android:paddingTop="6dp"
         android:paddingBottom="6dp"
         android:visibility="gone">
@@ -384,8 +379,8 @@
             android:id="@+id/btnDrawSize"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
-            android:padding="8dp"
+            android:layout_marginStart="8dp"
+            android:padding="6dp"
             android:text="Size: M"
             android:textColor="#FFFFFF"
             android:textSize="13sp"
@@ -395,7 +390,7 @@
             android:id="@+id/btnDrawUndo"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:padding="8dp"
+            android:padding="6dp"
             android:text="Undo"
             android:textColor="#FFFFFF"
             android:textSize="13sp" />
@@ -404,7 +399,7 @@
             android:id="@+id/btnDrawClear"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:padding="8dp"
+            android:padding="6dp"
             android:text="Clear"
             android:textColor="#FFFFFF"
             android:textSize="13sp" />
@@ -418,7 +413,7 @@
             android:id="@+id/btnDrawDone"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:padding="8dp"
+            android:padding="6dp"
             android:text="Done"
             android:textColor="#00BFA5"
             android:textSize="13sp"
@@ -435,8 +430,8 @@
         android:background="#1A1A1A"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
         android:paddingTop="6dp"
         android:paddingBottom="6dp"
         android:visibility="gone">
@@ -457,7 +452,7 @@
             android:id="@+id/btnSignRemove"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:padding="8dp"
+            android:padding="6dp"
             android:text="Remove"
             android:textColor="#FFFFFF"
             android:textSize="13sp" />
@@ -466,7 +461,7 @@
             android:id="@+id/btnSignDone"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:padding="8dp"
+            android:padding="6dp"
             android:text="Done"
             android:textColor="#00BFA5"
             android:textSize="13sp"
@@ -483,8 +478,8 @@
         android:background="#1A1A1A"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
         android:paddingTop="6dp"
         android:paddingBottom="6dp"
         android:visibility="gone">
@@ -505,7 +500,7 @@
             android:id="@+id/btnTextRemove"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:padding="8dp"
+            android:padding="6dp"
             android:text="Remove"
             android:textColor="#FFFFFF"
             android:textSize="13sp" />
@@ -514,7 +509,7 @@
             android:id="@+id/btnTextDone"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:padding="8dp"
+            android:padding="6dp"
             android:text="Done"
             android:textColor="#00BFA5"
             android:textSize="13sp"

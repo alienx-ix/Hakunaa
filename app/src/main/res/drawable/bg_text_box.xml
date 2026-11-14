@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Text box border (Word-style): a teal outline around the
+     placed text, so the text reads as a box that can be
+     moved, resized and deleted. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#00000000" />
+    <stroke
+        android:width="2dp"
+        android:color="#00BFA5" />
+    <corners android:radius="2dp" />
+</shape>

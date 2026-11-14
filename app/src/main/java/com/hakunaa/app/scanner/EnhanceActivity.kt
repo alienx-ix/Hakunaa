@@ -12,9 +12,7 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.view.GestureDetector
 import android.view.MotionEvent
-import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup
 import android.widget.CheckBox
@@ -152,16 +150,6 @@ class EnhanceActivity : AppCompatActivity() {
     private var overlayDragOffsetY = 0f
     private var overlayDragging = false
 
-    // Pinch-zoom on the page (v0.1.83).
-    private var zoomScale = 1f
-    private var zoomBaseMatrix = Matrix()
-    private var zoomPanX = 0f
-    private var zoomPanY = 0f
-    private var zoomFocusX = 0f
-    private var zoomFocusY = 0f
-    private lateinit var zoomScaleDetector: android.view.ScaleGestureDetector
-    private lateinit var zoomTapDetector: android.view.GestureDetector
-
     // Re-crop the current page from the Filter section
     // (v0.1.58): the Crop screen returns the cropped file,
     // which replaces this page here and in the batch list.
@@ -295,33 +283,16 @@ class EnhanceActivity : AppCompatActivity() {
             findViewById<View>(R.id.signPanel).visibility = View.GONE
         }
         setupSignatureDrag()
-        // Text — the placed text's panel (v0.1.83).
+        // Text — the placed text's panel (v0.1.83) + the
+        // Word-style box (v0.1.85): the X on the box deletes
+        // it, the corner handle resizes it.
         findViewById<TextView>(R.id.btnTextRemove).setOnClickListener { removeText() }
         findViewById<TextView>(R.id.btnTextDone).setOnClickListener {
             findViewById<View>(R.id.textPanel).visibility = View.GONE
         }
+        findViewById<TextView>(R.id.btnTextDelete).setOnClickListener { removeText() }
         setupTextDrag()
-        // Zoom controls on the screen (v0.1.84): + / − / 1:1,
-        // shown only while zoomed in. The user asked for them
-        // after a pinch — so the zoom can be controlled with
-        // a tap once the fingers are off the screen.
-        findViewById<TextView>(R.id.btnZoomIn).setOnClickListener {
-            val pageView = findViewById<ImageView>(R.id.ivPage)
-            zoomFocusX = pageView.width / 2f
-            zoomFocusY = pageView.height / 2f
-            zoomScale = (zoomScale + 0.5f).coerceIn(1f, 4f)
-            applyZoom()
-        }
-        findViewById<TextView>(R.id.btnZoomOut).setOnClickListener {
-            val pageView = findViewById<ImageView>(R.id.ivPage)
-            zoomFocusX = pageView.width / 2f
-            zoomFocusY = pageView.height / 2f
-            zoomScale = (zoomScale - 0.5f).coerceIn(1f, 4f)
-            applyZoom()
-        }
-        findViewById<TextView>(R.id.btnZoomReset).setOnClickListener {
-            resetZoom()
-        }
+        setupTextResize()
         setupAdjustSliders()
     }
 
@@ -358,9 +329,6 @@ class EnhanceActivity : AppCompatActivity() {
                     currentPreview = null
                     bitmap = bmp
                     previewBitmap = preview
-                    // A new page — the zoom belongs to the old
-                    // one, so go back to the fit view.
-                    resetZoom()
                     // This page's own filter (default NO_SHADOW).
                     selectedFilter = pageFilters[path] ?: ImageEnhancer.Filter.NO_SHADOW
                     // Show the downsampled preview at once, then
@@ -398,96 +366,34 @@ class EnhanceActivity : AppCompatActivity() {
         }
     }
 
-    /** Page gestures (v0.1.83): swipe to change pages
-     *  (CamScanner-style) + pinch-zoom to inspect the image
-     *  + double-tap to toggle zoom (1x <-> 2.5x) + drag to
-     *  pan while zoomed. One listener handles them all, so a
-     *  pinch never becomes a page swipe.
+    /** Swipe the page left / right to move between batch
+     *  pages (CamScanner-style). A swipe stores the current
+     *  page's filter first, so each page keeps the filter
+     *  picked for it.
      *
-     *  A swipe stores the current page's filter first, so
-     *  each page keeps the filter picked for it. The swipe
-     *  tracks the drag by hand (ACTION_DOWN → ACTION_UP)
+     *  This tracks the drag by hand (ACTION_DOWN → ACTION_UP)
      *  instead of a GestureDetector fling: a fling only fires
      *  for a fast swipe, but the user swipes slowly, like
      *  turning pages in a gallery — a slow drag never fired
      *  onFling, so no page ever came. Any mostly-horizontal
-     *  drag past 100px moves a page. */
+     *  drag past 100px moves a page.
+     *
+     *  (Zoom was removed in v0.1.85 — the user asked for it
+     *  to go from this Filter preview: it felt poor here. The
+     *  full-screen page preview still zooms.) */
     private fun setupSwipe() {
         val pageView = findViewById<ImageView>(R.id.ivPage)
         var downX = 0f
         var downY = 0f
-        var pinchActive = false
-        var panLastX = 0f
-        var panLastY = 0f
-
-        val scaleListener = object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-            override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
-                pinchActive = true
-                zoomFocusX = detector.focusX
-                zoomFocusY = detector.focusY
-                return true
-            }
-
-            override fun onScale(detector: ScaleGestureDetector): Boolean {
-                zoomScale = (zoomScale * detector.scaleFactor).coerceIn(1f, 4f)
-                zoomFocusX = detector.focusX
-                zoomFocusY = detector.focusY
-                applyZoom()
-                return true
-            }
-
-            override fun onScaleEnd(detector: ScaleGestureDetector) {
-                pinchActive = false
-                if (zoomScale <= 1.01f) resetZoom()
-            }
-        }
-        zoomScaleDetector = ScaleGestureDetector(this, scaleListener)
-
-        val tapListener = object : GestureDetector.SimpleOnGestureListener() {
-            override fun onDoubleTap(e: MotionEvent): Boolean {
-                if (zoomScale > 1f) {
-                    resetZoom()
-                } else {
-                    zoomScale = 2.5f
-                    zoomFocusX = e.x
-                    zoomFocusY = e.y
-                    applyZoom()
-                }
-                return true
-            }
-        }
-        zoomTapDetector = GestureDetector(this, tapListener)
-
         pageView.setOnTouchListener { _, event ->
-            // The detectors see every event first.
-            zoomScaleDetector.onTouchEvent(event)
-            zoomTapDetector.onTouchEvent(event)
-            when (event.actionMasked) {
+            when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = event.x
                     downY = event.y
-                    panLastX = event.x
-                    panLastY = event.y
                     true
                 }
-                MotionEvent.ACTION_MOVE -> {
-                    if (pinchActive) {
-                        // Pinch is handling the zoom.
-                        true
-                    } else if (zoomScale > 1f) {
-                        // Zoomed in: drag pans the image.
-                        zoomPanX += event.x - panLastX
-                        zoomPanY += event.y - panLastY
-                        applyZoom()
-                        panLastX = event.x
-                        panLastY = event.y
-                        true
-                    } else {
-                        true
-                    }
-                }
                 MotionEvent.ACTION_UP -> {
-                    if (!pinchActive && zoomScale <= 1f && allPages.size > 1) {
+                    if (allPages.size > 1) {
                         val dx = event.x - downX
                         val dy = event.y - downY
                         if (abs(dx) > 100f && abs(dx) > abs(dy) * 1.5f) {
@@ -500,87 +406,6 @@ class EnhanceActivity : AppCompatActivity() {
                 else -> true
             }
         }
-    }
-
-    /** Apply the current zoom to the page image: the
-     *  fitCenter base matrix, scaled around the focal point,
-     *  plus the pan. The drawing + signature + text overlays
-     *  follow (they use the zoom-aware displayed rect). */
-    private fun applyZoom() {
-        val pageView = findViewById<ImageView>(R.id.ivPage)
-        val bmp = bitmap ?: return
-        if (pageView.width <= 0 || pageView.height <= 0) return
-        if (zoomScale <= 1f) {
-            resetZoom()
-            return
-        }
-        val vw = pageView.width.toFloat()
-        val vh = pageView.height.toFloat()
-        val scale = minOf(vw / bmp.width, vh / bmp.height)
-        val dw = bmp.width * scale
-        val dh = bmp.height * scale
-        val base = Matrix()
-        base.setScale(scale, scale)
-        base.postTranslate((vw - dw) / 2f, (vh - dh) / 2f)
-        val m = Matrix(base)
-        m.postScale(zoomScale, zoomScale, zoomFocusX, zoomFocusY)
-        m.postTranslate(zoomPanX, zoomPanY)
-        // Clamp the pan so the image can't be pushed away
-        // from the screen: keep at least half of it visible.
-        val rect = RectF(0f, 0f, bmp.width.toFloat(), bmp.height.toFloat())
-        m.mapRect(rect)
-        var dx = 0f
-        var dy = 0f
-        if (rect.width() > vw) {
-            if (rect.left > 0f) dx = -rect.left
-            else if (rect.right < vw) dx = vw - rect.right
-        } else {
-            dx = (vw - rect.width()) / 2f - rect.left
-        }
-        if (rect.height() > vh) {
-            if (rect.top > 0f) dy = -rect.top
-            else if (rect.bottom < vh) dy = vh - rect.bottom
-        } else {
-            dy = (vh - rect.height()) / 2f - rect.top
-        }
-        if (dx != 0f || dy != 0f) {
-            m.postTranslate(dx, dy)
-            zoomPanX += dx
-            zoomPanY += dy
-        }
-        pageView.scaleType = ImageView.ScaleType.MATRIX
-        pageView.imageMatrix = m
-        // Show the on-screen zoom controls while zoomed.
-        findViewById<View>(R.id.zoomControls).visibility = View.VISIBLE
-        // Move the overlays with the zoom.
-        val drawView = findViewById<DrawView>(R.id.drawView)
-        drawView.zoomScale = zoomScale
-        drawView.zoomFocusX = zoomFocusX
-        drawView.zoomFocusY = zoomFocusY
-        drawView.zoomPanX = zoomPanX
-        drawView.zoomPanY = zoomPanY
-        drawView.invalidate()
-        layoutSignatureOverlay()
-        layoutTextOverlay()
-    }
-
-    /** Reset the zoom to the fit view. */
-    private fun resetZoom() {
-        zoomScale = 1f
-        zoomPanX = 0f
-        zoomPanY = 0f
-        val pageView = findViewById<ImageView>(R.id.ivPage)
-        pageView.scaleType = ImageView.ScaleType.FIT_CENTER
-        pageView.imageMatrix = null
-        // Hide the on-screen zoom controls.
-        findViewById<View>(R.id.zoomControls).visibility = View.GONE
-        val drawView = findViewById<DrawView>(R.id.drawView)
-        drawView.zoomScale = 1f
-        drawView.zoomPanX = 0f
-        drawView.zoomPanY = 0f
-        drawView.invalidate()
-        layoutSignatureOverlay()
-        layoutTextOverlay()
     }
 
     /** Show page [index] (clamped). Only the PAGE slides — a
@@ -895,11 +720,7 @@ class EnhanceActivity : AppCompatActivity() {
         dp * resources.displayMetrics.density
 
     /** The page bitmap's displayed rect inside pageFrame
-     *  (fitCenter, zoom-aware): [left, top, width, height]
-     *  in view pixels. When zoomed, the rect follows the
-     *  same scale-around-focus + pan transform the image
-     *  gets, so the signature / text overlays stay on the
-     *  page while it is zoomed. */
+     *  (fitCenter): [left, top, width, height] in view pixels. */
     private fun displayedRect(): FloatArray {
         val frame = findViewById<View>(R.id.pageFrame)
         val bmp = bitmap
@@ -910,17 +731,9 @@ class EnhanceActivity : AppCompatActivity() {
             frame.width.toFloat() / bmp.width,
             frame.height.toFloat() / bmp.height
         )
-        var left = (frame.width - bmp.width * scale) / 2f
-        var top = (frame.height - bmp.height * scale) / 2f
-        var w = bmp.width * scale
-        var h = bmp.height * scale
-        if (zoomScale > 1f) {
-            left = zoomFocusX + (left - zoomFocusX) * zoomScale + zoomPanX
-            top = zoomFocusY + (top - zoomFocusY) * zoomScale + zoomPanY
-            w *= zoomScale
-            h *= zoomScale
-        }
-        return floatArrayOf(left, top, w, h)
+        val dw = bmp.width * scale
+        val dh = bmp.height * scale
+        return floatArrayOf((frame.width - dw) / 2f, (frame.height - dh) / 2f, dw, dh)
     }
 
     /** Load the current page's drawing + signature + text
@@ -1031,8 +844,11 @@ class EnhanceActivity : AppCompatActivity() {
     /** Build the pen colour dots and wire the draw panel. */
     private fun setupDrawPanel() {
         val row = findViewById<LinearLayout>(R.id.colorRow)
-        val dotSize = dpToPx(28f).toInt()
-        val dotMargin = dpToPx(6f).toInt()
+        // Small dots (v0.1.85): 24dp + 4dp gap, so the whole
+        // panel (dots + Size + Undo + Clear + Done) fits the
+        // screen and Clear / Done never hide off the edge.
+        val dotSize = dpToPx(24f).toInt()
+        val dotMargin = dpToPx(4f).toInt()
         for ((index, color) in drawColors.withIndex()) {
             val dot = ImageView(this)
             val params = LinearLayout.LayoutParams(dotSize, dotSize)
@@ -1239,9 +1055,101 @@ class EnhanceActivity : AppCompatActivity() {
     }
 
     private fun setupTextDrag() {
-        setupOverlayDrag(R.id.ivTextOverlay) {
-            val path = imagePath ?: return@setupOverlayDrag null
-            pageTexts[path]
+        // Drag the whole text BOX to move the text (the box
+        // is the touch target now, not the bare image).
+        val box = findViewById<View>(R.id.textBoxContainer)
+        box.setOnTouchListener { _, event ->
+            val path = imagePath ?: return@setOnTouchListener false
+            val txt = pageTexts[path] ?: return@setOnTouchListener false
+            val frame = findViewById<View>(R.id.pageFrame)
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    overlayDragOffsetX = event.x
+                    overlayDragOffsetY = event.y
+                    overlayDragging = true
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (!overlayDragging) return@setOnTouchListener false
+                    val r = displayedRect()
+                    val rect = txt.rectNorm
+                    val wFrac = rect[2] - rect[0]
+                    val hFrac = rect[3] - rect[1]
+                    val pad = dpToPx(6f)
+                    // The box's top-left, minus where the
+                    // finger grabbed it, is the box's new spot.
+                    // The TEXT sits 6dp inside the box, so add
+                    // the padding back to get the text's spot.
+                    val loc = IntArray(2)
+                    frame.getLocationOnScreen(loc)
+                    val fx = event.rawX - loc[0] - overlayDragOffsetX
+                    val fy = event.rawY - loc[1] - overlayDragOffsetY
+                    rect[0] = ((fx + pad - r[0]) / r[2]).coerceIn(0f, 1f - wFrac)
+                    rect[1] = ((fy + pad - r[1]) / r[3]).coerceIn(0f, 1f - hFrac)
+                    rect[2] = rect[0] + wFrac
+                    rect[3] = rect[1] + hFrac
+                    layoutTextOverlay()
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    overlayDragging = false
+                    val p = imagePath
+                    if (p != null) writeOverlaysToStore(p)
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    /** Resize the text box by dragging its bottom-right
+     *  handle (Word-style): the box grows / shrinks from its
+     *  top-left, and the text scales with it. The width and
+     *  height scale together (the text keeps its shape). */
+    private fun setupTextResize() {
+        val handle = findViewById<TextView>(R.id.btnTextResize)
+        var startX = 0f
+        var startY = 0f
+        var startW = 0f
+        var startH = 0f
+        var resizing = false
+        handle.setOnTouchListener { _, event ->
+            val path = imagePath ?: return@setOnTouchListener false
+            val txt = pageTexts[path] ?: return@setOnTouchListener false
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    val r = displayedRect()
+                    startX = event.rawX
+                    startY = event.rawY
+                    startW = (txt.rectNorm[2] - txt.rectNorm[0]) * r[2]
+                    startH = (txt.rectNorm[3] - txt.rectNorm[1]) * r[3]
+                    resizing = true
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (!resizing) return@setOnTouchListener false
+                    val r = displayedRect()
+                    // Grow by the bigger of the two drags, so
+                    // the text scales evenly (no squashing).
+                    val dx = event.rawX - startX
+                    val dy = event.rawY - startY
+                    val delta = maxOf(dx, dy)
+                    val newW = (startW + delta).coerceIn(40f, r[2])
+                    val newH = startH * (newW / startW)
+                    val rect = txt.rectNorm
+                    rect[2] = (rect[0] + newW / r[2]).coerceAtMost(1f)
+                    rect[3] = (rect[1] + newH / r[3]).coerceAtMost(1f)
+                    layoutTextOverlay()
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    resizing = false
+                    val p = imagePath
+                    if (p != null) writeOverlaysToStore(p)
+                    true
+                }
+                else -> false
+            }
         }
     }
 
@@ -1389,36 +1297,44 @@ class EnhanceActivity : AppCompatActivity() {
         writeOverlaysToStore(path)
     }
 
-    /** Position the text overlay from its stored normalized
-     *  rect (and show / hide it). */
+    /** Position the text box (Word-style, v0.1.85) from its
+     *  stored normalized rect (and show / hide it). The box
+     *  wraps the text with a teal border + 6dp padding, so
+     *  the box is a little bigger than the text itself — the
+     *  box's top-left sits 6dp up-left of the text's. */
     private fun layoutTextOverlay() {
         val path = imagePath
         val txt = if (path == null) null else pageTexts[path]
+        val box = findViewById<View>(R.id.textBoxContainer)
         val overlay = findViewById<ImageView>(R.id.ivTextOverlay)
         if (txt == null || bitmap == null) {
-            overlay.visibility = View.GONE
+            box.visibility = View.GONE
             return
         }
+        val pad = dpToPx(6f).toInt()
         val r = displayedRect()
         val rect = txt.rectNorm
-        val w = ((rect[2] - rect[0]) * r[2]).toInt().coerceAtLeast(1)
-        val h = ((rect[3] - rect[1]) * r[3]).toInt().coerceAtLeast(1)
-        val params = FrameLayout.LayoutParams(w, h)
-        params.leftMargin = (r[0] + rect[0] * r[2]).toInt()
-        params.topMargin = (r[1] + rect[1] * r[3]).toInt()
-        overlay.layoutParams = params
+        val tw = ((rect[2] - rect[0]) * r[2]).toInt().coerceAtLeast(1)
+        val th = ((rect[3] - rect[1]) * r[3]).toInt().coerceAtLeast(1)
+        // The text bitmap fills the box's inside (the box's
+        // padding is the 6dp border gap).
+        overlay.layoutParams = FrameLayout.LayoutParams(tw, th)
         if (overlay.drawable == null || overlay.getTag(R.id.ivTextOverlay) !== txt.bitmap) {
             overlay.setImageBitmap(txt.bitmap)
             overlay.setTag(R.id.ivTextOverlay, txt.bitmap)
         }
-        overlay.visibility = View.VISIBLE
+        val params = FrameLayout.LayoutParams(tw + pad * 2, th + pad * 2)
+        params.leftMargin = (r[0] + rect[0] * r[2]).toInt() - pad
+        params.topMargin = (r[1] + rect[1] * r[3]).toInt() - pad
+        box.layoutParams = params
+        box.visibility = View.VISIBLE
     }
 
     private fun removeText() {
         val path = imagePath ?: return
         pageTexts[path]?.bitmap?.recycle()
         pageTexts.remove(path)
-        findViewById<ImageView>(R.id.ivTextOverlay).visibility = View.GONE
+        findViewById<View>(R.id.textBoxContainer).visibility = View.GONE
         findViewById<View>(R.id.textPanel).visibility = View.GONE
         writeOverlaysToStore(path)
     }

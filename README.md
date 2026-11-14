@@ -630,6 +630,12 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.85 — Zoom removed from Filter preview, Word-style text box, Draw panel fits
+
+- **Zoom removed from the Filter preview** (user asked): pinch / double-tap / on-screen zoom buttons are gone from Enhance — the preview is just the page + filters now. The full-screen page preview still zooms.
+- **Text is a Word-style box now:** the placed text sits in a teal-bordered box. Drag the box to move it, drag the bottom-right handle (⤢) to make it bigger or smaller, tap the × on top to delete it. The Remove / Done row is still there too.
+- **Draw panel fits:** Clear and Done were hiding off the right edge (the dots + buttons were wider than the screen). The colour dots are smaller now and the panel padding is tighter, so everything sits inside.
+
 ## v0.1.84 — Edits persist after Continue, even bottom bar, zoom buttons, Sign pad fixed
 
 - **Edits persist after Continue (the fix):** Draw / Sign / Text made in a thumbnail review ("Continue") used to vanish — the next Enhance (Done → "Finish") loaded the raw file and the new activity had empty overlays. Now the overlays live in a shared `OverlayStore` (keyed by the page's raw path): every Enhance run loads them on open and writes them back on save, so nothing made in a review is lost. The filter still comes from the raw file exactly once.
