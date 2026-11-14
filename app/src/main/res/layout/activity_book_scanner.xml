@@ -45,28 +45,6 @@
         android:scaleType="fitCenter"
         android:visibility="gone" />
 
-    <!-- Status line (v0.1.105) — BELOW the Spirit Level,
-         right-aligned with it (marginEnd 152dp, same as the
-         Level), a little gap under the bubble (marginTop
-         48dp from the vertical centre). Single's clean look:
-         small GREY text (#B0B0B0, 13sp) on a dark pill, so
-         the busy page and the spine line never touch it. -->
-    <TextView
-        android:id="@+id/tvStatus"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center_vertical|end"
-        android:layout_marginTop="48dp"
-        android:layout_marginEnd="152dp"
-        android:background="@drawable/bg_status_pill"
-        android:paddingStart="14dp"
-        android:paddingTop="7dp"
-        android:paddingEnd="14dp"
-        android:paddingBottom="7dp"
-        android:text="Point the camera at an open book — both pages at once"
-        android:textColor="#B0B0B0"
-        android:textSize="13sp" />
-
     <!-- Spirit Level (v0.1.102) — EXACTLY like Single/Batch:
          the 2D bullseye, 56dp, right next to the Capture
          button at the same height, live. In Single/Batch the

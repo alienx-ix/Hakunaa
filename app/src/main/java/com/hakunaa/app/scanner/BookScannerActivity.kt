@@ -172,8 +172,7 @@ class BookScannerActivity : AppCompatActivity() {
             if (granted) {
                 startCamera()
             } else {
-                findViewById<TextView>(R.id.tvStatus).text =
-                    "Camera permission is needed to scan. Allow it in Settings, or pick photos from the gallery instead."
+                Toast.makeText(this@BookScannerActivity, "Camera permission is needed to scan. Allow it in Settings.", Toast.LENGTH_LONG).show()
             }
         }
 
@@ -221,8 +220,7 @@ class BookScannerActivity : AppCompatActivity() {
                 OverlayStore.clear()
                 docName = null
                 updateLabels()
-                findViewById<TextView>(R.id.tvStatus).text =
-                    "Done — PDF saved. Scan another book when ready"
+                Toast.makeText(this@BookScannerActivity, "PDF saved", Toast.LENGTH_SHORT).show()
             } else if (result.resultCode == PdfExportActivity.RESULT_DISCARD) {
                 // Discard confirmed on the export screen reached
                 // via the Preview (v0.1.71): drop every page so
@@ -232,8 +230,6 @@ class BookScannerActivity : AppCompatActivity() {
                 OverlayStore.clear()
                 docName = null
                 updateLabels()
-                findViewById<TextView>(R.id.tvStatus).text =
-                    "Discarded — point the camera at an open book and tap Capture"
                 Toast.makeText(this, "Discarded", Toast.LENGTH_SHORT).show()
             }
             // RESULT_ADD_PAGE or back: stay on the camera, pages kept.
@@ -367,9 +363,6 @@ class BookScannerActivity : AppCompatActivity() {
             if (!doubleMode) {
                 selectedSide = side
                 spineLine().selectedSide = side
-                findViewById<TextView>(R.id.tvStatus).text =
-                    if (side == SpineLineView.SIDE_LEFT) "Single — left page (A) selected, tap Capture"
-                    else "Single — right page (B) selected, tap Capture"
             }
         }
         // The spine line lives inside the camera image (the
@@ -462,8 +455,6 @@ class BookScannerActivity : AppCompatActivity() {
             singleView.setTextColor(getColor(android.R.color.white))
             singleView.setTypeface(null, android.graphics.Typeface.NORMAL)
             spineLine().selectedSide = SpineLineView.SIDE_NONE
-            findViewById<TextView>(R.id.tvStatus).text =
-                "Double — both pages at once (A then B)"
         } else {
             singleView.background = getDrawable(R.drawable.mode_single_double_selected)
             singleView.setTextColor(getColor(android.R.color.white))
@@ -472,8 +463,6 @@ class BookScannerActivity : AppCompatActivity() {
             doubleView.setTextColor(getColor(android.R.color.white))
             doubleView.setTypeface(null, android.graphics.Typeface.NORMAL)
             spineLine().selectedSide = selectedSide
-            findViewById<TextView>(R.id.tvStatus).text =
-                "Single — tap the page to scan (A or B), then Capture"
         }
     }
 
@@ -487,8 +476,6 @@ class BookScannerActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.btnTorch).setImageResource(
             if (torchOn) R.drawable.ic_flash_on else R.drawable.ic_flash_off
         )
-        findViewById<TextView>(R.id.tvStatus).text =
-            if (torchOn) "Torch on" else "Torch off"
     }
 
     private fun startCamera() {
@@ -537,11 +524,8 @@ class BookScannerActivity : AppCompatActivity() {
                     if (torchOn) camera?.cameraControl?.enableTorch(true)
                 } catch (_: Throwable) {
                 }
-                findViewById<TextView>(R.id.tvStatus).text =
-                    "Point the camera at an open book — drag the spine line to the fold, then Capture"
             } catch (_: Throwable) {
-                findViewById<TextView>(R.id.tvStatus).text =
-                    "Couldn't start the camera — try again"
+                Toast.makeText(this@BookScannerActivity, "Couldn't start the camera — try again", Toast.LENGTH_SHORT).show()
             }
         }, ContextCompat.getMainExecutor(this))
     }
@@ -572,8 +556,6 @@ class BookScannerActivity : AppCompatActivity() {
             return
         }
         isCapturing = true
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Capturing…"
         val photoFile = File(cacheDir, "book_capture_${System.currentTimeMillis()}.jpg")
         val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
         // The shutter click — only when the Sound setting is on.
@@ -584,7 +566,7 @@ class BookScannerActivity : AppCompatActivity() {
             object : ImageCapture.OnImageSavedCallback {
                 override fun onError(exception: ImageCaptureException) {
                     isCapturing = false
-                    runOnUiThread { status.text = "Capture failed — try again" }
+                    runOnUiThread { Toast.makeText(this@BookScannerActivity, "Capture failed — try again", Toast.LENGTH_SHORT).show() }
                 }
 
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
@@ -627,15 +609,10 @@ class BookScannerActivity : AppCompatActivity() {
      *  persistent thumbnail beside the Pages count, like
      *  CamScanner (not just the number changing). */
     private fun playCaptureFlyAnimation(thumbBmp: Bitmap?, newCount: Int, lastBmp: Bitmap?) {
-        val status = findViewById<TextView>(R.id.tvStatus)
-        val doneText =
-            if (newCount == 2) "2 pages added — flip the book and capture the next spread"
-            else "1 page added — flip the book and capture the next spread"
         if (thumbBmp == null) {
             isCapturing = false
             updateLabels()
             setLastPageThumb(lastBmp)
-            status.text = doneText
             return
         }
         val thumb = findViewById<ImageView>(R.id.ivCaptureThumb)
@@ -678,7 +655,6 @@ class BookScannerActivity : AppCompatActivity() {
                     isCapturing = false
                     updateLabels()
                     setLastPageThumb(lastBmp)
-                    status.text = doneText
                 }
                 .start()
         }
@@ -725,7 +701,7 @@ class BookScannerActivity : AppCompatActivity() {
             if (bitmap == null) {
                 runOnUiThread {
                     isCapturing = false
-                    findViewById<TextView>(R.id.tvStatus).text = "Couldn't read that photo — try again"
+                    Toast.makeText(this@BookScannerActivity, "Couldn't read that photo — try again", Toast.LENGTH_SHORT).show()
                 }
                 return
             }
@@ -734,7 +710,7 @@ class BookScannerActivity : AppCompatActivity() {
             if (split == null) {
                 runOnUiThread {
                     isCapturing = false
-                    findViewById<TextView>(R.id.tvStatus).text = "Couldn't split the pages — try again"
+                    Toast.makeText(this@BookScannerActivity, "Couldn't split the pages — try again", Toast.LENGTH_SHORT).show()
                 }
                 return
             }
@@ -782,7 +758,7 @@ class BookScannerActivity : AppCompatActivity() {
         } catch (_: Throwable) {
             runOnUiThread {
                 isCapturing = false
-                findViewById<TextView>(R.id.tvStatus).text = "Something went wrong — try again"
+                Toast.makeText(this@BookScannerActivity, "Something went wrong — try again", Toast.LENGTH_SHORT).show()
             }
         }
     }
