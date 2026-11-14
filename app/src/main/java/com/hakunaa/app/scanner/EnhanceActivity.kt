@@ -127,7 +127,11 @@ class EnhanceActivity : AppCompatActivity() {
         var rectNorm: FloatArray
     )
 
-    private val pageSignatures = mutableMapOf<String, PlacedOverlay>()
+    private val pageSignatures = mutableMapOf<String, MutableList<PlacedOverlay>>()
+    /** The ImageViews showing this page's signatures in
+     *  pageFrame (v0.1.92) — one per signature, rebuilt by
+     *  layoutSignatureOverlay(). */
+    private val signatureViews = mutableListOf<ImageView>()
     private val pageTexts = mutableMapOf<String, PlacedOverlay>()
 
     // The placed text's selection state (v0.1.86): the box,
@@ -290,7 +294,9 @@ class EnhanceActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.btnSignDone).setOnClickListener {
             findViewById<View>(R.id.signPanel).visibility = View.GONE
         }
-        setupSignatureDrag()
+        // (v0.1.92) Signature dragging is attached per-view
+        // in layoutSignatureOverlay() — there is no single
+        // static signature view any more.
         // Text — the placed text's panel (v0.1.83) + the
         // Word-style box (v0.1.85): the X on the box deletes
         // it, the corner handle resizes it.
@@ -728,7 +734,7 @@ class EnhanceActivity : AppCompatActivity() {
                     drawView.setContentSize(rotated.width, rotated.height)
                     if (path != null) {
                         pageDrawings[path] = drawView.getStrokes().toMutableList()
-                        pageSignatures[path]?.let { sig ->
+                        pageSignatures[path]?.forEach { sig ->
                             sig.rectNorm = DrawView.rotateRectCCW(sig.rectNorm)
                         }
                         pageTexts[path]?.let { txt ->
@@ -990,13 +996,17 @@ class EnhanceActivity : AppCompatActivity() {
     private fun placeSignature(sigBmp: Bitmap) {
         val path = imagePath ?: return
         val bmp = bitmap ?: return
-        // Drop any old signature bitmap for this page first.
-        pageSignatures[path]?.bitmap?.recycle()
+        // Multiple signatures per page (v0.1.92): the new one
+        // is ADDED, never replacing the old ones. Each extra
+        // signature starts a little higher, so they do not
+        // stack exactly on top of each other.
+        val list = pageSignatures.getOrPut(path) { mutableListOf() }
         val wFrac = 0.35f
         val hFrac = wFrac * sigBmp.height / sigBmp.width * bmp.width / bmp.height
-        val top = (0.88f - hFrac).coerceAtLeast(0.05f)
-        val rect = floatArrayOf(0.60f, top, 0.95f, 0.88f)
-        pageSignatures[path] = PlacedOverlay(sigBmp, rect)
+        val shift = (list.size * 0.14f).coerceAtMost(0.5f)
+        val top = (0.88f - hFrac - shift).coerceAtLeast(0.05f)
+        val rect = floatArrayOf(0.60f, top, 0.95f, (top + hFrac).coerceAtMost(0.95f))
+        list.add(PlacedOverlay(sigBmp, rect))
         layoutSignatureOverlay()
         findViewById<View>(R.id.signPanel).visibility = View.VISIBLE
         // Persist it (v0.1.84) — the next Enhance run loads
@@ -1004,47 +1014,48 @@ class EnhanceActivity : AppCompatActivity() {
         writeOverlaysToStore(path)
     }
 
-    /** Position the signature overlay from its stored
-     *  normalized rect (and show / hide it). */
+    /** Position the signature overlays from their stored
+     *  normalized rects (and show / hide them). One
+     *  ImageView per signature, rebuilt each time (v0.1.92),
+     *  so any number of signatures can sit on the page. */
     private fun layoutSignatureOverlay() {
         val path = imagePath
-        val sig = if (path == null) null else pageSignatures[path]
-        val overlay = findViewById<ImageView>(R.id.ivSignature)
-        if (sig == null || bitmap == null) {
-            overlay.visibility = View.GONE
-            return
-        }
+        val sigs = if (path == null) null else pageSignatures[path]
+        val frame = findViewById<FrameLayout>(R.id.pageFrame)
+        // Drop the old views first, then add one per signature.
+        for (view in signatureViews) frame.removeView(view)
+        signatureViews.clear()
+        if (sigs.isNullOrEmpty() || bitmap == null) return
         val r = displayedRect()
-        val rect = sig.rectNorm
-        val w = ((rect[2] - rect[0]) * r[2]).toInt().coerceAtLeast(1)
-        val h = ((rect[3] - rect[1]) * r[3]).toInt().coerceAtLeast(1)
-        val params = FrameLayout.LayoutParams(w, h)
-        params.leftMargin = (r[0] + rect[0] * r[2]).toInt()
-        params.topMargin = (r[1] + rect[1] * r[3]).toInt()
-        overlay.layoutParams = params
-        if (overlay.drawable == null || overlay.getTag(R.id.ivSignature) !== sig.bitmap) {
+        for (sig in sigs) {
+            val rect = sig.rectNorm
+            val w = ((rect[2] - rect[0]) * r[2]).toInt().coerceAtLeast(1)
+            val h = ((rect[3] - rect[1]) * r[3]).toInt().coerceAtLeast(1)
+            val overlay = ImageView(this)
             overlay.setImageBitmap(sig.bitmap)
-            overlay.setTag(R.id.ivSignature, sig.bitmap)
+            val params = FrameLayout.LayoutParams(w, h)
+            params.leftMargin = (r[0] + rect[0] * r[2]).toInt()
+            params.topMargin = (r[1] + rect[1] * r[3]).toInt()
+            overlay.layoutParams = params
+            frame.addView(overlay)
+            signatureViews.add(overlay)
+            attachSignatureDrag(overlay, sig)
         }
-        overlay.visibility = View.VISIBLE
     }
 
-    /** Drag a placed overlay (signature or text) around the
-     *  page. The stored normalized rect follows the finger,
-     *  clamped inside the page. */
-    /** Generic drag for a placed overlay (signature).
-     *  [onEraseTap] runs when the overlay is tapped while
-     *  the Erase tool is active (v0.1.87): Erase applies to
-     *  everything drawn on the screen, so tapping a placed
-     *  signature in Erase mode removes it. */
+    /** Drag a placed overlay (signature) around the page.
+     *  The stored normalized rect follows the finger,
+     *  clamped inside the page. [onEraseTap] runs when the
+     *  overlay is tapped while the Erase tool is active
+     *  (v0.1.87): Erase applies to everything drawn on the
+     *  screen, so tapping a placed signature in Erase mode
+     *  removes THAT signature. */
     private fun setupOverlayDrag(
-        overlayViewId: Int,
-        getPlacement: () -> PlacedOverlay?,
+        overlay: View,
+        placement: PlacedOverlay,
         onEraseTap: (() -> Unit)? = null
     ) {
-        val overlay = findViewById<ImageView>(overlayViewId)
         overlay.setOnTouchListener { _, event ->
-            val placement = getPlacement() ?: return@setOnTouchListener false
             val frame = findViewById<View>(R.id.pageFrame)
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
@@ -1098,14 +1109,14 @@ class EnhanceActivity : AppCompatActivity() {
         }
     }
 
-    private fun setupSignatureDrag() {
+    /** Attach dragging to one signature view (v0.1.92):
+     *  dragging moves THAT signature; tapping it in Erase
+     *  mode removes THAT signature. */
+    private fun attachSignatureDrag(overlay: View, sig: PlacedOverlay) {
         setupOverlayDrag(
-            R.id.ivSignature,
-            getPlacement = {
-                val path = imagePath ?: return@setupOverlayDrag null
-                pageSignatures[path]
-            },
-            onEraseTap = { removeSignature() }
+            overlay,
+            sig,
+            onEraseTap = { removeSignature(sig) }
         )
     }
 
@@ -1223,12 +1234,21 @@ class EnhanceActivity : AppCompatActivity() {
         }
     }
 
-    private fun removeSignature() {
+    /** Remove ONE signature (v0.1.92): the one passed in
+     *  (Erase tap on it), or — when none is passed, from the
+     *  sign panel's Remove button — the most recent one.
+     *  The others stay. */
+    private fun removeSignature(sig: PlacedOverlay? = null) {
         val path = imagePath ?: return
-        pageSignatures[path]?.bitmap?.recycle()
-        pageSignatures.remove(path)
-        findViewById<ImageView>(R.id.ivSignature).visibility = View.GONE
-        findViewById<View>(R.id.signPanel).visibility = View.GONE
+        val list = pageSignatures[path] ?: return
+        val target = sig ?: list.lastOrNull() ?: return
+        list.remove(target)
+        target.bitmap.recycle()
+        if (list.isEmpty()) {
+            pageSignatures.remove(path)
+            findViewById<View>(R.id.signPanel).visibility = View.GONE
+        }
+        layoutSignatureOverlay()
         writeOverlaysToStore(path)
     }
 
@@ -1481,12 +1501,14 @@ class EnhanceActivity : AppCompatActivity() {
             if (data.strokes.isNotEmpty()) {
                 pageDrawings[rawPath] = data.strokes.toMutableList()
             }
-            if (data.signatureFile != null && data.signatureRect != null) {
-                val sigBmp = BitmapFactory.decodeFile(data.signatureFile)
-                if (sigBmp != null) {
-                    pageSignatures[rawPath] =
-                        PlacedOverlay(sigBmp, data.signatureRect.copyOf())
+            if (data.signatureFiles.isNotEmpty()) {
+                val sigs = mutableListOf<PlacedOverlay>()
+                for ((i, file) in data.signatureFiles.withIndex()) {
+                    val rect = data.signatureRects.getOrNull(i) ?: continue
+                    val sigBmp = BitmapFactory.decodeFile(file) ?: continue
+                    sigs.add(PlacedOverlay(sigBmp, rect.copyOf()))
                 }
+                if (sigs.isNotEmpty()) pageSignatures[rawPath] = sigs
             }
             if (data.textFile != null && data.textRect != null) {
                 val txtBmp = BitmapFactory.decodeFile(data.textFile)
@@ -1505,13 +1527,16 @@ class EnhanceActivity : AppCompatActivity() {
      *  bitmap can be recycled freely). */
     private fun writeOverlaysToStore(rawPath: String) {
         val strokes = pageDrawings[rawPath]?.toList() ?: emptyList()
-        val sig = pageSignatures[rawPath]
+        val sigs = pageSignatures[rawPath]
         val txt = pageTexts[rawPath]
-        var sigFile: String? = null
-        var sigRect: FloatArray? = null
-        if (sig != null) {
-            sigFile = saveOverlayBitmap(sig.bitmap, "sig")
-            sigRect = sig.rectNorm.copyOf()
+        val sigFiles = mutableListOf<String>()
+        val sigRects = mutableListOf<FloatArray>()
+        if (!sigs.isNullOrEmpty()) {
+            for (sig in sigs) {
+                val file = saveOverlayBitmap(sig.bitmap, "sig") ?: continue
+                sigFiles.add(file)
+                sigRects.add(sig.rectNorm.copyOf())
+            }
         }
         var txtFile: String? = null
         var txtRect: FloatArray? = null
@@ -1520,12 +1545,12 @@ class EnhanceActivity : AppCompatActivity() {
             txtRect = txt.rectNorm.copyOf()
         }
         // Keep the store entry only when there is something.
-        if (strokes.isEmpty() && sigFile == null && txtFile == null) {
+        if (strokes.isEmpty() && sigFiles.isEmpty() && txtFile == null) {
             OverlayStore.remove(rawPath)
         } else {
             OverlayStore.put(
                 rawPath,
-                OverlayStore.OverlayData(strokes, sigFile, sigRect, txtFile, txtRect)
+                OverlayStore.OverlayData(strokes, sigFiles, sigRects, txtFile, txtRect)
             )
         }
     }
@@ -1607,9 +1632,9 @@ class EnhanceActivity : AppCompatActivity() {
                         // the input), so copying + recycling it
                         // is safe.
                         val strokes = drawingsSnapshot[path]
-                        val sig = signaturesSnapshot[path]
+                        val sigs = signaturesSnapshot[path]
                         val txt = textsSnapshot[path]
-                        if (!strokes.isNullOrEmpty() || sig != null || txt != null) {
+                        if (!strokes.isNullOrEmpty() || !sigs.isNullOrEmpty() || txt != null) {
                             val composited =
                                 final.copy(Bitmap.Config.ARGB_8888, true)
                             final.recycle()
@@ -1622,15 +1647,17 @@ class EnhanceActivity : AppCompatActivity() {
                                     overlay.recycle()
                                 }
                             }
-                            if (sig != null) {
-                                val r = sig.rectNorm
-                                val dst = RectF(
-                                    r[0] * composited.width,
-                                    r[1] * composited.height,
-                                    r[2] * composited.width,
-                                    r[3] * composited.height
-                                )
-                                canvas.drawBitmap(sig.bitmap, null, dst, null)
+                            if (!sigs.isNullOrEmpty()) {
+                                for (sig in sigs) {
+                                    val r = sig.rectNorm
+                                    val dst = RectF(
+                                        r[0] * composited.width,
+                                        r[1] * composited.height,
+                                        r[2] * composited.width,
+                                        r[3] * composited.height
+                                    )
+                                    canvas.drawBitmap(sig.bitmap, null, dst, null)
+                                }
                             }
                             if (txt != null) {
                                 val r = txt.rectNorm
@@ -1685,7 +1712,7 @@ class EnhanceActivity : AppCompatActivity() {
         bitmap?.recycle()
         previewBitmap?.recycle()
         currentPreview?.recycle()
-        for (sig in pageSignatures.values) sig.bitmap.recycle()
+        for (sigs in pageSignatures.values) for (sig in sigs) sig.bitmap.recycle()
         for (txt in pageTexts.values) txt.bitmap.recycle()
     }
 }

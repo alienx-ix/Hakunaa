@@ -28,10 +28,11 @@ object OverlayStore {
     data class OverlayData(
         /** Freehand strokes (normalized coords). */
         val strokes: List<DrawView.Stroke> = emptyList(),
-        /** Signature PNG file path, or null when none. */
-        val signatureFile: String? = null,
-        /** Signature normalized rect [l, t, r, b], or null. */
-        val signatureRect: FloatArray? = null,
+        /** Signature PNG file paths (v0.1.92: a page can hold
+         *  MORE than one signature), parallel to [signatureRects]. */
+        val signatureFiles: List<String> = emptyList(),
+        /** Signature normalized rects [l, t, r, b], one per file. */
+        val signatureRects: List<FloatArray> = emptyList(),
         /** Text PNG file path, or null when none. */
         val textFile: String? = null,
         /** Text normalized rect [l, t, r, b], or null. */

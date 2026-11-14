@@ -630,6 +630,11 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.92 — Book back warning; multiple signatures per page
+
+- **Book back warning:** leaving Book (X or back) with pages scanned just left silently and the pages were gone. Now it asks "Discard book?" first (like Batch's "Discard batch?") — Cancel keeps scanning, Discard leaves. The pages are NOT saved as a draft; the warning says so.
+- **Multiple signatures:** adding a 2nd sign used to delete the 1st (only one signature per page was stored). Now a page holds as many signatures as you add — each new one starts a little higher so they don't stack, each drags on its own, Erase-tap removes just that one, and Remove takes the most recent one. All of them save into the PDF and come back on re-open.
+
 ## v0.1.91 — Text × and resize handle actually work; clean icons
 
 - **× and ⤢ work now (the real fix):** they were visible but dead — a view sitting outside its parent's bounds can be SEEN but never TOUCHED, and the X/handle sat 26dp outside the text box, so taps fell through to the page. Now they live in the page frame itself, straddling the box's corners (half outside the box, fully inside the frame), so tapping × deletes the text and dragging the handle resizes it. Also the icons are proper clean vector drawings now (a crisp × and a diagonal expand arrow), not the poor "×"/"⤢" text letters.

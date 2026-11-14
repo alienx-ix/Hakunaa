@@ -86,12 +86,11 @@
             android:layout_height="match_parent"
             android:visibility="gone" />
 
-        <!-- Placed signature — draggable when present. -->
-        <ImageView
-            android:id="@+id/ivSignature"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:visibility="gone" />
+        <!-- Placed signatures (v0.1.92) — one ImageView per
+             signature, created in code by
+             layoutSignatureOverlay() and added to pageFrame,
+             so a page can hold more than one signature. There
+             is no static signature view any more. -->
 
         <!-- Placed text — a Word-style text box (v0.1.85):
              a teal border around the text, an X on top to

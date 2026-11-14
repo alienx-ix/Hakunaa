@@ -1,6 +1,7 @@
 package com.hakunaa.app.scanner
 
 import android.Manifest
+import android.app.Dialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -8,6 +9,7 @@ import android.graphics.BitmapFactory
 import android.graphics.RectF
 import android.os.Bundle
 import android.view.View
+import android.view.ViewGroup
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.TextView
@@ -67,6 +69,7 @@ import java.util.Locale
 class BookScannerActivity : AppCompatActivity() {
 
     private val pages = mutableListOf<File>()
+    private var leaveDialog: Dialog? = null
     // Raw file for each page (v0.1.77), as in ScannerActivity:
     // the cropped file a page came from, keyed by the page's
     // CURRENT file path. Enhance must filter from the raw
@@ -237,13 +240,52 @@ class BookScannerActivity : AppCompatActivity() {
         updateLabels()
     }
 
+    /** "Discard this book?" warning (v0.1.92, same as the
+     *  Batch leave warning): with pages scanned, leaving
+     *  asks first — the pages are NOT saved as a draft, they
+     *  are discarded. Cancel keeps scanning. */
+    private fun attemptLeave() {
+        if (pages.isNotEmpty()) {
+            showLeaveBookDialog()
+        } else {
+            finish()
+        }
+    }
+
+    private fun showLeaveBookDialog() {
+        if (leaveDialog?.isShowing == true) return
+        val dialog = Dialog(this)
+        dialog.setContentView(R.layout.dialog_discard)
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        val width = (resources.displayMetrics.widthPixels * 0.85).toInt()
+        dialog.window?.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
+        val n = pages.size
+        dialog.findViewById<TextView>(R.id.tvDiscardTitle).text = "Discard book?"
+        dialog.findViewById<TextView>(R.id.tvDiscardMessage).text =
+            if (n == 1) "You have 1 scanned page in this book. Leave now and discard it?"
+            else "You have $n scanned pages in this book. Leave now and discard them?"
+        dialog.findViewById<View>(R.id.btnDiscardCancel).setOnClickListener { dialog.dismiss() }
+        dialog.findViewById<View>(R.id.btnDiscardConfirm).setOnClickListener {
+            dialog.dismiss()
+            finish()
+        }
+        dialog.setCancelable(true)
+        dialog.setOnDismissListener { leaveDialog = null }
+        leaveDialog = dialog
+        dialog.show()
+    }
+
+    override fun onBackPressed() {
+        attemptLeave()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_book_scanner)
 
         docName = "Hakunaa Book " + SimpleDateFormat("dd-MM-yyyy HH.mm", Locale.US).format(Date())
 
-        findViewById<ImageButton>(R.id.btnClose).setOnClickListener { finish() }
+        findViewById<ImageButton>(R.id.btnClose).setOnClickListener { attemptLeave() }
         findViewById<ImageButton>(R.id.btnTorch).setOnClickListener { toggleTorch() }
         findViewById<ImageButton>(R.id.btnCapture).setOnClickListener { captureBook() }
         findViewById<TextView>(R.id.tvSingle).setOnClickListener { setDoubleMode(false) }
