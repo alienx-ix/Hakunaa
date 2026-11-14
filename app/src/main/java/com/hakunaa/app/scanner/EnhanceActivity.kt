@@ -130,6 +130,14 @@ class EnhanceActivity : AppCompatActivity() {
     private val pageSignatures = mutableMapOf<String, PlacedOverlay>()
     private val pageTexts = mutableMapOf<String, PlacedOverlay>()
 
+    // The placed text's selection state (v0.1.86): the box,
+    // the X and the resize handle are EDITING tools — they
+    // show only while the text is selected (just placed, or
+    // tapped again). After Done, they go away and only the
+    // plain text stays on the page, the way professional
+    // apps do it.
+    private var textSelected = false
+
     // Draw / Erase mode state (v0.1.83).
     private enum class ToolMode { NONE, DRAW, ERASE }
 
@@ -288,6 +296,11 @@ class EnhanceActivity : AppCompatActivity() {
         // it, the corner handle resizes it.
         findViewById<TextView>(R.id.btnTextRemove).setOnClickListener { removeText() }
         findViewById<TextView>(R.id.btnTextDone).setOnClickListener {
+            // Done — the text is set. Deselect it: the box,
+            // the X and the handle go away, and only the plain
+            // text stays on the page (v0.1.86).
+            textSelected = false
+            layoutTextOverlay()
             findViewById<View>(R.id.textPanel).visibility = View.GONE
         }
         findViewById<TextView>(R.id.btnTextDelete).setOnClickListener { removeText() }
@@ -749,6 +762,11 @@ class EnhanceActivity : AppCompatActivity() {
         // view when this page has one (v0.1.83 fix).
         updateDrawViewVisibility()
         layoutSignatureOverlay()
+        // A page that just loaded shows its text plain, with
+        // no box — the box comes back only when the text is
+        // tapped (v0.1.86).
+        textSelected = false
+        findViewById<View>(R.id.textPanel).visibility = View.GONE
         layoutTextOverlay()
     }
 
@@ -1057,6 +1075,9 @@ class EnhanceActivity : AppCompatActivity() {
     private fun setupTextDrag() {
         // Drag the whole text BOX to move the text (the box
         // is the touch target now, not the bare image).
+        // A tap on the plain text selects it again (v0.1.86):
+        // the box + X + handle come back, so it can be
+        // adjusted or deleted.
         val box = findViewById<View>(R.id.textBoxContainer)
         box.setOnTouchListener { _, event ->
             val path = imagePath ?: return@setOnTouchListener false
@@ -1064,6 +1085,11 @@ class EnhanceActivity : AppCompatActivity() {
             val frame = findViewById<View>(R.id.pageFrame)
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
+                    if (!textSelected) {
+                        textSelected = true
+                        layoutTextOverlay()
+                        findViewById<View>(R.id.textPanel).visibility = View.VISIBLE
+                    }
                     overlayDragOffsetX = event.x
                     overlayDragOffsetY = event.y
                     overlayDragging = true
@@ -1290,6 +1316,9 @@ class EnhanceActivity : AppCompatActivity() {
         val top = (0.10f).coerceAtLeast(0.02f)
         val rect = floatArrayOf(0.35f, top, 0.35f + wFrac, top + hFrac)
         pageTexts[path] = PlacedOverlay(textBmp, rect)
+        // Just placed — it is selected, so the box + X +
+        // handle show for adjusting (v0.1.86).
+        textSelected = true
         layoutTextOverlay()
         findViewById<View>(R.id.textPanel).visibility = View.VISIBLE
         // Persist it (v0.1.84) — the next Enhance run loads
@@ -1297,11 +1326,16 @@ class EnhanceActivity : AppCompatActivity() {
         writeOverlaysToStore(path)
     }
 
-    /** Position the text box (Word-style, v0.1.85) from its
-     *  stored normalized rect (and show / hide it). The box
-     *  wraps the text with a teal border + 6dp padding, so
-     *  the box is a little bigger than the text itself — the
-     *  box's top-left sits 6dp up-left of the text's. */
+    /** Position the text box (Word-style, v0.1.85/86) from
+     *  its stored normalized rect (and show / hide it). The
+     *  box wraps the text with a teal border + 6dp padding,
+     *  so the box is a little bigger than the text itself —
+     *  the box's top-left sits 6dp up-left of the text's.
+     *
+     *  The border, the X and the resize handle show ONLY
+     *  while the text is selected (v0.1.86). When it is not
+     *  selected, the same container shows just the plain
+     *  text — no border, no X, no handle. */
     private fun layoutTextOverlay() {
         val path = imagePath
         val txt = if (path == null) null else pageTexts[path]
@@ -1327,6 +1361,16 @@ class EnhanceActivity : AppCompatActivity() {
         params.leftMargin = (r[0] + rect[0] * r[2]).toInt() - pad
         params.topMargin = (r[1] + rect[1] * r[3]).toInt() - pad
         box.layoutParams = params
+        // Editing tools only while selected.
+        if (textSelected) {
+            box.setBackgroundResource(R.drawable.bg_text_box)
+            findViewById<View>(R.id.btnTextDelete).visibility = View.VISIBLE
+            findViewById<View>(R.id.btnTextResize).visibility = View.VISIBLE
+        } else {
+            box.background = null
+            findViewById<View>(R.id.btnTextDelete).visibility = View.GONE
+            findViewById<View>(R.id.btnTextResize).visibility = View.GONE
+        }
         box.visibility = View.VISIBLE
     }
 
@@ -1334,6 +1378,7 @@ class EnhanceActivity : AppCompatActivity() {
         val path = imagePath ?: return
         pageTexts[path]?.bitmap?.recycle()
         pageTexts.remove(path)
+        textSelected = false
         findViewById<View>(R.id.textBoxContainer).visibility = View.GONE
         findViewById<View>(R.id.textPanel).visibility = View.GONE
         writeOverlaysToStore(path)

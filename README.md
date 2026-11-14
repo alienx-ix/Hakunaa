@@ -630,6 +630,11 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.86 — Text box only while editing; Done leaves plain text
+
+- **Box goes away after Done (the fix):** the teal box, the × and the resize handle are EDITING tools only. They show while the text is being placed / adjusted. Press Done and they all disappear — only the plain text stays on the page, the way professional apps do it. Tap the text again and the box comes back to adjust or delete it.
+- **× is big and teal now:** 32dp teal circle with a white × and a white ring, so it is clearly visible while editing (it was a small dark circle before).
+
 ## v0.1.85 — Zoom removed from Filter preview, Word-style text box, Draw panel fits
 
 - **Zoom removed from the Filter preview** (user asked): pinch / double-tap / on-screen zoom buttons are gone from Enhance — the preview is just the page + filters now. The full-screen page preview still zooms.
