@@ -630,6 +630,12 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.109 — Book icons picked + HD button (on v0.1.108)
+
+- **Back arrow → big X (user pick #3):** the top-left button is now a bold white X (`ic_close_big`, strokes spanning most of the viewport) — bigger and clearly visible at 56dp. Same button, same Discard-book warning on tap.
+- **Torch → lightning bolt (user pick B):** `ic_bolt` (white, off) / `ic_bolt_on` (teal, on) replace the flashlight icons.
+- **HD button below the Torch:** a 56dp circle with the tier's short label ("HD" for Full Sensor) right under the torch in the right strip, like the main scanner's HD button. It opens the same quality-tier picker (Full Sensor / Very High / High / Medium / Low with real resolutions); the choice is saved in the shared pref, and the camera re-binds with it right away (unbind + rebind, so the new quality applies immediately). Tiers apply LANDSCAPE in Book (width > height) — the same 4:3 sizes the main scanner applies as portrait.
+
 ## v0.1.108 — Book status bar hidden + bigger back arrow (on v0.1.107)
 
 - **Status bar hidden in Book:** the clock / battery strip is gone from the camera screen (immersive — a swipe from the top reveals it briefly). It stays hidden on every return from Enhance / Pages, and the other screens are untouched.

@@ -183,7 +183,28 @@
             android:layout_marginTop="36dp"
             android:background="@drawable/circle_button_bg"
             android:contentDescription="Torch"
-            android:src="@drawable/ic_flash_off" />
+            android:src="@drawable/ic_bolt" />
+
+        <!-- HD quality (v0.1.109) — right below the Torch,
+             like the main scanner's HD button. A circle with
+             the tier's short label ("HD" for Full Sensor).
+             Opens the same quality-tier picker. -->
+        <TextView
+            android:id="@+id/btnHd"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_below="@id/btnTorch"
+            android:layout_centerHorizontal="true"
+            android:layout_marginTop="16dp"
+            android:background="@drawable/circle_button_bg"
+            android:clickable="true"
+            android:contentDescription="Quality"
+            android:focusable="true"
+            android:gravity="center"
+            android:text="HD"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:textStyle="bold" />
 
         <!-- Big round capture button, at the true centre. -->
         <ImageButton
@@ -214,7 +235,9 @@
          preview. v0.1.108: BIGGER (56dp, was 48dp) and
          HIGHER (marginTop 12dp, was 20dp) — the status bar
          is hidden now, so the arrow sits in the true top
-         corner. v0.1.104: it MUST be the LAST child in this
+         corner. v0.1.109: the icon is a big bold X now (user
+         pick #3 from the icon options), not an arrow.
+         v0.1.104: it MUST be the LAST child in this
          file. The left strip is clickable and covers the
          corner, so when the arrow sat before the strips the
          strip ate every tap and the back button did nothing.
@@ -228,7 +251,7 @@
         android:layout_marginTop="12dp"
         android:background="@drawable/circle_button_bg"
         android:contentDescription="Close"
-        android:src="@drawable/ic_arrow_back"
+        android:src="@drawable/ic_close_big"
         android:tint="#FFFFFF" />
 
 </FrameLayout>
