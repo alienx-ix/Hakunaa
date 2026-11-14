@@ -22,10 +22,11 @@ import kotlin.math.abs
  *   the book's real fold. A tap elsewhere picks a side — in
  *   Single mode that is the page the next capture takes.
  * - The line is clamped to the camera image (fitCenter bars
- *   excluded): set [contentRect] once the preview is laid out.
- * - The auto spine detection moves the line (via
- *   [setSpineFraction]) until the user drags it; the activity
- *   decides when to stop following.
+ *   excluded): set [contentRect] once the preview is laid out,
+ *   and again on every layout change, so the line always sits
+ *   on the real image.
+ * - The spine is MANUAL only (v0.1.71) — it never moves on its
+ *   own. There is no automatic spine follow.
  *
  * Safe to call setSpineFraction from any thread (the analysis
  * runs on a background thread); the update posts to the UI

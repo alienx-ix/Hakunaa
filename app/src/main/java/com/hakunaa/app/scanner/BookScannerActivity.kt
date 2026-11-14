@@ -7,6 +7,10 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.RectF
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
@@ -26,6 +30,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import com.hakunaa.app.R
+import com.hakunaa.app.core.FileUtils
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -38,29 +43,30 @@ import com.hakunaa.app.core.StatusBar
  *
  * The phone is held in LANDSCAPE so both pages of an open book
  * fit side by side. A dashed spine line splits them into A
- * (left page, 1st) and B (right page, 2nd); the line follows
- * the book's real fold automatically (the spine valley from
- * DocumentDetector) and can be dragged to the fold by hand.
+ * (left page, 1st) and B (right page, 2nd); the line is MANUAL
+ * only (v0.1.71) — the user drags it to the fold, it never
+ * moves on its own, and it stays put between spreads.
  *
  * - Double (default): one capture takes BOTH pages at once —
- *   A first, then B — each perspective-corrected and enhanced
- *   on its own. Flip the book, capture again, and the pages
- *   keep appending in order: next, next, a whole book.
+ *   A first, then B — each saved RAW (v0.1.77) and filtered
+ *   exactly once in Enhance. Flip the book, capture again,
+ *   and the pages keep appending in order.
  * - Single: tap the page to scan (A or B), then capture takes
  *   only that page.
  *
  * Capture is MANUAL (a book's pages change while you flip, so
- * auto-capture would fire at the wrong moment). Each page is
- * auto-enhanced with the NO_SHADOW filter at capture (the
- * default, with sharpening). After every capture a thumbnail
- * of the page flies from the centre to the Pages button
- * (v0.1.73) and the count ticks up when it lands, like a
- * professional scanner. When the user is done — Pages or
+ * auto-capture would fire at the wrong moment). After every
+ * capture a thumbnail of the page flies from the centre to the
+ * Pages button (v0.1.73) and the count ticks up when it lands,
+ * like a professional scanner. When the user is done — Pages or
  * Save PDF — the book goes through the Filter (Enhance) screen
  * first, like a Batch (v0.1.71): pick a filter per page (or one
  * for all), crop or adjust a page, then the Preview (Pages)
  * screen to reorder, rotate or delete, then Export. Review and
  * reorder on the Pages screen; save the whole book as one PDF.
+ *
+ * A 2D Spirit Level (v0.1.102) sits right next to the Capture
+ * button, exactly like Single/Batch — display-only, always on.
  *
  * The camera permission is asked the same way as the main
  * scanner (it is normally already granted by then).
@@ -130,6 +136,33 @@ class BookScannerActivity : AppCompatActivity() {
     private var doubleMode = true
     private var selectedSide = SpineLineView.SIDE_LEFT
     private var spineFraction = 0.5f
+
+    // Spirit Level (v0.1.102): the 2D bullseye next to the
+    // Capture button, exactly like Single/Batch. Display-only,
+    // always on — it shows the phone's tilt live so the user
+    // holds the book level. Same sensor pattern as the main
+    // scanner, but no Settings toggle here.
+    private var sensorManager: SensorManager? = null
+    private var levelSensor: Sensor? = null
+    private var smoothRoll = 0f
+    private var smoothPitch = 0f
+    private val levelListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            val x = event.values[0]
+            val y = event.values[1]
+            val z = event.values[2]
+            val roll = SpiritLevelView.rollFromAccelerometer(x, y, z)
+            val pitch = SpiritLevelView.pitchFromAccelerometer(x, y, z)
+            // Low-pass: the bubble must not jitter with every
+            // hand tremor.
+            smoothRoll += 0.25f * (roll - smoothRoll)
+            smoothPitch += 0.25f * (pitch - smoothPitch)
+            findViewById<SpiritLevelView>(R.id.levelView)
+                .setTilt(smoothRoll, smoothPitch)
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+    }
 
     private fun spineLine(): SpineLineView =
         findViewById(R.id.spineLine)
@@ -285,7 +318,12 @@ class BookScannerActivity : AppCompatActivity() {
         setContentView(R.layout.activity_book_scanner)
 
         // Status bar (v0.1.97): keep it visible, no overlap.
-        StatusBar.setup(this, false)
+        // Book is a full-screen camera: the preview must run
+        // truly edge-to-edge behind the status bar (v0.1.102)
+        // — no inset padding, no black band at the top, a
+        // bigger capture area. The buttons place themselves
+        // below the bar with explicit margins in the layout.
+        StatusBar.setup(this, false, applyInsets = false)
         docName = "Hakunaa Book " + SimpleDateFormat("dd-MM-yyyy HH.mm", Locale.US).format(Date())
 
         findViewById<ImageButton>(R.id.btnClose).setOnClickListener { attemptLeave() }
@@ -318,7 +356,16 @@ class BookScannerActivity : AppCompatActivity() {
         }
         // The spine line lives inside the camera image (the
         // fitCenter bars on the sides are not part of the book).
-        findViewById<PreviewView>(R.id.previewView).post {
+        // Recompute it on EVERY layout change (v0.1.102) — the
+        // old one-shot post{} went stale when the preview was
+        // re-laid out (camera bind, inset change), so the spine
+        // drifted off the real fold and drags/splits landed in
+        // the wrong place.
+        val previewView = findViewById<PreviewView>(R.id.previewView)
+        previewView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            spineLine().contentRect = previewContentRect()
+        }
+        previewView.post {
             spineLine().contentRect = previewContentRect()
         }
 
@@ -340,6 +387,7 @@ class BookScannerActivity : AppCompatActivity() {
         // recreated surface. Rebind fresh on every resume so
         // the camera always comes back.
         if (!cameraBound) startCamera()
+        startSpiritLevel()
     }
 
     override fun onPause() {
@@ -351,8 +399,33 @@ class BookScannerActivity : AppCompatActivity() {
         cameraResumed = false
         cameraBound = false
         cameraStarting = false
+        stopSpiritLevel()
         try {
             cameraProvider?.unbindAll()
+        } catch (_: Throwable) {
+        }
+    }
+
+    /** The spirit level only listens while this screen is
+     *  visible — a sensor listener left running in the
+     *  background would burn battery. */
+    private fun startSpiritLevel() {
+        if (sensorManager == null) {
+            sensorManager = getSystemService(SENSOR_SERVICE) as? SensorManager
+            levelSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        }
+        val sensor = levelSensor ?: return
+        try {
+            sensorManager?.registerListener(
+                levelListener, sensor, SensorManager.SENSOR_DELAY_UI
+            )
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun stopSpiritLevel() {
+        try {
+            sensorManager?.unregisterListener(levelListener)
         } catch (_: Throwable) {
         }
     }
@@ -621,7 +694,16 @@ class BookScannerActivity : AppCompatActivity() {
      *  ticks up when it lands, like a professional scanner. */
     private fun processBookPhoto(photoFile: File) {
         try {
-            val bitmap = BitmapFactory.decodeFile(photoFile.absolutePath)
+            // Decode WITH the EXIF rotation (v0.1.103) — the
+            // plain decodeFile ignored it, so on this phone the
+            // spread came out in the sensor's raw orientation
+            // (portrait) instead of the landscape the user held
+            // it in. Splitting that portrait bitmap gave wrong
+            // halves, and the A/B pages never came out as
+            // proper portrait pages — "completely malfunction".
+            // The main scanner hit the exact same bug (v0.1.66)
+            // and this same helper fixed it there.
+            val bitmap = FileUtils.decodeBitmapWithExif(photoFile.absolutePath)
             if (bitmap == null) {
                 runOnUiThread {
                     isCapturing = false

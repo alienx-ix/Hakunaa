@@ -21,10 +21,19 @@ import androidx.core.view.WindowInsetsControllerCompat
  *    below the bar while its BACKGROUND extends behind it.
  *  Call once in each Activity's onCreate, after
  *  setContentView, with true for a light screen and false
- *  for a dark one. */
+ *  for a dark one.
+ *  applyInsets (v0.1.102): pass false for a full-screen
+ *  camera screen (Book) whose PREVIEW must run truly
+ *  edge-to-edge behind the bar — no inset padding, no
+ *  black band at the top. The screen's own buttons then
+ *  place themselves below the bar with explicit margins. */
 object StatusBar {
 
-    fun setup(activity: Activity, lightBackground: Boolean) {
+    fun setup(
+        activity: Activity,
+        lightBackground: Boolean,
+        applyInsets: Boolean = true
+    ) {
         val window = activity.window
         // Edge-to-edge: the content runs behind the system
         // bars, and the status bar itself is transparent.
@@ -33,6 +42,7 @@ object StatusBar {
         // Icon colour follows the screen behind the bar.
         WindowInsetsControllerCompat(window, window.decorView)
             .isAppearanceLightStatusBars = lightBackground
+        if (!applyInsets) return
         // The root layout consumes the status bar inset as
         // padding: content below the bar, background behind
         // it — one seamless screen, no band, no overlap.

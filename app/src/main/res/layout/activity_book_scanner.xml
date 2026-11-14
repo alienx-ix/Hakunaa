@@ -2,14 +2,17 @@
 <!-- Book Scan — landscape. The phone is held sideways so both
      pages of an open book fit side by side; the dashed spine
      line splits them into A (left) and B (right).
-     Two narrow control strips leave the preview filling the
-     whole screen — no top/bottom bars squeezing it, and
-     nothing overlaps the status bar.
-       LEFT strip — Close at the top, the Single / Double
-       toggle in the middle, Pages (with the count) and Save
-       PDF at the bottom.
-       RIGHT strip — the shooting actions: Torch at the top,
-       the big capture button at the centre. -->
+     v0.1.102: the preview runs TRULY edge-to-edge behind the
+     status bar (StatusBar.setup with applyInsets=false) — no
+     black band at the top, a bigger capture area. The buttons
+     place themselves below the bar with explicit margins.
+       Back arrow — top-LEFT corner, over the preview, just
+       below the status bar (like CamScanner's X).
+       LEFT strip — the Single / Double toggle in the middle,
+       Pages (with the count) and Save PDF at the bottom.
+       RIGHT strip — Torch at the top, the big capture button
+       at the TRUE vertical centre (RelativeLayout, not a
+       spacer pair that pushed it below centre). -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -58,12 +61,40 @@
         android:textColor="#FFFFFF"
         android:textSize="13sp" />
 
+    <!-- Spirit Level (v0.1.102) — EXACTLY like Single/Batch:
+         the 2D bullseye, 56dp, right next to the Capture
+         button at the same height, live. In Single/Batch the
+         Level sits left of Capture in the bottom row; here the
+         capture column is the right strip, so the Level floats
+         over the preview just left of the strip (152dp = the
+         140dp strip + a 12dp gap), vertically centred with
+         Capture. Display-only, always on. -->
+    <com.hakunaa.app.scanner.SpiritLevelView
+        android:id="@+id/levelView"
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:layout_gravity="center_vertical|end"
+        android:layout_marginEnd="152dp" />
+
+    <!-- Back arrow (v0.1.102) — top-LEFT corner, over the
+         preview, just below the status bar. It used to sit
+         inside the left strip, inset from the corner — the
+         wrong place. -->
+    <ImageButton
+        android:id="@+id/btnClose"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="36dp"
+        android:background="@drawable/circle_button_bg"
+        android:contentDescription="Close"
+        android:src="@drawable/ic_arrow_back"
+        android:tint="#FFFFFF" />
+
     <!-- LEFT strip — file actions + the Single / Double
-         toggle. The toggle moved here (v0.1.58): on the right
-         it sat under the torch, cramped, and the left strip
-         was mostly empty space. Now it sits in the middle of
-         the left strip — a better placement, and the empty
-         space is used. -->
+         toggle in the middle. (Close moved to the top-left
+         corner in v0.1.102.) -->
     <LinearLayout
         android:layout_width="140dp"
         android:layout_height="match_parent"
@@ -71,16 +102,6 @@
         android:clickable="true"
         android:orientation="vertical"
         android:padding="12dp">
-
-        <ImageButton
-            android:id="@+id/btnClose"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_gravity="center_horizontal"
-            android:background="@drawable/circle_button_bg"
-            android:contentDescription="Close"
-            android:src="@drawable/ic_arrow_back"
-            android:tint="#FFFFFF" />
 
         <View
             android:layout_width="0dp"
@@ -167,44 +188,37 @@
             android:visibility="gone" />
     </LinearLayout>
 
-    <!-- RIGHT strip — shooting actions: Torch at the top, the
-         big capture button centred. (Single / Double moved to
-         the left strip — better placement, less cramped.) -->
-    <LinearLayout
+    <!-- RIGHT strip (v0.1.102) — RelativeLayout now: Torch
+         pinned to the top, the big capture button at the TRUE
+         vertical centre (centerInParent). The old LinearLayout
+         with two equal spacers pushed Capture below centre,
+         because the Torch took space at the top. -->
+    <RelativeLayout
         android:layout_width="140dp"
         android:layout_height="match_parent"
         android:layout_gravity="end"
         android:clickable="true"
-        android:orientation="vertical"
         android:padding="12dp">
 
         <ImageButton
             android:id="@+id/btnTorch"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:layout_gravity="center_horizontal"
+            android:layout_alignParentTop="true"
+            android:layout_centerHorizontal="true"
+            android:layout_marginTop="36dp"
             android:background="@drawable/circle_button_bg"
             android:contentDescription="Torch"
             android:src="@drawable/ic_flash_off" />
 
-        <View
-            android:layout_width="0dp"
-            android:layout_height="0dp"
-            android:layout_weight="1" />
-
-        <!-- Big round capture button, centred on the right. -->
+        <!-- Big round capture button, at the true centre. -->
         <ImageButton
             android:id="@+id/btnCapture"
             android:layout_width="72dp"
             android:layout_height="72dp"
-            android:layout_gravity="center_horizontal"
+            android:layout_centerInParent="true"
             android:background="@drawable/capture_button"
             android:contentDescription="Capture" />
-
-        <View
-            android:layout_width="0dp"
-            android:layout_height="0dp"
-            android:layout_weight="1" />
-    </LinearLayout>
+    </RelativeLayout>
 
 </FrameLayout>

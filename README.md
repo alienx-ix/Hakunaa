@@ -630,6 +630,20 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.103 — Book capture: A/B pages come out as proper portrait pages (on v0.1.102)
+
+- **The bug:** Book capture was "completely malfunction" — A/B pages never came out as portrait. Root cause: `processBookPhoto` decoded the capture with plain `BitmapFactory.decodeFile`, which IGNORES the EXIF rotation. On this phone the spread came out in the sensor's raw orientation instead of the landscape the user held it in, so splitting it gave wrong halves. The main scanner hit the exact same bug (v0.1.66) and the same helper fixed it there.
+- **The fix:** `processBookPhoto` now decodes with `FileUtils.decodeBitmapWithExif` — the bitmap is rotated upright first, THEN split at the spine, so A and B each come out as a proper portrait page.
+- (Includes all of v0.1.102: edge-to-edge preview, centred Capture, back arrow top-left, Level like Single/Batch, spine contentRect fix.)
+
+## v0.1.102 — Book: full-screen preview, centred Capture, back arrow top-left (on v0.1.98)
+
+- **No black at the top + bigger capture area:** the Book preview now runs TRULY edge-to-edge behind the status bar. `StatusBar.setup` gained an `applyInsets` flag (default true); Book calls it with `applyInsets = false`, so the root takes no inset padding and the preview fills the whole screen. The buttons place themselves below the bar with explicit 36dp top margins.
+- **Capture button centred:** the right strip is now a RelativeLayout — Torch pinned to the top, Capture `centerInParent` (true vertical centre). The old LinearLayout with two equal spacers pushed Capture below centre because the Torch took space at the top.
+- **Back arrow in the right place:** moved out of the left strip to the top-LEFT corner, over the preview, just below the status bar (marginTop 36dp, marginStart 16dp) — like CamScanner's X.
+- **Spirit Level, exactly like Single/Batch:** the 2D bullseye (56dp) sits right next to the Capture button at the same height — floating over the preview just left of the right strip (152dp = 140dp strip + 12dp gap), vertically centred with Capture. Display-only, always on, live sensor (starts in onResume, stops in onPause).
+- **Spine line stays on the real fold:** `contentRect` is now recomputed on EVERY PreviewView layout change (OnLayoutChangeListener), not just once in onCreate — the old one-shot value went stale when the preview was re-laid out, so the spine drifted and drags/splits landed in the wrong place.
+
 ## v0.1.98 — Status bar done the professional way (transparent + dynamic)
 
 - **Problem in v0.1.97:** the solid status bar colour showed a visible band — white on the black scanner screen (time invisible), and a shade edge on Home.
