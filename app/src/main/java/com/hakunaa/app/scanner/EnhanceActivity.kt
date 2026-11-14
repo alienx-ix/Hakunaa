@@ -270,10 +270,14 @@ class EnhanceActivity : AppCompatActivity() {
             if (intent.getStringExtra(EXTRA_CONFIRM_LABEL) == "Continue")
                 R.drawable.ic_arrow_right else R.drawable.ic_check
         )
-        // Adjust opens ONLY from its menu button — never on its
-        // own after a capture. The panel stays hidden until the
-        // user asks for it.
-        findViewById<LinearLayout>(R.id.btnAdjust).setOnClickListener { toggleAdjustPanel() }
+        // Back to capture (v0.1.93): returns to the camera
+        // to capture more pages. The pages stay.
+        findViewById<ImageButton>(R.id.btnBackToCapture).setOnClickListener { finish() }
+        // Adjust opens from the tune icon on the SELECTED
+        // filter's thumbnail (v0.1.93, CamScanner-style) —
+        // never on its own after a capture, and no longer
+        // from a bottom-bar button. The panel stays hidden
+        // until the user asks for it.
         findViewById<TextView>(R.id.btnAdjustReset).setOnClickListener { resetAdjustments() }
         findViewById<TextView>(R.id.btnAdjustClose).setOnClickListener {
             setAdjustPanelVisible(false)
@@ -554,15 +558,12 @@ class EnhanceActivity : AppCompatActivity() {
         }.start()
     }
 
-    /** Show or hide the Adjust panel, and tint its menu
-     *  button teal while it is open. */
+    /** Show or hide the Adjust panel (v0.1.93: the Adjust
+     *  button lives on the selected filter's thumbnail now,
+     *  so there is no bottom-bar button to tint). */
     private fun setAdjustPanelVisible(visible: Boolean) {
         findViewById<View>(R.id.adjustPanel).visibility =
             if (visible) View.VISIBLE else View.GONE
-        val color = if (visible) getColor(R.color.hakunaa_teal)
-            else getColor(android.R.color.white)
-        findViewById<ImageView>(R.id.ivAdjustIcon).setColorFilter(color)
-        findViewById<TextView>(R.id.tvAdjustLabel).setTextColor(color)
     }
 
     private fun toggleAdjustPanel() {
@@ -652,6 +653,13 @@ class EnhanceActivity : AppCompatActivity() {
                             item.setOnClickListener {
                                 applyFilterToPreview(filter)
                             }
+                            // The tune icon on this thumbnail
+                            // (v0.1.93): only the SELECTED
+                            // filter shows it (see
+                            // updateFilterSelection), and
+                            // tapping it opens the Adjust panel.
+                            item.findViewById<ImageView>(R.id.ivFilterAdjust)
+                                .setOnClickListener { toggleAdjustPanel() }
                             row.addView(item)
                         } else if (index < row.childCount) {
                             // Update the existing thumbnail in place.
@@ -680,6 +688,11 @@ class EnhanceActivity : AppCompatActivity() {
             item.findViewById<ImageView>(R.id.ivFilterThumb).alpha = if (selected) 1f else 0.6f
             item.findViewById<View>(R.id.filterBorder).visibility =
                 if (selected) View.VISIBLE else View.INVISIBLE
+            // The tune icon lives ONLY on the selected filter
+            // (v0.1.93) — whichever filter is touched gets it,
+            // the rest hide it.
+            item.findViewById<View>(R.id.ivFilterAdjust).visibility =
+                if (selected) View.VISIBLE else View.GONE
         }
     }
 

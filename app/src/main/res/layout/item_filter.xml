@@ -17,6 +17,23 @@
         android:background="@drawable/filter_selected_border"
         android:visibility="invisible" />
 
+    <!-- Adjust — the tune icon on the SELECTED filter only
+         (v0.1.93, CamScanner-style): whichever filter is
+         touched gets this icon on top of its thumbnail.
+         Tapping it opens the Adjust panel (Brightness /
+         Contrast / Sharpness). It is NOT on every filter —
+         only the selected one shows it. -->
+    <ImageView
+        android:id="@+id/ivFilterAdjust"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:layout_gravity="center"
+        android:background="@drawable/bg_filter_adjust"
+        android:padding="5dp"
+        android:src="@drawable/ic_tune"
+        android:tint="#FFFFFF"
+        android:visibility="gone" />
+
     <TextView
         android:id="@+id/tvFilterLabel"
         android:layout_width="72dp"

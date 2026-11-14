@@ -630,6 +630,12 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.93 — No Done button; Enhance bar: back-arrow + tick; Adjust on the filter
+
+- **Done button removed (professional pattern):** CamScanner / Adobe Scan have no big Done button on the capture screen — the thumbnail with the page count IS the way forward. Tapping the thumbnail now opens the Filter (Enhance) screen, then Preview, then Export. The mid-batch review is gone; you review in Preview and add more pages from there. Single mode's fly animation now lands on the capture button.
+- **Enhance bar reworked:** Adjust is OUT of the bottom bar (it lives on the selected filter now). A teal back-arrow (←) sits on the LEFT — tap it to go back to the camera and capture more; the teal tick on the RIGHT goes to the next stage (Preview → Export).
+- **Adjust on the filter (CamScanner-style):** only the filter you touched shows a small tune icon on top of its thumbnail — never on every filter. Tapping that icon opens the Adjust panel (Brightness / Contrast / Sharpness).
+
 ## v0.1.92 — Book back warning; multiple signatures per page
 
 - **Book back warning:** leaving Book (X or back) with pages scanned just left silently and the pages were gone. Now it asks "Discard book?" first (like Batch's "Discard batch?") — Cancel keeps scanning, Discard leaves. The pages are NOT saved as a draft; the warning says so.

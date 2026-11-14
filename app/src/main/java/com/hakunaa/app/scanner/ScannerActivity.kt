@@ -386,7 +386,9 @@ class ScannerActivity : AppCompatActivity() {
             if (thumbContainer.visibility == View.VISIBLE) thumbContainer
             else findViewById(R.id.btnImportImages)
         } else {
-            findViewById(R.id.btnSavePdf)
+            // Single: no Done button any more (v0.1.93) — fly
+            // to the capture button, then Export opens.
+            findViewById(R.id.btnCapture)
         }
         if (thumbBmp == null) {
             updatePagesLabel()
@@ -556,33 +558,6 @@ class ScannerActivity : AppCompatActivity() {
      *  check here does NOT go to Preview — it saves the
      *  filters and returns to the camera. Back (CANCELED)
      *  also returns to the camera, pages kept. */
-    private val reviewEnhanceLauncher =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == RESULT_OK) {
-                // Same list result as Done (v0.1.77): the
-                // reviewed page lands in its own slot, not
-                // pages[0]. Fall back to the old single path.
-                val applied = applyEnhancedPages(
-                    result.data?.getStringArrayListExtra(EnhanceActivity.EXTRA_ENHANCED_PATHS),
-                    result.data?.getStringArrayListExtra(EnhanceActivity.EXTRA_ENHANCED_SOURCE_PATHS)
-                )
-                if (!applied) {
-                    val enhancedPath =
-                        result.data?.getStringExtra(EnhanceActivity.EXTRA_ENHANCED_PATH)
-                    if (enhancedPath != null && pages.isNotEmpty()) {
-                        val file = File(enhancedPath)
-                        if (file.exists()) pages[0] = file
-                    }
-                }
-                docName = result.data?.getStringExtra("doc_name") ?: docName
-                updatePagesLabel()
-                refreshPagesThumb()
-                findViewById<TextView>(R.id.tvStatus).text =
-                    "Filters applied — tap Capture to keep scanning"
-            }
-            // CANCELED (back): stay on the camera, pages kept.
-        }
-
     // Export is a separate screen: while it is open this
     // activity stops and the camera is released — no scan runs
     // in the background. On save, clear the pages; on discard
@@ -670,7 +645,10 @@ class ScannerActivity : AppCompatActivity() {
             pickPhoto.launch("image/*")
         }
         findViewById<LinearLayout>(R.id.pagesThumbContainer).setOnClickListener {
-            openReviewEnhance()
+            // The thumbnail IS the way forward (v0.1.93,
+            // professional pattern): tap it to open the
+            // Filter (Enhance) screen, then Preview, Export.
+            onSavePdfClicked()
         }
         findViewById<TextView>(R.id.tvModeSingle).setOnClickListener { setMode(Mode.SINGLE) }
         findViewById<TextView>(R.id.tvModeBatch).setOnClickListener { setMode(Mode.BATCH) }
@@ -679,8 +657,8 @@ class ScannerActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.tvModeBook).setOnClickListener {
             startActivity(Intent(this, BookScannerActivity::class.java))
         }
-        findViewById<com.google.android.material.button.MaterialButton>(R.id.btnSavePdf)
-            .setOnClickListener { onSavePdfClicked() }
+        // (v0.1.93) No Done button any more — the thumbnail
+        // is the way forward (see the click above).
 
         // Ask for the camera permission the way every app does.
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
@@ -1817,25 +1795,12 @@ class ScannerActivity : AppCompatActivity() {
     }
 
     private fun updatePagesLabel() {
-        // ONE clear Done button (v0.1.74) — big, teal, bold,
-        // with the page count, so no user has to guess what it
-        // does. Its space is reserved (INVISIBLE, not GONE,
-        // when empty) so the bottom bar never grows when a
-        // page is captured and the capture area stays large
-        // and stable.
-        val btn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnSavePdf)
-        if (pages.isEmpty()) {
-            btn.text = ""
-            btn.visibility = View.INVISIBLE
-        } else {
-            val n = pages.size
-            btn.text = "Done • $n ${if (n == 1) "page" else "pages"}"
-            btn.visibility = View.VISIBLE
-        }
-        // The right side of the capture row follows the same
-        // state (Batch: thumbnail + count after the first
-        // capture, Import Images before it) — keep them in
-        // sync here so no call site can forget it.
+        // No Done button any more (v0.1.93) — the thumbnail
+        // with the page count is the way forward. The right
+        // side of the capture row follows the state (Batch:
+        // thumbnail + count after the first capture, Import
+        // Images before it) — keep it in sync here so no call
+        // site can forget it.
         updateRightSide()
     }
 
@@ -1918,40 +1883,16 @@ class ScannerActivity : AppCompatActivity() {
         enhanceLauncher.launch(intent)
     }
 
-    /** Thumbnail → Filter (Enhance) for a mid-batch review
-     *  (v0.1.74): same Enhance screen as Done, but the result
-     *  comes back to the camera (reviewEnhanceLauncher) so the
-     *  user can keep capturing — it never goes to Preview.
-     *  It opens on the LAST captured page (v0.1.75), so the
-     *  user sees at once whether the latest capture came out
-     *  right; swiping shows the earlier pages. Done, by
-     *  contrast, opens on the FIRST page. */
-    private fun openReviewEnhance() {
-        if (pages.isEmpty()) {
-            Toast.makeText(this, "Scan at least one page first", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val intent = Intent(this, EnhanceActivity::class.java)
-        // Raw files, as in Done (v0.1.77) — the reviewed page
-        // may already be enhanced; it is filtered from its
-        // raw source so the filter never stacks.
-        intent.putExtra(EnhanceActivity.EXTRA_IMAGE_PATH, rawPathFor(pages.last()))
-        intent.putStringArrayListExtra(
-            EnhanceActivity.EXTRA_PAGE_PATHS,
-            ArrayList(pages.map { rawPathFor(it) })
-        )
-        intent.putExtra(EnhanceActivity.EXTRA_APPLY_ALL_CHECKED, true)
-        intent.putExtra(EnhanceActivity.EXTRA_CONFIRM_LABEL, "Continue")
-        reviewEnhanceLauncher.launch(intent)
-    }
-
     /** Right side of the capture row (v0.1.74): in Batch, once
      *  the first page is captured, Import Images goes away and
      *  a small thumbnail with the pages count takes its place
-     *  — like CamScanner. In Single (or with no pages yet),
-     *  Import Images stays. Only the visibility and the count
-     *  text change here — the thumbnail image itself is set
-     *  by refreshPagesThumb(). */
+     *  — like CamScanner. Tapping it is the way forward
+     *  (v0.1.93): it opens the Filter (Enhance) screen, then
+     *  Preview, then Export — there is no Done button any
+     *  more. In Single (or with no pages yet), Import Images
+     *  stays. Only the visibility and the count text change
+     *  here — the thumbnail image itself is set by
+     *  refreshPagesThumb(). */
     private fun updateRightSide() {
         val importBtn = findViewById<LinearLayout>(R.id.btnImportImages)
         val thumbContainer = findViewById<LinearLayout>(R.id.pagesThumbContainer)

@@ -524,13 +524,14 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- Bottom bar (v0.1.84): Rotate / Crop / Adjust / Draw /
-         Erase / Text / Sign + confirm, in that order. The
-         seven tools SHARE the width evenly (each one
-         layout_weight 1), so there is no big empty gap between
-         them and the confirm button — the whole bar is used,
-         and every tool is the same proper size (28dp icons,
-         11sp labels). -->
+    <!-- Bottom bar (v0.1.93): back-arrow / Rotate / Crop /
+         Draw / Erase / Text / Sign + confirm (tick), in that
+         order. Adjust is GONE from this bar — it lives on the
+         selected filter's thumbnail now (CamScanner-style).
+         The six tools SHARE the width evenly (each one
+         layout_weight 1); the back arrow (56dp, left) returns
+         to the camera to capture more, and the confirm tick
+         (56dp, right) goes to the next stage. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="72dp"
@@ -539,6 +540,19 @@
         android:orientation="horizontal"
         android:paddingStart="8dp"
         android:paddingEnd="8dp">
+
+        <!-- Back — returns to the camera to capture more
+             pages (v0.1.93). The pages stay; tapping the
+             thumbnail later brings you back here. -->
+        <ImageButton
+            android:id="@+id/btnBackToCapture"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginEnd="4dp"
+            android:background="@drawable/bg_teal_button"
+            android:contentDescription="Back to capture"
+            android:src="@drawable/ic_arrow_back"
+            android:tint="#FFFFFF" />
 
         <!-- Rotate — turns the page 90 degrees (the old
              "Left" button, renamed v0.1.82). -->
@@ -591,34 +605,6 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="3dp"
                 android:text="Crop"
-                android:textColor="#FFFFFF"
-                android:textSize="11sp" />
-        </LinearLayout>
-
-        <!-- Adjust — the menu button for the Adjust panel
-             (Brightness / Contrast / Sharpness). The panel opens
-             ONLY from here, never on its own after a capture. -->
-        <LinearLayout
-            android:id="@+id/btnAdjust"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:orientation="vertical">
-
-            <ImageView
-                android:id="@+id/ivAdjustIcon"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
-                android:src="@drawable/ic_tune"
-                android:tint="#FFFFFF" />
-
-            <TextView
-                android:id="@+id/tvAdjustLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:text="Adjust"
                 android:textColor="#FFFFFF"
                 android:textSize="11sp" />
         </LinearLayout>
