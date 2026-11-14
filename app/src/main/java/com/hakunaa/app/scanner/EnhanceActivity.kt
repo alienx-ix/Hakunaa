@@ -1011,9 +1011,15 @@ class EnhanceActivity : AppCompatActivity() {
     /** Drag a placed overlay (signature or text) around the
      *  page. The stored normalized rect follows the finger,
      *  clamped inside the page. */
+    /** Generic drag for a placed overlay (signature).
+     *  [onEraseTap] runs when the overlay is tapped while
+     *  the Erase tool is active (v0.1.87): Erase applies to
+     *  everything drawn on the screen, so tapping a placed
+     *  signature in Erase mode removes it. */
     private fun setupOverlayDrag(
         overlayViewId: Int,
-        getPlacement: () -> PlacedOverlay?
+        getPlacement: () -> PlacedOverlay?,
+        onEraseTap: (() -> Unit)? = null
     ) {
         val overlay = findViewById<ImageView>(overlayViewId)
         overlay.setOnTouchListener { _, event ->
@@ -1021,6 +1027,12 @@ class EnhanceActivity : AppCompatActivity() {
             val frame = findViewById<View>(R.id.pageFrame)
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
+                    // Erase mode: tapping the overlay erases
+                    // it (removes it), instead of dragging it.
+                    if (toolMode == ToolMode.ERASE && onEraseTap != null) {
+                        onEraseTap()
+                        return@setOnTouchListener true
+                    }
                     overlayDragOffsetX = event.x
                     overlayDragOffsetY = event.y
                     overlayDragging = true
@@ -1066,10 +1078,14 @@ class EnhanceActivity : AppCompatActivity() {
     }
 
     private fun setupSignatureDrag() {
-        setupOverlayDrag(R.id.ivSignature) {
-            val path = imagePath ?: return@setupOverlayDrag null
-            pageSignatures[path]
-        }
+        setupOverlayDrag(
+            R.id.ivSignature,
+            getPlacement = {
+                val path = imagePath ?: return@setupOverlayDrag null
+                pageSignatures[path]
+            },
+            onEraseTap = { removeSignature() }
+        )
     }
 
     private fun setupTextDrag() {
@@ -1085,6 +1101,13 @@ class EnhanceActivity : AppCompatActivity() {
             val frame = findViewById<View>(R.id.pageFrame)
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
+                    // Erase mode: tapping the text erases it
+                    // (removes it), instead of selecting or
+                    // dragging it (v0.1.87).
+                    if (toolMode == ToolMode.ERASE) {
+                        removeText()
+                        return@setOnTouchListener true
+                    }
                     if (!textSelected) {
                         textSelected = true
                         layoutTextOverlay()

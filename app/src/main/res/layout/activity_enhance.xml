@@ -111,14 +111,15 @@
 
             <!-- Delete — the X on top of the text box.
                  Big and teal (v0.1.86), so it is clearly
-                 visible while editing. -->
+                 visible while editing. It sits OUTSIDE the
+                 box (v0.1.87), so it is easy to grab. -->
             <TextView
                 android:id="@+id/btnTextDelete"
                 android:layout_width="32dp"
                 android:layout_height="32dp"
                 android:layout_gravity="top|end"
-                android:layout_marginTop="-10dp"
-                android:layout_marginEnd="-10dp"
+                android:layout_marginTop="-26dp"
+                android:layout_marginEnd="-26dp"
                 android:background="@drawable/bg_text_delete_teal"
                 android:gravity="center"
                 android:text="×"
@@ -127,14 +128,16 @@
                 android:textStyle="bold" />
 
             <!-- Resize — the handle at the bottom-right corner.
-                 Drag it to make the text bigger or smaller. -->
+                 Drag it to make the text bigger or smaller.
+                 It sits OUTSIDE the box (v0.1.87), so it is
+                 easy to grab. -->
             <TextView
                 android:id="@+id/btnTextResize"
                 android:layout_width="32dp"
                 android:layout_height="32dp"
                 android:layout_gravity="bottom|end"
-                android:layout_marginBottom="-10dp"
-                android:layout_marginEnd="-10dp"
+                android:layout_marginBottom="-26dp"
+                android:layout_marginEnd="-26dp"
                 android:background="@drawable/bg_text_delete_teal"
                 android:gravity="center"
                 android:text="⤢"

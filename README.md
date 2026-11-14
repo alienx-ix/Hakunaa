@@ -630,6 +630,11 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.87 — Text × and resize handle sit outside the box; Erase works on everything
+
+- **× and ⤢ now sit OUTSIDE the box:** they were half inside the box's corner, hard to grab. Now they sit clearly outside it (26dp out, just a small overlap), so they are easy to tap and drag.
+- **Erase works on Sign and Text too:** Erase used to rub out only the drawn strokes. Now, in Erase mode, tapping a signature or a text removes it as well — Erase applies to everything drawn on the screen.
+
 ## v0.1.86 — Text box only while editing; Done leaves plain text
 
 - **Box goes away after Done (the fix):** the teal box, the × and the resize handle are EDITING tools only. They show while the text is being placed / adjusted. Press Done and they all disappear — only the plain text stays on the page, the way professional apps do it. Tap the text again and the box comes back to adjust or delete it.
