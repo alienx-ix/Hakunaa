@@ -630,6 +630,12 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.77 — Confirm button back to the big round style; filter overexposure + lag fixed
+
+The pill button style is gone — the user did not like it. The confirm is the old big round teal button in the corner (56dp, checkmark), with the Continue / Finish label below it, like the other bottom-bar items (Left / Crop / Adjust). Thumbnail review still says "Continue" (back to the camera), Done / Single / Book still say "Finish" (on to Preview / Export).
+
+Filter overexposure fixed: the filter was being applied twice. Enhance re-encoded the other pages in place (so a reviewed page got filtered again on the next save), and the thumbnail review put the enhanced file in pages[0] instead of the reviewed page's own slot. Now every page is filtered exactly once, from its raw cropped file, into a new file — the caller matches each new file to its raw source — and Book pages are saved raw at capture (they were pre-filtered with No Shadow, then filtered again in Enhance). The Enhance preview no longer puts the full-res bitmap on screen (that upload stalled the UI thread and the screen lagged); it shows the downsampled preview instead, and the filtered version swaps in when ready.
+
 ## v0.1.76 — Continue (thumbnail) vs Finish (Done); Markup + Sign removed for space
 
 Correction to v0.1.75's single "Finish": the filter confirm now says what actually happens next. From the Batch thumbnail it says "Continue" — pressing it returns to the camera to keep capturing. From Done (and Single / Book) it says "Finish" — pressing it goes on to Preview / Export. Markup and Sign are removed from the Enhance bottom bar (they are later steps and were only greyed-out labels taking space), so the Continue / Finish button sits cleanly at the bottom right: Left / Crop / Adjust / Finish.

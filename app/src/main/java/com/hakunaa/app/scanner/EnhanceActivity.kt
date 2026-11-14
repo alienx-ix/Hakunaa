@@ -17,7 +17,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import com.google.android.material.button.MaterialButton
 import com.hakunaa.app.R
 import java.io.File
 import java.text.SimpleDateFormat
@@ -66,6 +65,13 @@ class EnhanceActivity : AppCompatActivity() {
         // (Done / Single / Book — it goes on to Preview /
         // Export). Defaults to "Finish" when not given.
         const val EXTRA_CONFIRM_LABEL = "confirm_label"
+        // The enhanced file for EVERY page (v0.1.77), in the
+        // same order as EXTRA_ENHANCED_SOURCE_PATHS, which
+        // holds the source (raw) path each one came from. The
+        // caller matches by source path, so a page is never
+        // put in the wrong slot.
+        const val EXTRA_ENHANCED_PATHS = "enhanced_paths"
+        const val EXTRA_ENHANCED_SOURCE_PATHS = "enhanced_source_paths"
     }
 
     private var bitmap: Bitmap? = null
@@ -185,12 +191,13 @@ class EnhanceActivity : AppCompatActivity() {
         setupSwipe()
 
         findViewById<LinearLayout>(R.id.btnRotateLeft).setOnClickListener { rotateLeft() }
-        findViewById<MaterialButton>(R.id.btnSave).setOnClickListener { save() }
-        // The confirm button says what happens next (v0.1.76):
+        findViewById<ImageButton>(R.id.btnSave).setOnClickListener { save() }
+        // The confirm label says what happens next (v0.1.76):
         // "Continue" from a thumbnail review (back to the
         // camera), "Finish" from Done / Single / Book (on to
-        // Preview / Export). The tick icon stays, as before.
-        findViewById<MaterialButton>(R.id.btnSave).text =
+        // Preview / Export). It sits below the big round
+        // button, like the other bottom-bar labels.
+        findViewById<TextView>(R.id.tvSaveLabel).text =
             intent.getStringExtra(EXTRA_CONFIRM_LABEL) ?: "Finish"
         // Adjust opens ONLY from its menu button — never on its
         // own after a capture. The panel stays hidden until the
@@ -229,9 +236,14 @@ class EnhanceActivity : AppCompatActivity() {
                     previewBitmap = downsample(bmp, 1200)
                     // This page's own filter (default NO_SHADOW).
                     selectedFilter = pageFilters[path] ?: ImageEnhancer.Filter.NO_SHADOW
-                    // Show the page at once, then swap in the
-                    // filtered version when it is ready.
-                    findViewById<ImageView>(R.id.ivPage).setImageBitmap(bmp)
+                    // Show the downsampled preview at once, then
+                    // swap in the filtered version when it is
+                    // ready. Never put the full-res bitmap on
+                    // the screen (v0.1.77) — uploading a huge
+                    // texture stalls the UI thread and the
+                    // screen lags; the full-res bitmap is only
+                    // needed at save time.
+                    findViewById<ImageView>(R.id.ivPage).setImageBitmap(previewBitmap)
                     applyFilterToPreview(selectedFilter)
                     buildFilterThumbnails()
                     updatePageIndicator()
@@ -564,55 +576,66 @@ class EnhanceActivity : AppCompatActivity() {
         val currentFilter = selectedFilter
         Thread {
             try {
-                val filtered = ImageEnhancer.apply(bmp, currentFilter)
-                val final = ImageEnhancer.applyAdjustments(
-                    filtered, brightness, contrast, sharpness
-                )
-                if (final != filtered) filtered.recycle()
                 val docName = findViewById<EditText>(R.id.etDocName).text.toString()
                     .trim().ifEmpty { "Hakunaa Scan" }
                 val safeName = docName.replace(Regex("[^A-Za-z0-9 _.-]"), "_")
-                val out = File(cacheDir, "scan_enhanced_${System.currentTimeMillis()}.jpg")
-                out.outputStream().use { stream ->
-                    // Near-lossless (95) — the PDF tiers re-encode
-                    // from this file, so it must keep full quality.
-                    final.compress(Bitmap.CompressFormat.JPEG, 95, stream)
-                }
-                final.recycle()
-                // Every other page, re-encoded in place with its
-                // own filter (or the current page's filter when
-                // "Apply to all pages" is ticked), so the whole
-                // document looks the way the user set it.
-                // A page that fails is left as it was — it must
-                // never block the save.
-                for (path in allPages) {
-                    // The current page is saved separately
-                    // above — encoding it here too would
-                    // filter it twice.
-                    if (path == currentPath) continue
+                // Every page is enhanced from its SOURCE file
+                // into a NEW file (v0.1.77) — never re-encoded
+                // in place. The old code overwrote the other
+                // pages' files, so opening Enhance again on an
+                // already-filtered page applied the filter a
+                // second time and the image came out
+                // overexposed; and the review launcher put the
+                // enhanced file in the wrong slot. Now each page
+                // is filtered exactly once, from its raw file,
+                // and the caller matches each new file to its
+                // source path. A page that fails is left out —
+                // it must never block the save.
+                val enhancedPaths = ArrayList<String>()
+                val sourcePaths = ArrayList<String>()
+                var currentEnhanced: String? = null
+                for ((index, path) in allPages.withIndex()) {
                     val pageFilter = if (applyAll) {
                         currentFilter
                     } else {
                         pageFilters[path] ?: ImageEnhancer.Filter.NO_SHADOW
                     }
+                    // The current page uses the in-memory
+                    // bitmap (it carries any rotation); the
+                    // other pages are decoded from their files.
+                    val pageBmp = if (path == currentPath) bmp
+                    else BitmapFactory.decodeFile(path)
+                    if (pageBmp == null) continue
                     try {
-                        val page = BitmapFactory.decodeFile(path) ?: continue
-                        val pageFiltered = ImageEnhancer.apply(page, pageFilter)
-                        val pageFinal = ImageEnhancer.applyAdjustments(
-                            pageFiltered, brightness, contrast, sharpness
+                        val filtered = ImageEnhancer.apply(pageBmp, pageFilter)
+                        val final = ImageEnhancer.applyAdjustments(
+                            filtered, brightness, contrast, sharpness
                         )
-                        if (pageFinal != pageFiltered) pageFiltered.recycle()
-                        File(path).outputStream().use { stream ->
-                            pageFinal.compress(Bitmap.CompressFormat.JPEG, 95, stream)
+                        if (final != filtered) filtered.recycle()
+                        val out = File(
+                            cacheDir,
+                            "scan_enhanced_${System.currentTimeMillis()}_$index.jpg"
+                        )
+                        out.outputStream().use { stream ->
+                            // Near-lossless (95) — the PDF tiers
+                            // re-encode from this file, so it
+                            // must keep full quality.
+                            final.compress(Bitmap.CompressFormat.JPEG, 95, stream)
                         }
-                        page.recycle()
-                        pageFinal.recycle()
+                        final.recycle()
+                        if (pageBmp != bmp) pageBmp.recycle()
+                        enhancedPaths.add(out.absolutePath)
+                        sourcePaths.add(path)
+                        if (path == currentPath) currentEnhanced = out.absolutePath
                     } catch (_: Throwable) {
+                        if (pageBmp != bmp) pageBmp.recycle()
                     }
                 }
                 runOnUiThread {
                     val data = Intent()
-                    data.putExtra(EXTRA_ENHANCED_PATH, out.absolutePath)
+                    data.putExtra(EXTRA_ENHANCED_PATH, currentEnhanced)
+                    data.putStringArrayListExtra(EXTRA_ENHANCED_PATHS, enhancedPaths)
+                    data.putStringArrayListExtra(EXTRA_ENHANCED_SOURCE_PATHS, sourcePaths)
                     data.putExtra("doc_name", safeName)
                     setResult(RESULT_OK, data)
                     finish()

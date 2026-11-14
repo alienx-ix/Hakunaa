@@ -118,6 +118,44 @@ class ScannerActivity : AppCompatActivity() {
     enum class Mode { SINGLE, BATCH }
 
     private val pages = mutableListOf<File>()
+    // Raw file for each page (v0.1.77): the cropped file a page
+    // came from, keyed by the page's CURRENT file path. A page
+    // in `pages` may already be an enhanced file (from a
+    // thumbnail review); its raw file is what Enhance must
+    // filter from — filtering an already-filtered file a
+    // second time is what made images come out overexposed.
+    // A page with no entry is raw itself.
+    private val rawPaths = mutableMapOf<String, String>()
+
+    /** The raw (unfiltered) file for a page — the file Enhance
+     *  must filter from. Falls back to the page itself. */
+    private fun rawPathFor(page: File): String =
+        rawPaths[page.absolutePath] ?: page.absolutePath
+
+    /** Apply Enhance's result (v0.1.77): for each returned
+     *  (source, enhanced) pair, find the page whose raw file
+     *  is that source and replace it with the enhanced file,
+     *  remembering the raw file for next time. Returns true
+     *  when the list result was used. */
+    private fun applyEnhancedPages(
+        enhanced: ArrayList<String>?,
+        sources: ArrayList<String>?
+    ): Boolean {
+        if (enhanced == null || sources == null) return false
+        for (i in enhanced.indices) {
+            val src = sources.getOrNull(i) ?: continue
+            val newFile = File(enhanced[i])
+            if (!newFile.exists()) continue
+            val idx = pages.indexOfFirst { rawPathFor(it) == src }
+            if (idx < 0) continue
+            val old = pages[idx]
+            rawPaths.remove(old.absolutePath)
+            pages[idx] = newFile
+            rawPaths[newFile.absolutePath] = src
+        }
+        return true
+    }
+
     private var docName: String? = null
     // Default mode is BATCH (v0.1.67, user): the scanner opens
     // on Batch — most scans are multi-page, and Single is one
@@ -273,6 +311,9 @@ class ScannerActivity : AppCompatActivity() {
                     val file = File(path)
                     if (file.exists()) {
                         pages.add(file)
+                        // A freshly cropped file is raw — it is
+                        // its own raw source (v0.1.77).
+                        rawPaths[file.absolutePath] = file.absolutePath
                         docName = result.data?.getStringExtra("doc_name") ?: docName
                         // Capture fly animation (v0.1.74), like a
                         // professional scanner: a thumbnail of
@@ -409,6 +450,7 @@ class ScannerActivity : AppCompatActivity() {
             if (result.resultCode == RESULT_OK) {
                 // PDF saved from the Pages screen — clear and stay on camera.
                 pages.clear()
+                rawPaths.clear()
                 docName = null
                 updatePagesLabel()
                 findViewById<TextView>(R.id.tvStatus).text =
@@ -418,6 +460,7 @@ class ScannerActivity : AppCompatActivity() {
                 // via the Preview (v0.1.69): drop every page so
                 // the camera comes back fresh.
                 pages.clear()
+                rawPaths.clear()
                 docName = null
                 updatePagesLabel()
                 findViewById<TextView>(R.id.tvStatus).text =
@@ -447,11 +490,21 @@ class ScannerActivity : AppCompatActivity() {
     private val enhanceLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) {
-                val enhancedPath =
-                    result.data?.getStringExtra(EnhanceActivity.EXTRA_ENHANCED_PATH)
-                if (enhancedPath != null && pages.isNotEmpty()) {
-                    val file = File(enhancedPath)
-                    if (file.exists()) pages[0] = file
+                // Enhance returns a new file per page, matched
+                // to its raw source (v0.1.77) — each page is
+                // replaced in its own slot, never pages[0] by
+                // default. Fall back to the old single path.
+                val applied = applyEnhancedPages(
+                    result.data?.getStringArrayListExtra(EnhanceActivity.EXTRA_ENHANCED_PATHS),
+                    result.data?.getStringArrayListExtra(EnhanceActivity.EXTRA_ENHANCED_SOURCE_PATHS)
+                )
+                if (!applied) {
+                    val enhancedPath =
+                        result.data?.getStringExtra(EnhanceActivity.EXTRA_ENHANCED_PATH)
+                    if (enhancedPath != null && pages.isNotEmpty()) {
+                        val file = File(enhancedPath)
+                        if (file.exists()) pages[0] = file
+                    }
                 }
                 docName = result.data?.getStringExtra("doc_name") ?: docName
                 openPagesAfterEnhance()
@@ -467,11 +520,20 @@ class ScannerActivity : AppCompatActivity() {
     private val reviewEnhanceLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) {
-                val enhancedPath =
-                    result.data?.getStringExtra(EnhanceActivity.EXTRA_ENHANCED_PATH)
-                if (enhancedPath != null && pages.isNotEmpty()) {
-                    val file = File(enhancedPath)
-                    if (file.exists()) pages[0] = file
+                // Same list result as Done (v0.1.77): the
+                // reviewed page lands in its own slot, not
+                // pages[0]. Fall back to the old single path.
+                val applied = applyEnhancedPages(
+                    result.data?.getStringArrayListExtra(EnhanceActivity.EXTRA_ENHANCED_PATHS),
+                    result.data?.getStringArrayListExtra(EnhanceActivity.EXTRA_ENHANCED_SOURCE_PATHS)
+                )
+                if (!applied) {
+                    val enhancedPath =
+                        result.data?.getStringExtra(EnhanceActivity.EXTRA_ENHANCED_PATH)
+                    if (enhancedPath != null && pages.isNotEmpty()) {
+                        val file = File(enhancedPath)
+                        if (file.exists()) pages[0] = file
+                    }
                 }
                 docName = result.data?.getStringExtra("doc_name") ?: docName
                 updatePagesLabel()
@@ -501,6 +563,7 @@ class ScannerActivity : AppCompatActivity() {
                 status.text = "Done — scanned PDF saved to Documents/Hakunaa/$fileName (${pages.size} page(s), $size)"
                 Toast.makeText(this, "PDF saved ($size)", Toast.LENGTH_SHORT).show()
                 pages.clear()
+                rawPaths.clear()
                 docName = null
                 updatePagesLabel()
             } else if (result.resultCode == PdfExportActivity.RESULT_DISCARD) {
@@ -510,6 +573,7 @@ class ScannerActivity : AppCompatActivity() {
                 // bottom, in Single or Batch.
                 val count = pages.size
                 pages.clear()
+                rawPaths.clear()
                 docName = null
                 updatePagesLabel()
                 status.text = "Discarded — point the camera at a document and tap Capture"
@@ -603,6 +667,14 @@ class ScannerActivity : AppCompatActivity() {
         savedInstanceState?.getStringArrayList("page_paths")?.let { paths ->
             pages.clear()
             pages.addAll(paths.map { File(it) }.filter { it.exists() })
+            // Restore each page's raw source (v0.1.77), in the
+            // same order as the pages.
+            savedInstanceState.getStringArrayList("raw_paths")?.let { raws ->
+                for (i in pages.indices) {
+                    val raw = raws.getOrNull(i) ?: continue
+                    rawPaths[pages[i].absolutePath] = raw
+                }
+            }
         }
         savedInstanceState?.getString("doc_name")?.let { docName = it }
         savedInstanceState?.getString("mode")?.let {
@@ -623,6 +695,12 @@ class ScannerActivity : AppCompatActivity() {
         super.onSaveInstanceState(outState)
         outState.putStringArrayList(
             "page_paths", ArrayList(pages.map { it.absolutePath })
+        )
+        // The raw source for each page (v0.1.77), so a
+        // recreation does not lose which file is raw.
+        outState.putStringArrayList(
+            "raw_paths",
+            ArrayList(pages.map { rawPathFor(it) })
         )
         outState.putString("doc_name", docName)
         outState.putString("mode", mode.name)
@@ -1674,10 +1752,12 @@ class ScannerActivity : AppCompatActivity() {
         // next capture — no filter screen per page. The filters
         // are picked at the end, for the whole batch.
         intent.putExtra(CropActivity.EXTRA_SKIP_ENHANCE, mode == Mode.BATCH)
-        // The batch so far (for "Apply to all pages").
+        // The batch so far (for "Apply to all pages") — the
+        // RAW files (v0.1.77), so a chained Enhance filters
+        // from raw, never from an already-filtered file.
         intent.putStringArrayListExtra(
             EnhanceActivity.EXTRA_PAGE_PATHS,
-            ArrayList(pages.map { it.absolutePath })
+            ArrayList(pages.map { rawPathFor(it) })
         )
         cropLauncher.launch(intent)
     }
@@ -1782,10 +1862,15 @@ class ScannerActivity : AppCompatActivity() {
             return
         }
         val intent = Intent(this, EnhanceActivity::class.java)
-        intent.putExtra(EnhanceActivity.EXTRA_IMAGE_PATH, pages[0].absolutePath)
+        // Enhance works from the RAW files (v0.1.77) — a page
+        // already enhanced by a thumbnail review must be
+        // filtered from its raw source, never from the
+        // filtered file, or the filter stacks and the image
+        // comes out overexposed.
+        intent.putExtra(EnhanceActivity.EXTRA_IMAGE_PATH, rawPathFor(pages[0]))
         intent.putStringArrayListExtra(
             EnhanceActivity.EXTRA_PAGE_PATHS,
-            ArrayList(pages.map { it.absolutePath })
+            ArrayList(pages.map { rawPathFor(it) })
         )
         intent.putExtra(EnhanceActivity.EXTRA_APPLY_ALL_CHECKED, true)
         intent.putExtra(EnhanceActivity.EXTRA_CONFIRM_LABEL, "Finish")
@@ -1806,10 +1891,13 @@ class ScannerActivity : AppCompatActivity() {
             return
         }
         val intent = Intent(this, EnhanceActivity::class.java)
-        intent.putExtra(EnhanceActivity.EXTRA_IMAGE_PATH, pages.last().absolutePath)
+        // Raw files, as in Done (v0.1.77) — the reviewed page
+        // may already be enhanced; it is filtered from its
+        // raw source so the filter never stacks.
+        intent.putExtra(EnhanceActivity.EXTRA_IMAGE_PATH, rawPathFor(pages.last()))
         intent.putStringArrayListExtra(
             EnhanceActivity.EXTRA_PAGE_PATHS,
-            ArrayList(pages.map { it.absolutePath })
+            ArrayList(pages.map { rawPathFor(it) })
         )
         intent.putExtra(EnhanceActivity.EXTRA_APPLY_ALL_CHECKED, true)
         intent.putExtra(EnhanceActivity.EXTRA_CONFIRM_LABEL, "Continue")

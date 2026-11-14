@@ -67,6 +67,40 @@ import java.util.Locale
 class BookScannerActivity : AppCompatActivity() {
 
     private val pages = mutableListOf<File>()
+    // Raw file for each page (v0.1.77), as in ScannerActivity:
+    // the cropped file a page came from, keyed by the page's
+    // CURRENT file path. Enhance must filter from the raw
+    // file, never from an already-filtered file, or the
+    // filter stacks and the image comes out overexposed.
+    private val rawPaths = mutableMapOf<String, String>()
+
+    /** The raw (unfiltered) file for a page. */
+    private fun rawPathFor(page: File): String =
+        rawPaths[page.absolutePath] ?: page.absolutePath
+
+    /** Apply Enhance's result (v0.1.77): for each returned
+     *  (source, enhanced) pair, find the page whose raw file
+     *  is that source and replace it with the enhanced file,
+     *  remembering the raw file for next time. */
+    private fun applyEnhancedPages(
+        enhanced: ArrayList<String>?,
+        sources: ArrayList<String>?
+    ): Boolean {
+        if (enhanced == null || sources == null) return false
+        for (i in enhanced.indices) {
+            val src = sources.getOrNull(i) ?: continue
+            val newFile = File(enhanced[i])
+            if (!newFile.exists()) continue
+            val idx = pages.indexOfFirst { rawPathFor(it) == src }
+            if (idx < 0) continue
+            val old = pages[idx]
+            rawPaths.remove(old.absolutePath)
+            pages[idx] = newFile
+            rawPaths[newFile.absolutePath] = src
+        }
+        return true
+    }
+
     private var docName: String? = null
     // The bitmap shown in the small persistent thumbnail
     // beside the Pages count (v0.1.74) — kept so it can be
@@ -120,11 +154,21 @@ class BookScannerActivity : AppCompatActivity() {
     private val enhanceLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) {
-                val enhancedPath =
-                    result.data?.getStringExtra(EnhanceActivity.EXTRA_ENHANCED_PATH)
-                if (enhancedPath != null && pages.isNotEmpty()) {
-                    val file = File(enhancedPath)
-                    if (file.exists()) pages[0] = file
+                // Enhance returns a new file per page, matched
+                // to its raw source (v0.1.77) — each page is
+                // replaced in its own slot. Fall back to the
+                // old single path.
+                val applied = applyEnhancedPages(
+                    result.data?.getStringArrayListExtra(EnhanceActivity.EXTRA_ENHANCED_PATHS),
+                    result.data?.getStringArrayListExtra(EnhanceActivity.EXTRA_ENHANCED_SOURCE_PATHS)
+                )
+                if (!applied) {
+                    val enhancedPath =
+                        result.data?.getStringExtra(EnhanceActivity.EXTRA_ENHANCED_PATH)
+                    if (enhancedPath != null && pages.isNotEmpty()) {
+                        val file = File(enhancedPath)
+                        if (file.exists()) pages[0] = file
+                    }
                 }
                 docName = result.data?.getStringExtra("doc_name") ?: docName
                 openPagesAfterEnhance()
@@ -136,6 +180,7 @@ class BookScannerActivity : AppCompatActivity() {
             if (result.resultCode == RESULT_OK) {
                 // PDF saved from the Pages screen — clear and stay on camera.
                 pages.clear()
+                rawPaths.clear()
                 docName = null
                 updateLabels()
                 findViewById<TextView>(R.id.tvStatus).text =
@@ -145,6 +190,7 @@ class BookScannerActivity : AppCompatActivity() {
                 // via the Preview (v0.1.71): drop every page so
                 // the camera comes back fresh.
                 pages.clear()
+                rawPaths.clear()
                 docName = null
                 updateLabels()
                 findViewById<TextView>(R.id.tvStatus).text =
@@ -512,18 +558,19 @@ class BookScannerActivity : AppCompatActivity() {
             }
             val (left, right) = split
             val newPages = mutableListOf<File>()
+            // The split pages are saved RAW (v0.1.77) — no
+            // filter at capture. Enhance (which the Book flow
+            // always goes through) applies NO_SHADOW once.
+            // Filtering here AND in Enhance stacked the filter
+            // and the pages came out overexposed.
             if (doubleMode || selectedSide == SpineLineView.SIDE_LEFT) {
-                val enhanced = ImageEnhancer.apply(left, ImageEnhancer.Filter.NO_SHADOW)
                 val file = File(cacheDir, "book_page_${System.currentTimeMillis()}_a.jpg")
-                FileOutputStream(file).use { enhanced.compress(Bitmap.CompressFormat.JPEG, 95, it) }
-                enhanced.recycle()
+                FileOutputStream(file).use { left.compress(Bitmap.CompressFormat.JPEG, 95, it) }
                 newPages.add(file)
             }
             if (doubleMode || selectedSide == SpineLineView.SIDE_RIGHT) {
-                val enhanced = ImageEnhancer.apply(right, ImageEnhancer.Filter.NO_SHADOW)
                 val file = File(cacheDir, "book_page_${System.currentTimeMillis()}_b.jpg")
-                FileOutputStream(file).use { enhanced.compress(Bitmap.CompressFormat.JPEG, 95, it) }
-                enhanced.recycle()
+                FileOutputStream(file).use { right.compress(Bitmap.CompressFormat.JPEG, 95, it) }
                 newPages.add(file)
             }
             left.recycle()
@@ -541,6 +588,9 @@ class BookScannerActivity : AppCompatActivity() {
             val lastBmp = decodeThumb(newPages.last())
             runOnUiThread {
                 pages.addAll(newPages)
+                // Freshly split pages are raw — each is its own
+                // raw source (v0.1.77).
+                for (file in newPages) rawPaths[file.absolutePath] = file.absolutePath
                 // The count ticks up only when the thumbnail
                 // lands on the Pages button (v0.1.73) — the
                 // fly animation finishes that (or, if the
@@ -584,10 +634,13 @@ class BookScannerActivity : AppCompatActivity() {
             return
         }
         val intent = Intent(this, EnhanceActivity::class.java)
-        intent.putExtra(EnhanceActivity.EXTRA_IMAGE_PATH, pages[0].absolutePath)
+        // Enhance works from the RAW files (v0.1.77) — a page
+        // already enhanced must be filtered from its raw
+        // source, never from the filtered file.
+        intent.putExtra(EnhanceActivity.EXTRA_IMAGE_PATH, rawPathFor(pages[0]))
         intent.putStringArrayListExtra(
             EnhanceActivity.EXTRA_PAGE_PATHS,
-            ArrayList(pages.map { it.absolutePath })
+            ArrayList(pages.map { rawPathFor(it) })
         )
         intent.putExtra(EnhanceActivity.EXTRA_APPLY_ALL_CHECKED, true)
         enhanceLauncher.launch(intent)

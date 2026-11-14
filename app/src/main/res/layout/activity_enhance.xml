@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#000000"
@@ -280,7 +279,7 @@
          needs the room). -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="72dp"
+        android:layout_height="80dp"
         android:background="#1A1A1A"
         android:gravity="center_vertical"
         android:orientation="horizontal"
@@ -372,24 +371,37 @@
             android:layout_height="0dp"
             android:layout_weight="1" />
 
-        <!-- Confirm — a clear "Finish" button (v0.1.75), not
-             just a tick: a teal pill with the checkmark and
-             the word Finish, so the user always knows this
-             finishes the filter step. From a thumbnail review
-             it returns to the camera to keep capturing; from
-             Done (or Single / Book) it goes on to Preview /
-             Export. -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnSave"
+        <!-- Confirm — the big round button in the corner, like
+             the old one (v0.1.77): a 56dp teal circle with the
+             checkmark, and the Continue / Finish label below
+             it, like the other bottom-bar items. The pill
+             button style is gone — the user did not like it.
+             From a thumbnail review it says "Continue" (back
+             to the camera); from Done / Single / Book it says
+             "Finish" (on to Preview / Export). -->
+        <LinearLayout
             android:layout_width="wrap_content"
-            android:layout_height="48dp"
-            android:minWidth="120dp"
-            android:text="Finish"
-            android:textColor="#FFFFFF"
-            android:textStyle="bold"
-            app:backgroundTint="#00BFA5"
-            app:cornerRadius="24dp"
-            app:icon="@drawable/ic_check"
-            app:iconTint="#FFFFFF" />
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <ImageButton
+                android:id="@+id/btnSave"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:background="@drawable/bg_teal_button"
+                android:contentDescription="Save"
+                android:src="@drawable/ic_check"
+                android:tint="#FFFFFF" />
+
+            <TextView
+                android:id="@+id/tvSaveLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Finish"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp" />
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>
