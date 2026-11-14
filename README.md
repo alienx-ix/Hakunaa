@@ -630,6 +630,11 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.100 — Book EXACT like the CamScanner screenshot (user: "totally wrong" on v0.1.99)
+
+- **What was wrong in v0.1.99:** the preview was a short landscape band with a VERTICAL spine. The screenshot shows a TALL portrait preview with the book ROTATED inside it.
+- **Fix:** the preview is a TALL 3:4 portrait band filling the middle of the portrait screen; the spine is now HORIZONTAL — page A on TOP, page B at the BOTTOM, dashed line across the middle, drag moves it UP / DOWN, tap picks top (A) / bottom (B). `SpineLineView` rewritten for horizontal (spineFraction = fraction of the image HEIGHT, maps straight onto the landscape sensor image's width for the split). `previewContentRect()` fixed to 3:4 portrait (was wrongly computing a landscape rect). The Rotate hint and the Single / Double pill are shifted onto the image itself in code (`updatePreviewOverlays`), not the container edges. Screen still NEVER rotates; menus stay portrait.
+
 ## v0.1.99 — Book redesigned CamScanner-style, NO screen rotation
 
 - **No more forced rotation (user pick):** BookScannerActivity is PORTRAIT now — the screen never rotates when opening Book. The camera preview is a landscape (4:3) band in the middle of the portrait screen, with a "Rotate your camera to a landscape view" hint pill, like CamScanner. Simple.

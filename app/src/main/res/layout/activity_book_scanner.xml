@@ -1,17 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Book Scan — portrait, CamScanner-style (v0.1.99). NO screen
+<!-- Book Scan — portrait, CamScanner-style (v0.1.100). NO screen
      rotation: the phone stays in portrait, the camera preview
-     is a landscape (4:3) band in the middle, and a hint tells
+     is a TALL 3:4 portrait band filling the middle, and the
+     landscape book appears ROTATED inside it — page A on TOP,
+     page B at the BOTTOM, a HORIZONTAL dashed spine between
+     them, exactly like the CamScanner screenshot. A hint tells
      the user to rotate the CAMERA (the phone) to a landscape
-     view. Simple, like CamScanner — the UI never rotates.
+     view. The menus stay in portrait. Simple.
      Layout, top to bottom:
        Top bar — Close (X) left, Torch right.
-       Preview — landscape 4:3 band: corner brackets, dashed
-         spine, A / B letters; "Rotate your camera" hint pill
-         at the top; Single / Double pill at the bottom centre.
+       Preview — tall 3:4 band: corner brackets, horizontal
+         dashed spine, A on top / B at the bottom; "Rotate
+         your camera" hint pill at the top of the image;
+         Single / Double pill at the bottom of the image.
        Bottom — the latest-page thumbnail ABOVE the capture
-         button; Pages (count) left, Capture centre, Save PDF
-         right; status line at the very bottom. -->
+         button; Spirit Level at the far left; Pages (count)
+         left, Capture centre, Save PDF right; status line at
+         the very bottom. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -51,11 +56,15 @@
             android:src="@drawable/ic_flash_off" />
     </LinearLayout>
 
-    <!-- Preview — landscape 4:3 band in the middle of the
-         portrait screen. The PreviewView is fitCenter, so the
-         4:3 image sits as a wide band (letterboxed top and
-         bottom); the spine line, brackets and A / B live on
-         that band, never on the black bars. -->
+    <!-- Preview — TALL 3:4 portrait band filling the middle
+         of the portrait screen. The PreviewView is fitCenter,
+         so the 3:4 image sits centred (letterboxed top and
+         bottom if the container is taller); the spine line,
+         brackets and A / B live on that image, never on the
+         black bars. The Rotate hint and the Single / Double
+         pill are shifted onto the image in code
+         (updatePreviewOverlays), so they sit exactly like the
+         CamScanner screenshot. -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -77,6 +86,7 @@
              the phone stays in portrait, the user turns the
              CAMERA to landscape to frame the open book. -->
         <LinearLayout
+            android:id="@+id/rotateHintPill"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="top|center_horizontal"
@@ -110,6 +120,7 @@
              both pages at once (A then B), Single captures one
              tapped page. -->
         <LinearLayout
+            android:id="@+id/singleDoublePill"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom|center_horizontal"
