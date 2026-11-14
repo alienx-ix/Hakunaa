@@ -630,6 +630,12 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.78 — Confirm button is a boxy rectangle, less highlighted, text inside; smoother
+
+The round button is gone — the user did not want a circle. The confirm is a boxy rectangle (8dp corners, 40dp tall, 160dp wide) with the word inside it in bold ("Continue" from a thumbnail review, "Finish" from Done / Single / Book), and the fill is a deeper teal (#00897B) so it is less highlighted than the bright pill.
+
+Smoother (v0.1.78): the Filter screen still lagged sometimes because three full-res pixel jobs ran on the UI thread — the 1200px downsample on page load, the 160px filter-strip source, and the rotate + downsample. All three now run on background threads, so the UI thread only ever receives ready bitmaps.
+
 ## v0.1.77 — Confirm button back to the big round style; filter overexposure + lag fixed
 
 The pill button style is gone — the user did not like it. The confirm is the old big round teal button in the corner (56dp, checkmark), with the Continue / Finish label below it, like the other bottom-bar items (Left / Crop / Adjust). Thumbnail review still says "Continue" (back to the camera), Done / Single / Book still say "Finish" (on to Preview / Export).

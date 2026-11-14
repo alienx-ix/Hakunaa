@@ -17,6 +17,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import com.google.android.material.button.MaterialButton
 import com.hakunaa.app.R
 import java.io.File
 import java.text.SimpleDateFormat
@@ -191,13 +192,13 @@ class EnhanceActivity : AppCompatActivity() {
         setupSwipe()
 
         findViewById<LinearLayout>(R.id.btnRotateLeft).setOnClickListener { rotateLeft() }
-        findViewById<ImageButton>(R.id.btnSave).setOnClickListener { save() }
+        findViewById<MaterialButton>(R.id.btnSave).setOnClickListener { save() }
         // The confirm label says what happens next (v0.1.76):
         // "Continue" from a thumbnail review (back to the
         // camera), "Finish" from Done / Single / Book (on to
-        // Preview / Export). It sits below the big round
-        // button, like the other bottom-bar labels.
-        findViewById<TextView>(R.id.tvSaveLabel).text =
+        // Preview / Export). It sits INSIDE the boxy button
+        // (v0.1.78), not as a label below it.
+        findViewById<MaterialButton>(R.id.btnSave).text =
             intent.getStringExtra(EXTRA_CONFIRM_LABEL) ?: "Finish"
         // Adjust opens ONLY from its menu button — never on its
         // own after a capture. The panel stays hidden until the
@@ -222,8 +223,20 @@ class EnhanceActivity : AppCompatActivity() {
         Thread {
             try {
                 val bmp = BitmapFactory.decodeFile(path)
+                // Downsample off the UI thread (v0.1.78):
+                // scaling a full-res photo on the UI thread
+                // stalls it and the screen lags. The preview
+                // and the filter thumbnails' source are both
+                // made here, so the UI thread only ever
+                // receives ready bitmaps.
+                val preview = if (bmp != null) downsample(bmp, 1200) else null
+                val thumb = if (bmp != null) {
+                    Bitmap.createScaledBitmap(
+                        bmp, 160, (160f * bmp.height / bmp.width).toInt(), true
+                    )
+                } else null
                 runOnUiThread {
-                    if (bmp == null) {
+                    if (bmp == null || preview == null || thumb == null) {
                         Toast.makeText(this, "Couldn't open the image", Toast.LENGTH_SHORT).show()
                         finish()
                         return@runOnUiThread
@@ -233,7 +246,7 @@ class EnhanceActivity : AppCompatActivity() {
                     currentPreview?.recycle()
                     currentPreview = null
                     bitmap = bmp
-                    previewBitmap = downsample(bmp, 1200)
+                    previewBitmap = preview
                     // This page's own filter (default NO_SHADOW).
                     selectedFilter = pageFilters[path] ?: ImageEnhancer.Filter.NO_SHADOW
                     // Show the downsampled preview at once, then
@@ -245,7 +258,7 @@ class EnhanceActivity : AppCompatActivity() {
                     // needed at save time.
                     findViewById<ImageView>(R.id.ivPage).setImageBitmap(previewBitmap)
                     applyFilterToPreview(selectedFilter)
-                    buildFilterThumbnails()
+                    buildFilterThumbnails(thumb)
                     updatePageIndicator()
                     onReady?.invoke()
                 }
@@ -497,9 +510,12 @@ class EnhanceActivity : AppCompatActivity() {
         refreshPreview()
     }
 
-    private fun buildFilterThumbnails() {
-        val bmp = bitmap ?: return
-        val thumb = Bitmap.createScaledBitmap(bmp, 160, (160f * bmp.height / bmp.width).toInt(), true)
+    /** The filter strip's thumbnails, from a 160px source
+     *  made off the UI thread (v0.1.78 — scaling the
+     *  full-res page on the UI thread stalled it). The
+     *  source thumb is this call's own, so it is recycled
+     *  when the strip is done with it. */
+    private fun buildFilterThumbnails(thumb: Bitmap) {
         val filters = ImageEnhancer.Filter.values()
         val row = findViewById<LinearLayout>(R.id.filterRow)
         // The thumbnail items are built ONCE. On a page switch
@@ -536,6 +552,7 @@ class EnhanceActivity : AppCompatActivity() {
                 } catch (_: Throwable) {
                 }
             }
+            thumb.recycle()
             runOnUiThread { updateFilterSelection() }
         }.start()
     }
@@ -557,12 +574,34 @@ class EnhanceActivity : AppCompatActivity() {
 
     private fun rotateLeft() {
         val bmp = bitmap ?: return
-        val matrix = Matrix()
-        matrix.postRotate(-90f)
-        val rotated = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
-        bitmap = rotated
-        previewBitmap = downsample(rotated, 1200)
-        applyFilterToPreview(selectedFilter)
+        val path = imagePath
+        // Rotate + downsample off the UI thread (v0.1.78):
+        // both touch every pixel of the full-res page and
+        // stall the screen when done on the UI thread. The
+        // result is applied only if this is still the page
+        // being shown (the user may have swiped meanwhile).
+        Thread {
+            try {
+                val matrix = Matrix()
+                matrix.postRotate(-90f)
+                val rotated = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
+                val preview = downsample(rotated, 1200)
+                runOnUiThread {
+                    if (imagePath != path || bitmap !== bmp) {
+                        rotated.recycle()
+                        preview.recycle()
+                        return@runOnUiThread
+                    }
+                    bitmap?.recycle()
+                    previewBitmap?.recycle()
+                    bitmap = rotated
+                    previewBitmap = preview
+                    findViewById<ImageView>(R.id.ivPage).setImageBitmap(previewBitmap)
+                    applyFilterToPreview(selectedFilter)
+                }
+            } catch (_: Throwable) {
+            }
+        }.start()
     }
 
     private fun save() {
