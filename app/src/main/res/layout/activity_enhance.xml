@@ -65,7 +65,8 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginTop="8dp">
+        android:layout_marginTop="8dp"
+        android:clipChildren="false">
 
         <ImageView
             android:id="@+id/ivPage"
@@ -95,12 +96,17 @@
              a teal border around the text, an X on top to
              delete it, and a resize handle at the bottom-right
              to make it bigger or smaller. Drag the box to move
-             it; drag the handle to resize it. -->
+             it; drag the handle to resize it.
+             clipChildren=false (v0.1.88): the X and the handle
+             sit OUTSIDE the box, so they must be allowed to
+             draw past the box's edge — otherwise the box cuts
+             them off and they are invisible. -->
         <FrameLayout
             android:id="@+id/textBoxContainer"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:background="@drawable/bg_text_box"
+            android:clipChildren="false"
             android:padding="6dp"
             android:visibility="gone">
 

@@ -691,6 +691,22 @@ class EnhanceActivity : AppCompatActivity() {
                 matrix.postRotate(-90f)
                 val rotated = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
                 val preview = downsample(rotated, 1200)
+                // Persist the rotation (v0.1.88): write the
+                // rotated bitmap back to this page's file, so
+                // the rotation is not lost when the user
+                // presses tick, goes out and comes back — the
+                // next Enhance run loads this (rotated) file,
+                // not the old unrotated one. The filter is
+                // still applied once from this file, so nothing
+                // is double-filtered.
+                if (path != null) {
+                    try {
+                        java.io.File(path).outputStream().use { stream ->
+                            rotated.compress(Bitmap.CompressFormat.JPEG, 95, stream)
+                        }
+                    } catch (_: Throwable) {
+                    }
+                }
                 runOnUiThread {
                     if (imagePath != path || bitmap !== bmp) {
                         rotated.recycle()
@@ -718,6 +734,11 @@ class EnhanceActivity : AppCompatActivity() {
                         pageTexts[path]?.let { txt ->
                             txt.rectNorm = DrawView.rotateRectCCW(txt.rectNorm)
                         }
+                        // Persist the rotated overlays now
+                        // (v0.1.88), so they stay aligned with
+                        // the rotated file even if the user
+                        // leaves without pressing tick.
+                        writeOverlaysToStore(path)
                     }
                     refreshOverlays()
                     applyFilterToPreview(selectedFilter)

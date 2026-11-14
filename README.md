@@ -630,6 +630,11 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.88 — Text ×/⤢ visible outside the box; Rotate stays after tick
+
+- **× and ⤢ are visible now:** moving them outside the box made the box cut them off (they were invisible). The box and the page now let them draw past the edge, so the teal × and ⤢ show clearly outside the box.
+- **Rotate stays after tick:** rotating only changed the on-screen image — the file was still unrotated, so going out and coming back showed it Normal again. Now the rotated image is written back to the page's file (and the rotated drawing / signature / text positions are saved too), so the rotation stays.
+
 ## v0.1.87 — Text × and resize handle sit outside the box; Erase works on everything
 
 - **× and ⤢ now sit OUTSIDE the box:** they were half inside the box's corner, hard to grab. Now they sit clearly outside it (26dp out, just a small overlap), so they are easy to tap and drag.
