@@ -303,7 +303,7 @@ class EnhanceActivity : AppCompatActivity() {
             layoutTextOverlay()
             findViewById<View>(R.id.textPanel).visibility = View.GONE
         }
-        findViewById<TextView>(R.id.btnTextDelete).setOnClickListener { removeText() }
+        findViewById<View>(R.id.btnTextDelete).setOnClickListener { removeText() }
         setupTextDrag()
         setupTextResize()
         setupAdjustSliders()
@@ -1177,7 +1177,7 @@ class EnhanceActivity : AppCompatActivity() {
      *  top-left, and the text scales with it. The width and
      *  height scale together (the text keeps its shape). */
     private fun setupTextResize() {
-        val handle = findViewById<TextView>(R.id.btnTextResize)
+        val handle = findViewById<View>(R.id.btnTextResize)
         var startX = 0f
         var startY = 0f
         var startW = 0f
@@ -1387,6 +1387,8 @@ class EnhanceActivity : AppCompatActivity() {
         val overlay = findViewById<ImageView>(R.id.ivTextOverlay)
         if (txt == null || bitmap == null) {
             box.visibility = View.GONE
+            findViewById<View>(R.id.btnTextDelete).visibility = View.GONE
+            findViewById<View>(R.id.btnTextResize).visibility = View.GONE
             return
         }
         val pad = dpToPx(6f).toInt()
@@ -1408,8 +1410,28 @@ class EnhanceActivity : AppCompatActivity() {
         // Editing tools only while selected.
         if (textSelected) {
             box.setBackgroundResource(R.drawable.bg_text_box)
-            findViewById<View>(R.id.btnTextDelete).visibility = View.VISIBLE
-            findViewById<View>(R.id.btnTextResize).visibility = View.VISIBLE
+            // The X and the handle live in pageFrame (v0.1.91),
+            // straddling the box's corners: each 32dp button is
+            // centred on its corner, half outside the box and
+            // fully inside pageFrame, so it is visible AND
+            // touchable.
+            val half = dpToPx(16f).toInt()
+            val boxLeft = params.leftMargin
+            val boxTop = params.topMargin
+            val boxRight = boxLeft + tw + pad * 2
+            val boxBottom = boxTop + th + pad * 2
+            val del = findViewById<View>(R.id.btnTextDelete)
+            val delParams = FrameLayout.LayoutParams(dpToPx(32f).toInt(), dpToPx(32f).toInt())
+            delParams.leftMargin = boxRight - half
+            delParams.topMargin = boxTop - half
+            del.layoutParams = delParams
+            del.visibility = View.VISIBLE
+            val res = findViewById<View>(R.id.btnTextResize)
+            val resParams = FrameLayout.LayoutParams(dpToPx(32f).toInt(), dpToPx(32f).toInt())
+            resParams.leftMargin = boxRight - half
+            resParams.topMargin = boxBottom - half
+            res.layoutParams = resParams
+            res.visibility = View.VISIBLE
         } else {
             box.background = null
             findViewById<View>(R.id.btnTextDelete).visibility = View.GONE
@@ -1424,6 +1446,8 @@ class EnhanceActivity : AppCompatActivity() {
         pageTexts.remove(path)
         textSelected = false
         findViewById<View>(R.id.textBoxContainer).visibility = View.GONE
+        findViewById<View>(R.id.btnTextDelete).visibility = View.GONE
+        findViewById<View>(R.id.btnTextResize).visibility = View.GONE
         findViewById<View>(R.id.textPanel).visibility = View.GONE
         writeOverlaysToStore(path)
     }

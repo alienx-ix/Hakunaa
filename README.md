@@ -630,6 +630,10 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.91 — Text × and resize handle actually work; clean icons
+
+- **× and ⤢ work now (the real fix):** they were visible but dead — a view sitting outside its parent's bounds can be SEEN but never TOUCHED, and the X/handle sat 26dp outside the text box, so taps fell through to the page. Now they live in the page frame itself, straddling the box's corners (half outside the box, fully inside the frame), so tapping × deletes the text and dragging the handle resizes it. Also the icons are proper clean vector drawings now (a crisp × and a diagonal expand arrow), not the poor "×"/"⤢" text letters.
+
 ## v0.1.90 — Preview delete sticks; text ×/⤢ visible
 
 - **Delete in Preview sticks (the bug):** deleting a page in the final Preview only removed it from that screen — the camera's own list still had it, and the raw file still existed, so the page came back the next time. Now the Preview hands its updated list back, and the camera syncs to it (delete + reorder both stick), dropping the raw file and the saved edits of any removed page.

@@ -116,43 +116,39 @@
                 android:id="@+id/ivTextOverlay"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content" />
-
-            <!-- Delete — the X on top of the text box.
-                 Big and teal (v0.1.86), so it is clearly
-                 visible while editing. It sits OUTSIDE the
-                 box (v0.1.87), so it is easy to grab. -->
-            <TextView
-                android:id="@+id/btnTextDelete"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:layout_gravity="top|end"
-                android:layout_marginTop="-26dp"
-                android:layout_marginEnd="-26dp"
-                android:background="@drawable/bg_text_delete_teal"
-                android:gravity="center"
-                android:text="×"
-                android:textColor="#FFFFFF"
-                android:textSize="20sp"
-                android:textStyle="bold" />
-
-            <!-- Resize — the handle at the bottom-right corner.
-                 Drag it to make the text bigger or smaller.
-                 It sits OUTSIDE the box (v0.1.87), so it is
-                 easy to grab. -->
-            <TextView
-                android:id="@+id/btnTextResize"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:layout_gravity="bottom|end"
-                android:layout_marginBottom="-26dp"
-                android:layout_marginEnd="-26dp"
-                android:background="@drawable/bg_text_delete_teal"
-                android:gravity="center"
-                android:text="⤢"
-                android:textColor="#FFFFFF"
-                android:textSize="18sp"
-                android:textStyle="bold" />
         </FrameLayout>
+
+        <!-- Delete — the X at the text box's top-right corner.
+             It lives in pageFrame (v0.1.91), NOT inside the
+             text box: a view outside its parent's bounds can
+             be SEEN but never TOUCHED, so the old X (sitting
+             26dp outside the box) was visible and dead. Here
+             it straddles the corner — half outside the box,
+             fully inside pageFrame — so it is both visible
+             and tappable. Clean vector icon (was a "×" text
+             glyph). -->
+        <ImageView
+            android:id="@+id/btnTextDelete"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:background="@drawable/bg_text_delete_teal"
+            android:padding="6dp"
+            android:src="@drawable/ic_text_close"
+            android:visibility="gone" />
+
+        <!-- Resize — the handle at the text box's bottom-right
+             corner. Same placement as the X (v0.1.91): a child
+             of pageFrame straddling the corner, so dragging it
+             actually works. Clean vector icon (was a "⤢" text
+             glyph). -->
+        <ImageView
+            android:id="@+id/btnTextResize"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:background="@drawable/bg_text_delete_teal"
+            android:padding="6dp"
+            android:src="@drawable/ic_text_resize"
+            android:visibility="gone" />
     </FrameLayout>
 
     <!-- Filter thumbnails -->
