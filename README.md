@@ -630,6 +630,13 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.84 — Edits persist after Continue, even bottom bar, zoom buttons, Sign pad fixed
+
+- **Edits persist after Continue (the fix):** Draw / Sign / Text made in a thumbnail review ("Continue") used to vanish — the next Enhance (Done → "Finish") loaded the raw file and the new activity had empty overlays. Now the overlays live in a shared `OverlayStore` (keyed by the page's raw path): every Enhance run loads them on open and writes them back on save, so nothing made in a review is lost. The filter still comes from the raw file exactly once.
+- **Sign pad fixed:** the signature pad's DrawView had `drawEnabled=false` by default, so in v0.1.83 the pad opened but no stroke could ever be drawn — Sign looked broken. Now the pad takes touches.
+- **Bottom bar, even:** the seven tools now SHARE the width evenly (each `layout_weight` 1), so there is no big empty gap between them and the confirm button — the whole bar is used. Icons are proper size now (28dp, 11sp labels).
+- **Zoom buttons on screen:** while zoomed in, + / − / 1:1 buttons appear at the bottom-right of the page, so the zoom can be controlled with a tap after the fingers leave the screen. Pinch and double-tap still work.
+
 ## v0.1.83 — Draw/Sign stay visible, Erase + Text, 7-tool bar, preview up, zoom
 
 - **Draw / Sign stay on the page after Done (the fix):** the drawing and the signature used to vanish from the screen when Done was pressed, so the user thought they were lost. Now the DrawView stays visible (but stops taking touches, so swipes and zooms work again) and the signature stays put — both still saved onto the page at Finish.

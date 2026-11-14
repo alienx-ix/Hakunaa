@@ -451,6 +451,7 @@ class ScannerActivity : AppCompatActivity() {
                 // PDF saved from the Pages screen — clear and stay on camera.
                 pages.clear()
                 rawPaths.clear()
+                OverlayStore.clear()
                 docName = null
                 updatePagesLabel()
                 findViewById<TextView>(R.id.tvStatus).text =
@@ -461,6 +462,7 @@ class ScannerActivity : AppCompatActivity() {
                 // the camera comes back fresh.
                 pages.clear()
                 rawPaths.clear()
+                OverlayStore.clear()
                 docName = null
                 updatePagesLabel()
                 findViewById<TextView>(R.id.tvStatus).text =
@@ -564,6 +566,7 @@ class ScannerActivity : AppCompatActivity() {
                 Toast.makeText(this, "PDF saved ($size)", Toast.LENGTH_SHORT).show()
                 pages.clear()
                 rawPaths.clear()
+                OverlayStore.clear()
                 docName = null
                 updatePagesLabel()
             } else if (result.resultCode == PdfExportActivity.RESULT_DISCARD) {
@@ -574,6 +577,7 @@ class ScannerActivity : AppCompatActivity() {
                 val count = pages.size
                 pages.clear()
                 rawPaths.clear()
+                OverlayStore.clear()
                 docName = null
                 updatePagesLabel()
                 status.text = "Discarded — point the camera at a document and tap Capture"

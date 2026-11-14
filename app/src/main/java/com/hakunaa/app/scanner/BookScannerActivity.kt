@@ -181,6 +181,7 @@ class BookScannerActivity : AppCompatActivity() {
                 // PDF saved from the Pages screen — clear and stay on camera.
                 pages.clear()
                 rawPaths.clear()
+                OverlayStore.clear()
                 docName = null
                 updateLabels()
                 findViewById<TextView>(R.id.tvStatus).text =
@@ -191,6 +192,7 @@ class BookScannerActivity : AppCompatActivity() {
                 // the camera comes back fresh.
                 pages.clear()
                 rawPaths.clear()
+                OverlayStore.clear()
                 docName = null
                 updateLabels()
                 findViewById<TextView>(R.id.tvStatus).text =

@@ -97,6 +97,58 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:visibility="gone" />
+
+        <!-- Zoom controls (v0.1.84) — only while zoomed in:
+             + to zoom in, − to zoom out, 1:1 to go back to the
+             fit view. They sit at the bottom-right of the
+             page, on the screen, so the user can control the
+             zoom with a tap after lifting the fingers off a
+             pinch. -->
+        <LinearLayout
+            android:id="@+id/zoomControls"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="12dp"
+            android:layout_marginBottom="12dp"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/btnZoomIn"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="#CC000000"
+                android:gravity="center"
+                android:text="+"
+                android:textColor="#FFFFFF"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/btnZoomOut"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginTop="6dp"
+                android:background="#CC000000"
+                android:gravity="center"
+                android:text="−"
+                android:textColor="#FFFFFF"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/btnZoomReset"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginTop="6dp"
+                android:background="#CC000000"
+                android:gravity="center"
+                android:text="1:1"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+        </LinearLayout>
     </FrameLayout>
 
     <!-- Filter thumbnails -->
@@ -469,32 +521,35 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- Bottom bar (v0.1.83): Rotate / Crop / Adjust / Draw /
-         Erase / Text / Sign + confirm, in that order. Seven
-         tools on one row, so they are compact — 22dp icons,
-         10sp labels, 8dp gaps, 12dp side padding — and the
-         row is centred with even spacing, nothing clipped. -->
+    <!-- Bottom bar (v0.1.84): Rotate / Crop / Adjust / Draw /
+         Erase / Text / Sign + confirm, in that order. The
+         seven tools SHARE the width evenly (each one
+         layout_weight 1), so there is no big empty gap between
+         them and the confirm button — the whole bar is used,
+         and every tool is the same proper size (28dp icons,
+         11sp labels). -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="72dp"
         android:background="#1A1A1A"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp">
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp">
 
         <!-- Rotate — turns the page 90 degrees (the old
              "Left" button, renamed v0.1.82). -->
         <LinearLayout
             android:id="@+id/btnRotate"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_weight="1"
             android:gravity="center"
             android:orientation="vertical">
 
             <ImageView
-                android:layout_width="22dp"
-                android:layout_height="22dp"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
                 android:src="@drawable/ic_rotate_left"
                 android:tint="#FFFFFF" />
 
@@ -504,7 +559,7 @@
                 android:layout_marginTop="3dp"
                 android:text="Rotate"
                 android:textColor="#FFFFFF"
-                android:textSize="10sp" />
+                android:textSize="11sp" />
         </LinearLayout>
 
         <!-- Crop — re-crop the current page from the Filter
@@ -516,15 +571,15 @@
              the corners can be dragged by hand. -->
         <LinearLayout
             android:id="@+id/btnCrop"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
+            android:layout_weight="1"
             android:gravity="center"
             android:orientation="vertical">
 
             <ImageView
-                android:layout_width="22dp"
-                android:layout_height="22dp"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
                 android:src="@drawable/ic_crop"
                 android:tint="#FFFFFF" />
 
@@ -534,7 +589,7 @@
                 android:layout_marginTop="3dp"
                 android:text="Crop"
                 android:textColor="#FFFFFF"
-                android:textSize="10sp" />
+                android:textSize="11sp" />
         </LinearLayout>
 
         <!-- Adjust — the menu button for the Adjust panel
@@ -542,16 +597,16 @@
              ONLY from here, never on its own after a capture. -->
         <LinearLayout
             android:id="@+id/btnAdjust"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
+            android:layout_weight="1"
             android:gravity="center"
             android:orientation="vertical">
 
             <ImageView
                 android:id="@+id/ivAdjustIcon"
-                android:layout_width="22dp"
-                android:layout_height="22dp"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
                 android:src="@drawable/ic_tune"
                 android:tint="#FFFFFF" />
 
@@ -562,7 +617,7 @@
                 android:layout_marginTop="3dp"
                 android:text="Adjust"
                 android:textColor="#FFFFFF"
-                android:textSize="10sp" />
+                android:textSize="11sp" />
         </LinearLayout>
 
         <!-- Draw — freehand markup on the page (v0.1.82):
@@ -571,16 +626,16 @@
              onto the page. -->
         <LinearLayout
             android:id="@+id/btnDraw"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
+            android:layout_weight="1"
             android:gravity="center"
             android:orientation="vertical">
 
             <ImageView
                 android:id="@+id/ivDrawIcon"
-                android:layout_width="22dp"
-                android:layout_height="22dp"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
                 android:src="@drawable/ic_markup"
                 android:tint="#FFFFFF" />
 
@@ -591,23 +646,23 @@
                 android:layout_marginTop="3dp"
                 android:text="Draw"
                 android:textColor="#FFFFFF"
-                android:textSize="10sp" />
+                android:textSize="11sp" />
         </LinearLayout>
 
         <!-- Erase — rubs out drawn strokes (v0.1.83): touch
              a stroke to delete it. -->
         <LinearLayout
             android:id="@+id/btnErase"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
+            android:layout_weight="1"
             android:gravity="center"
             android:orientation="vertical">
 
             <ImageView
                 android:id="@+id/ivEraseIcon"
-                android:layout_width="22dp"
-                android:layout_height="22dp"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
                 android:src="@drawable/ic_eraser"
                 android:tint="#FFFFFF" />
 
@@ -618,7 +673,7 @@
                 android:layout_marginTop="3dp"
                 android:text="Erase"
                 android:textColor="#FFFFFF"
-                android:textSize="10sp" />
+                android:textSize="11sp" />
         </LinearLayout>
 
         <!-- Text — type text and place it on the page
@@ -627,16 +682,16 @@
              belongs. It is saved onto the page. -->
         <LinearLayout
             android:id="@+id/btnText"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
+            android:layout_weight="1"
             android:gravity="center"
             android:orientation="vertical">
 
             <ImageView
                 android:id="@+id/ivTextIcon"
-                android:layout_width="22dp"
-                android:layout_height="22dp"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
                 android:src="@drawable/ic_text"
                 android:tint="#FFFFFF" />
 
@@ -647,7 +702,7 @@
                 android:layout_marginTop="3dp"
                 android:text="Text"
                 android:textColor="#FFFFFF"
-                android:textSize="10sp" />
+                android:textSize="11sp" />
         </LinearLayout>
 
         <!-- Sign — draw a signature and place it on the page
@@ -656,16 +711,16 @@
              It is saved onto the page. -->
         <LinearLayout
             android:id="@+id/btnSign"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
+            android:layout_weight="1"
             android:gravity="center"
             android:orientation="vertical">
 
             <ImageView
                 android:id="@+id/ivSignIcon"
-                android:layout_width="22dp"
-                android:layout_height="22dp"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
                 android:src="@drawable/ic_sign"
                 android:tint="#FFFFFF" />
 
@@ -676,24 +731,20 @@
                 android:layout_marginTop="3dp"
                 android:text="Sign"
                 android:textColor="#FFFFFF"
-                android:textSize="10sp" />
+                android:textSize="11sp" />
         </LinearLayout>
-
-        <View
-            android:layout_width="0dp"
-            android:layout_height="0dp"
-            android:layout_weight="1" />
 
         <!-- Confirm — symbol only, no text (user pick):
              a big round teal button (56dp). Finish shows a
              tick, Continue shows a right arrow (the icon is
              set in code from EXTRA_CONFIRM_LABEL). It sits
-             centred in the bar, a little inside from the
-             bottom and the sides. -->
+             at the end of the bar, right after the tools —
+             no big gap, the bar is used evenly. -->
         <ImageButton
             android:id="@+id/btnSave"
             android:layout_width="56dp"
             android:layout_height="56dp"
+            android:layout_marginStart="4dp"
             android:background="@drawable/bg_teal_button"
             android:contentDescription="Save"
             android:src="@drawable/ic_check"

@@ -250,6 +250,11 @@ class EnhanceActivity : AppCompatActivity() {
             finish()
             return
         }
+        // Load the overlays made in an earlier Enhance run
+        // (v0.1.84) — the drawing, signature and text from a
+        // thumbnail review come back here, so they are still
+        // on the page and are not lost when this run saves.
+        loadOverlaysFromStore()
         loadPageBitmap(path)
         setupSwipe()
 
@@ -296,6 +301,27 @@ class EnhanceActivity : AppCompatActivity() {
             findViewById<View>(R.id.textPanel).visibility = View.GONE
         }
         setupTextDrag()
+        // Zoom controls on the screen (v0.1.84): + / − / 1:1,
+        // shown only while zoomed in. The user asked for them
+        // after a pinch — so the zoom can be controlled with
+        // a tap once the fingers are off the screen.
+        findViewById<TextView>(R.id.btnZoomIn).setOnClickListener {
+            val pageView = findViewById<ImageView>(R.id.ivPage)
+            zoomFocusX = pageView.width / 2f
+            zoomFocusY = pageView.height / 2f
+            zoomScale = (zoomScale + 0.5f).coerceIn(1f, 4f)
+            applyZoom()
+        }
+        findViewById<TextView>(R.id.btnZoomOut).setOnClickListener {
+            val pageView = findViewById<ImageView>(R.id.ivPage)
+            zoomFocusX = pageView.width / 2f
+            zoomFocusY = pageView.height / 2f
+            zoomScale = (zoomScale - 0.5f).coerceIn(1f, 4f)
+            applyZoom()
+        }
+        findViewById<TextView>(R.id.btnZoomReset).setOnClickListener {
+            resetZoom()
+        }
         setupAdjustSliders()
     }
 
@@ -524,6 +550,8 @@ class EnhanceActivity : AppCompatActivity() {
         }
         pageView.scaleType = ImageView.ScaleType.MATRIX
         pageView.imageMatrix = m
+        // Show the on-screen zoom controls while zoomed.
+        findViewById<View>(R.id.zoomControls).visibility = View.VISIBLE
         // Move the overlays with the zoom.
         val drawView = findViewById<DrawView>(R.id.drawView)
         drawView.zoomScale = zoomScale
@@ -544,6 +572,8 @@ class EnhanceActivity : AppCompatActivity() {
         val pageView = findViewById<ImageView>(R.id.ivPage)
         pageView.scaleType = ImageView.ScaleType.FIT_CENTER
         pageView.imageMatrix = null
+        // Hide the on-screen zoom controls.
+        findViewById<View>(R.id.zoomControls).visibility = View.GONE
         val drawView = findViewById<DrawView>(R.id.drawView)
         drawView.zoomScale = 1f
         drawView.zoomPanX = 0f
@@ -911,11 +941,14 @@ class EnhanceActivity : AppCompatActivity() {
 
     /** Store the on-screen drawing into this page's slot, so
      *  a swipe or a save keeps it. The signature rect is
-     *  already kept live while dragging. */
+     *  already kept live while dragging. Also writes the
+     *  page's overlays to the shared store (v0.1.84), so a
+     *  later Enhance run finds them. */
     private fun storeCurrentOverlays() {
         val path = imagePath ?: return
         val drawView = findViewById<DrawView>(R.id.drawView)
         pageDrawings[path] = drawView.getStrokes().toMutableList()
+        writeOverlaysToStore(path)
     }
 
     /** Enter / leave a Draw / Erase tool. While drawing or
@@ -1065,7 +1098,12 @@ class EnhanceActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.WRAP_CONTENT
         )
         val pad = dialog.findViewById<DrawView>(R.id.signPad)
-        // The pad's content is the pad itself.
+        // The pad's content is the pad itself. It must take
+        // touches (v0.1.84 fix — the pad's DrawView has
+        // drawEnabled=false by default, so in v0.1.83 the
+        // signature could not be drawn at all: the pad opened
+        // but no stroke ever appeared).
+        pad.drawEnabled = true
         pad.post { pad.setContentSize(pad.width, pad.height) }
         pad.drawColor = Color.BLACK
         pad.strokeWidthPx = dpToPx(6f)
@@ -1106,6 +1144,9 @@ class EnhanceActivity : AppCompatActivity() {
         pageSignatures[path] = PlacedOverlay(sigBmp, rect)
         layoutSignatureOverlay()
         findViewById<View>(R.id.signPanel).visibility = View.VISIBLE
+        // Persist it (v0.1.84) — the next Enhance run loads
+        // it back from the store.
+        writeOverlaysToStore(path)
     }
 
     /** Position the signature overlay from its stored
@@ -1178,6 +1219,11 @@ class EnhanceActivity : AppCompatActivity() {
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     overlayDragging = false
+                    // The overlay moved — persist its new spot
+                    // (v0.1.84) so a later Enhance run finds it
+                    // where the user left it.
+                    val p = imagePath
+                    if (p != null) writeOverlaysToStore(p)
                     true
                 }
                 else -> false
@@ -1205,6 +1251,7 @@ class EnhanceActivity : AppCompatActivity() {
         pageSignatures.remove(path)
         findViewById<ImageView>(R.id.ivSignature).visibility = View.GONE
         findViewById<View>(R.id.signPanel).visibility = View.GONE
+        writeOverlaysToStore(path)
     }
 
     // ---------- Add Text ----------
@@ -1337,6 +1384,9 @@ class EnhanceActivity : AppCompatActivity() {
         pageTexts[path] = PlacedOverlay(textBmp, rect)
         layoutTextOverlay()
         findViewById<View>(R.id.textPanel).visibility = View.VISIBLE
+        // Persist it (v0.1.84) — the next Enhance run loads
+        // it back from the store.
+        writeOverlaysToStore(path)
     }
 
     /** Position the text overlay from its stored normalized
@@ -1370,9 +1420,93 @@ class EnhanceActivity : AppCompatActivity() {
         pageTexts.remove(path)
         findViewById<ImageView>(R.id.ivTextOverlay).visibility = View.GONE
         findViewById<View>(R.id.textPanel).visibility = View.GONE
+        writeOverlaysToStore(path)
     }
 
-    // ---------- end Add Text ----------
+    // ---------- Overlay persistence (v0.1.84) ----------
+
+    /** Save an overlay bitmap (signature / text) as a PNG in
+     *  the cache dir, so it survives across Enhance sessions.
+     *  Returns the file path, or null on failure. */
+    private fun saveOverlayBitmap(bitmap: Bitmap, prefix: String): String? {
+        return try {
+            val file = File(
+                cacheDir, "overlay_${prefix}_${System.currentTimeMillis()}.png"
+            )
+            file.outputStream().use { stream ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+            }
+            file.absolutePath
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /** Load every page's overlays from the shared store
+     *  (v0.1.84): the drawing, signature and text made in an
+     *  earlier Enhance run (a thumbnail review) come back, so
+     *  they are still on the page when this run opens. */
+    private fun loadOverlaysFromStore() {
+        for (rawPath in allPages) {
+            val data = OverlayStore.get(rawPath) ?: continue
+            if (data.strokes.isNotEmpty()) {
+                pageDrawings[rawPath] = data.strokes.toMutableList()
+            }
+            if (data.signatureFile != null && data.signatureRect != null) {
+                val sigBmp = BitmapFactory.decodeFile(data.signatureFile)
+                if (sigBmp != null) {
+                    pageSignatures[rawPath] =
+                        PlacedOverlay(sigBmp, data.signatureRect.copyOf())
+                }
+            }
+            if (data.textFile != null && data.textRect != null) {
+                val txtBmp = BitmapFactory.decodeFile(data.textFile)
+                if (txtBmp != null) {
+                    pageTexts[rawPath] =
+                        PlacedOverlay(txtBmp, data.textRect.copyOf())
+                }
+            }
+        }
+    }
+
+    /** Write one page's overlays to the shared store
+     *  (v0.1.84), so a later Enhance run finds them. The
+     *  signature / text bitmaps are saved as PNG files first
+     *  (the file is the source of truth, so the in-memory
+     *  bitmap can be recycled freely). */
+    private fun writeOverlaysToStore(rawPath: String) {
+        val strokes = pageDrawings[rawPath]?.toList() ?: emptyList()
+        val sig = pageSignatures[rawPath]
+        val txt = pageTexts[rawPath]
+        var sigFile: String? = null
+        var sigRect: FloatArray? = null
+        if (sig != null) {
+            sigFile = saveOverlayBitmap(sig.bitmap, "sig")
+            sigRect = sig.rectNorm.copyOf()
+        }
+        var txtFile: String? = null
+        var txtRect: FloatArray? = null
+        if (txt != null) {
+            txtFile = saveOverlayBitmap(txt.bitmap, "text")
+            txtRect = txt.rectNorm.copyOf()
+        }
+        // Keep the store entry only when there is something.
+        if (strokes.isEmpty() && sigFile == null && txtFile == null) {
+            OverlayStore.remove(rawPath)
+        } else {
+            OverlayStore.put(
+                rawPath,
+                OverlayStore.OverlayData(strokes, sigFile, sigRect, txtFile, txtRect)
+            )
+        }
+    }
+
+    /** Write every page's overlays to the shared store. */
+    private fun writeAllOverlaysToStore() {
+        for (rawPath in allPages) writeOverlaysToStore(rawPath)
+    }
+
+    // ---------- end overlay persistence ----------
 
     // ---------- end Draw + Sign ----------
 
@@ -1382,6 +1516,10 @@ class EnhanceActivity : AppCompatActivity() {
         // Keep the on-screen drawing in this page's slot
         // before the background thread reads it.
         storeCurrentOverlays()
+        // Persist every page's overlays (v0.1.84) — the next
+        // Enhance run (Done after a review) loads them back,
+        // so nothing made here is lost.
+        writeAllOverlaysToStore()
         // "Apply to all pages" ticked: the current page's
         // filter goes on every page. Unticked: each page keeps
         // the filter picked for it while swiping (default
