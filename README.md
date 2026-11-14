@@ -630,6 +630,12 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.96 — Two Enhance modes + Draw/Sign/Text lock after Done
+
+- **Thumbnail click → review mode:** the Enhance screen comes WITH the left back-arrow (←) + 6 tools + Tick, and the tune icon on the selected filter. Tap ← to go back to the camera and capture more — only then can you capture again.
+- **Export click → forward mode (don't touch):** the Enhance screen comes WITHOUT the back-arrow — Rotate → Crop → Adjust → Draw → Erase → Text → Sign + Tick, Adjust in the bar below. Same as v0.1.95.
+- **Done locks the overlay (user fix):** Draw strokes are already fixed on the page; Sign and Text now LOCK when Done is tapped — they no longer drag, re-select, or resize after Done. Erase / Remove still deletes a locked overlay. Restored overlays come back locked too.
+
 ## v0.1.95 — Enhance bar back to the previous design (Adjust below)
 
 - **Previous design restored (user pick):** the Enhance bar is back to Rotate → Crop → **Adjust** → Draw → Erase → Text → Sign + Tick (right only, no left back-arrow). Adjust lives BELOW in the bar with the other tools — the tune icon on the filter thumbnail is gone.

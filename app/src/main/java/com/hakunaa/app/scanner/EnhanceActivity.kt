@@ -79,6 +79,15 @@ class EnhanceActivity : AppCompatActivity() {
         // (Done / Single / Book — it goes on to Preview /
         // Export). Defaults to "Finish" when not given.
         const val EXTRA_CONFIRM_LABEL = "confirm_label"
+        // Two Enhance modes (v0.1.96): true when opened from
+        // the Batch thumbnail (review — the user may go back
+        // to the camera and capture more), false when opened
+        // from the Export button (going forward to export).
+        // Thumbnail mode shows the left back-arrow and hides
+        // Adjust from the bar (it lives on the selected
+        // filter); Export mode hides the back-arrow and shows
+        // Adjust in the bar. Defaults to false (Export).
+        const val EXTRA_FROM_THUMBNAIL = "from_thumbnail"
         // The enhanced file for EVERY page (v0.1.77), in the
         // same order as EXTRA_ENHANCED_SOURCE_PATHS, which
         // holds the source (raw) path each one came from. The
@@ -124,7 +133,13 @@ class EnhanceActivity : AppCompatActivity() {
      *  page. */
     private data class PlacedOverlay(
         val bitmap: Bitmap,
-        var rectNorm: FloatArray
+        var rectNorm: FloatArray,
+        // Locked (v0.1.96): true once the user taps Done for
+        // this overlay — it is FIXED and no longer drags.
+        // A fresh overlay starts unlocked so it can be
+        // placed; Done locks it. Erase still removes a
+        // locked overlay (delete, not move).
+        var locked: Boolean = false
     )
 
     private val pageSignatures = mutableMapOf<String, MutableList<PlacedOverlay>>()
@@ -195,6 +210,11 @@ class EnhanceActivity : AppCompatActivity() {
     // worked at all. 40 is the level the user themself set by
     // hand (39) — clearly crisp, without halos. Every filter
     // gets this sharpen boost unless the user moves the slider.
+    // Two Enhance modes (v0.1.96): true when opened from the
+    // Batch thumbnail (review — back-arrow shows, Adjust
+    // lives on the selected filter), false from the Export
+    // button (back-arrow hidden, Adjust in the bar).
+    private var fromThumbnail = false
     private var brightness = 0f
     private var contrast = 1f
     private var sharpness = 40f
@@ -211,6 +231,17 @@ class EnhanceActivity : AppCompatActivity() {
 
         pagePaths = intent.getStringArrayListExtra(EXTRA_PAGE_PATHS) ?: emptyList()
         imagePath = intent.getStringExtra(EXTRA_IMAGE_PATH)
+        // Two Enhance modes (v0.1.96): thumbnail mode shows
+        // the left back-arrow (go back to the camera and
+        // capture more) and hides Adjust from the bar (it
+        // lives on the selected filter); Export mode hides
+        // the back-arrow and shows Adjust in the bar.
+        fromThumbnail = intent.getBooleanExtra(EXTRA_FROM_THUMBNAIL, false)
+        findViewById<ImageButton>(R.id.btnBackToCapture).visibility =
+            if (fromThumbnail) View.VISIBLE else View.GONE
+        findViewById<LinearLayout>(R.id.btnAdjust).visibility =
+            if (fromThumbnail) View.GONE else View.VISIBLE
+        findViewById<ImageButton>(R.id.btnBackToCapture).setOnClickListener { finish() }
         // Every page, in order, without duplicates — the
         // current page first. (pagePaths may or may not
         // already contain it, depending on the caller.)
@@ -292,6 +323,10 @@ class EnhanceActivity : AppCompatActivity() {
         findViewById<LinearLayout>(R.id.btnSign).setOnClickListener { openSignaturePad() }
         findViewById<TextView>(R.id.btnSignRemove).setOnClickListener { removeSignature() }
         findViewById<TextView>(R.id.btnSignDone).setOnClickListener {
+            // Done — the signatures are FIXED now (v0.1.96):
+            // lock every signature on this page so none of
+            // them drags any more.
+            pageSignatures[imagePath]?.forEach { it.locked = true }
             findViewById<View>(R.id.signPanel).visibility = View.GONE
         }
         // (v0.1.92) Signature dragging is attached per-view
@@ -302,9 +337,11 @@ class EnhanceActivity : AppCompatActivity() {
         // it, the corner handle resizes it.
         findViewById<TextView>(R.id.btnTextRemove).setOnClickListener { removeText() }
         findViewById<TextView>(R.id.btnTextDone).setOnClickListener {
-            // Done — the text is set. Deselect it: the box,
-            // the X and the handle go away, and only the plain
-            // text stays on the page (v0.1.86).
+            // Done — the text is FIXED now (v0.1.96): lock it
+            // so it no longer drags or re-selects. Deselect
+            // it: the box, the X and the handle go away, and
+            // only the plain text stays on the page (v0.1.86).
+            pageTexts[imagePath]?.locked = true
             textSelected = false
             layoutTextOverlay()
             findViewById<View>(R.id.textPanel).visibility = View.GONE
@@ -652,6 +689,11 @@ class EnhanceActivity : AppCompatActivity() {
                             item.setOnClickListener {
                                 applyFilterToPreview(filter)
                             }
+                            // The tune icon on this thumbnail
+                            // (v0.1.96, thumbnail mode only):
+                            // tapping it opens the Adjust panel.
+                            item.findViewById<ImageView>(R.id.ivFilterAdjust)
+                                .setOnClickListener { toggleAdjustPanel() }
                             row.addView(item)
                         } else if (index < row.childCount) {
                             // Update the existing thumbnail in place.
@@ -680,6 +722,11 @@ class EnhanceActivity : AppCompatActivity() {
             item.findViewById<ImageView>(R.id.ivFilterThumb).alpha = if (selected) 1f else 0.6f
             item.findViewById<View>(R.id.filterBorder).visibility =
                 if (selected) View.VISIBLE else View.INVISIBLE
+            // The tune icon lives ONLY on the selected filter
+            // AND only in thumbnail mode (v0.1.96) — in Export
+            // mode Adjust is in the bottom bar, so no icon.
+            item.findViewById<View>(R.id.ivFilterAdjust).visibility =
+                if (fromThumbnail && selected) View.VISIBLE else View.GONE
         }
     }
 
@@ -1065,6 +1112,10 @@ class EnhanceActivity : AppCompatActivity() {
                         onEraseTap()
                         return@setOnTouchListener true
                     }
+                    // Locked (Done tapped, v0.1.96): the
+                    // overlay is FIXED — it does not drag any
+                    // more. Let the touch pass through (swipe).
+                    if (placement.locked) return@setOnTouchListener false
                     overlayDragOffsetX = event.x
                     overlayDragOffsetY = event.y
                     overlayDragging = true
@@ -1140,6 +1191,10 @@ class EnhanceActivity : AppCompatActivity() {
                         removeText()
                         return@setOnTouchListener true
                     }
+                    // Locked (Done tapped, v0.1.96): the text
+                    // is FIXED — it does not select or drag
+                    // any more. Let the touch pass through.
+                    if (txt.locked) return@setOnTouchListener false
                     if (!textSelected) {
                         textSelected = true
                         layoutTextOverlay()
@@ -1199,6 +1254,9 @@ class EnhanceActivity : AppCompatActivity() {
             val txt = pageTexts[path] ?: return@setOnTouchListener false
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
+                    // Locked (Done tapped, v0.1.96): the text
+                    // is FIXED — it does not resize any more.
+                    if (txt.locked) return@setOnTouchListener false
                     val r = displayedRect()
                     startX = event.rawX
                     startY = event.rawY
@@ -1506,7 +1564,10 @@ class EnhanceActivity : AppCompatActivity() {
                 for ((i, file) in data.signatureFiles.withIndex()) {
                     val rect = data.signatureRects.getOrNull(i) ?: continue
                     val sigBmp = BitmapFactory.decodeFile(file) ?: continue
-                    sigs.add(PlacedOverlay(sigBmp, rect.copyOf()))
+                    // Restored overlays were already placed
+                    // and Done'd before — they come back FIXED
+                    // (v0.1.96), not draggable.
+                    sigs.add(PlacedOverlay(sigBmp, rect.copyOf(), locked = true))
                 }
                 if (sigs.isNotEmpty()) pageSignatures[rawPath] = sigs
             }
@@ -1514,7 +1575,7 @@ class EnhanceActivity : AppCompatActivity() {
                 val txtBmp = BitmapFactory.decodeFile(data.textFile)
                 if (txtBmp != null) {
                     pageTexts[rawPath] =
-                        PlacedOverlay(txtBmp, data.textRect.copyOf())
+                        PlacedOverlay(txtBmp, data.textRect.copyOf(), locked = true)
                 }
             }
         }

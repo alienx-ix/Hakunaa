@@ -645,16 +645,17 @@ class ScannerActivity : AppCompatActivity() {
             pickPhoto.launch("image/*")
         }
         findViewById<LinearLayout>(R.id.pagesThumbContainer).setOnClickListener {
-            // The thumbnail IS a way forward (v0.1.93,
-            // professional pattern): tap it to open the
-            // Filter (Enhance) screen, then Preview, Export.
-            onSavePdfClicked()
+            // The thumbnail opens Enhance in REVIEW mode
+            // (v0.1.96): back-arrow + Adjust on the filter,
+            // so the user can go back and capture more.
+            onSavePdfClicked(fromThumbnail = true)
         }
         // Export button (v0.1.94): same place as the old Done
-        // button, same destination as the thumbnail tap —
-        // both ways go forward.
+        // button — opens Enhance in EXPORT mode (v0.1.96):
+        // no back-arrow, Adjust in the bar. Don't touch this
+        // flow.
         findViewById<MaterialButton>(R.id.btnSavePdf).setOnClickListener {
-            onSavePdfClicked()
+            onSavePdfClicked(fromThumbnail = false)
         }
         findViewById<TextView>(R.id.tvModeSingle).setOnClickListener { setMode(Mode.SINGLE) }
         findViewById<TextView>(R.id.tvModeBatch).setOnClickListener { setMode(Mode.BATCH) }
@@ -1852,8 +1853,11 @@ class ScannerActivity : AppCompatActivity() {
     }
 
     /** Save button: Batch reviews pages first, Single goes
-     *  straight to the export screen. */
-    private fun onSavePdfClicked() {
+     *  straight to the export screen. `fromThumbnail` picks
+     *  the Enhance mode (v0.1.96): true = review (back-arrow
+     *  + Adjust on the filter), false = Export (no
+     *  back-arrow, Adjust in the bar). */
+    private fun onSavePdfClicked(fromThumbnail: Boolean = false) {
         if (pages.isEmpty()) {
             Toast.makeText(this, "Scan at least one page first", Toast.LENGTH_SHORT).show()
             return
@@ -1862,19 +1866,20 @@ class ScannerActivity : AppCompatActivity() {
         // directly — not to the Pages / save screen. Single:
         // straight to export (it already went through Enhance
         // after its one capture).
-        if (mode == Mode.BATCH) openBatchEnhance() else saveAsPdf()
+        if (mode == Mode.BATCH) openBatchEnhance(fromThumbnail) else saveAsPdf()
     }
 
     /** Batch Done → Filter (Enhance) for the first page, with
      *  "Apply to all pages" already ticked. The Enhance screen
      *  lets the user swipe through every page, pick a filter
      *  per page (or one for all), and re-crop a page. */
-    private fun openBatchEnhance() {
+    private fun openBatchEnhance(fromThumbnail: Boolean = false) {
         if (pages.isEmpty()) {
             Toast.makeText(this, "Scan at least one page first", Toast.LENGTH_SHORT).show()
             return
         }
         val intent = Intent(this, EnhanceActivity::class.java)
+        intent.putExtra(EnhanceActivity.EXTRA_FROM_THUMBNAIL, fromThumbnail)
         // Enhance works from the RAW files (v0.1.77) — a page
         // already enhanced by a thumbnail review must be
         // filtered from its raw source, never from the

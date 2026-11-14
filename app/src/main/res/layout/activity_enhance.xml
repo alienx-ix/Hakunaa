@@ -524,13 +524,14 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- Bottom bar (v0.1.95, the previous design): Rotate /
-         Crop / Adjust / Draw / Erase / Text / Sign + confirm
-         (tick), in that order. Adjust is BACK in this bar
-         (user, v0.1.95) — it lives below with the other
-         tools, NOT on the filter thumbnail. There is NO left
-         back-arrow — only the right tick (the old design).
-         The seven tools SHARE the width evenly (each one
+    <!-- Bottom bar (v0.1.96, two modes): the bar holds the
+         back-arrow, Rotate / Crop / Adjust / Draw / Erase /
+         Text / Sign, and the confirm tick. Which ones show
+         depends on how this screen was opened (see the code):
+         thumbnail mode shows the back-arrow and hides Adjust
+         (it lives on the selected filter); Export mode hides
+         the back-arrow and shows Adjust in the bar. The
+         visible tools SHARE the width evenly (each one
          layout_weight 1); the confirm tick (56dp, right)
          goes to the next stage. -->
     <LinearLayout
@@ -541,6 +542,22 @@
         android:orientation="horizontal"
         android:paddingStart="8dp"
         android:paddingEnd="8dp">
+
+        <!-- Back — returns to the camera to capture more
+             pages (v0.1.96, thumbnail mode only). The pages
+             stay; tapping the thumbnail later brings you back
+             here. Hidden in Export mode — Export means going
+             forward. -->
+        <ImageButton
+            android:id="@+id/btnBackToCapture"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginEnd="4dp"
+            android:background="@drawable/bg_teal_button"
+            android:contentDescription="Back to capture"
+            android:src="@drawable/ic_arrow_back"
+            android:tint="#FFFFFF"
+            android:visibility="gone" />
 
         <!-- Rotate — turns the page 90 degrees (the old
              "Left" button, renamed v0.1.82). -->
