@@ -13,6 +13,7 @@ import com.hakunaa.app.R
 import com.hakunaa.app.core.FileUtils
 import com.hakunaa.app.core.MediaStoreSaver
 import java.io.File
+import com.hakunaa.app.core.StatusBar
 
 class PdfToolsActivity : AppCompatActivity() {
     private val pickedUris = mutableListOf<Uri>()
@@ -51,6 +52,8 @@ class PdfToolsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_pdf_tools)
 
+        // Status bar (v0.1.97): keep it visible, no overlap.
+        StatusBar.setup(this, true)
         findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar)
             .setNavigationOnClickListener { finish() }
 

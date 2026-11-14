@@ -10,12 +10,15 @@ import com.hakunaa.app.pdf.PdfToolsActivity
 import com.hakunaa.app.scanner.ScannerActivity
 import com.hakunaa.app.video.VideoCompressActivity
 import com.hakunaa.app.whatsapp.WhatsAppOptimizeActivity
+import com.hakunaa.app.core.StatusBar
 
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        // Status bar (v0.1.97): keep it visible, no overlap.
+        StatusBar.setup(this, true)
         // Show the installed version on the home screen, so a test
         // result can always be tied to the exact build that ran.
         try {

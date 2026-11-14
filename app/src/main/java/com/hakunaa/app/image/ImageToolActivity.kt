@@ -15,6 +15,7 @@ import com.hakunaa.app.R
 import com.hakunaa.app.core.FileUtils
 import com.hakunaa.app.core.MediaStoreSaver
 import java.io.File
+import com.hakunaa.app.core.StatusBar
 
 /**
  * Image tool flow — Puma-style Compress / Resize / Fit screens.
@@ -57,6 +58,8 @@ class ImageToolActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_image_tool)
 
+        // Status bar (v0.1.97): keep it visible, no overlap.
+        StatusBar.setup(this, true)
         mode = intent.getStringExtra(EXTRA_MODE) ?: MODE_COMPRESS
         val uriString = intent.getStringExtra(EXTRA_IMAGE_URI)
         if (uriString == null) {

@@ -15,6 +15,7 @@ import com.hakunaa.app.core.FileUtils
 import com.hakunaa.app.core.MediaStoreSaver
 import com.hakunaa.app.pdf.PdfTools
 import java.io.File
+import com.hakunaa.app.core.StatusBar
 
 /**
  * Export-quality picker — its OWN SCREEN, not a dialog over the
@@ -71,6 +72,8 @@ class PdfExportActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_pdf_export)
 
+        // Status bar (v0.1.97): keep it visible, no overlap.
+        StatusBar.setup(this, true)
         findViewById<MaterialToolbar>(R.id.toolbar).setNavigationOnClickListener {
             askDiscard()
         }

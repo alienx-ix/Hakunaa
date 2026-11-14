@@ -13,6 +13,7 @@ import com.hakunaa.app.R
 import com.hakunaa.app.core.FileUtils
 import com.hakunaa.app.core.MediaStoreSaver
 import java.io.File
+import com.hakunaa.app.core.StatusBar
 
 /**
  * Edit image — basic photo editing tools.
@@ -37,6 +38,8 @@ class ImageEditActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_image_edit)
 
+        // Status bar (v0.1.97): keep it visible, no overlap.
+        StatusBar.setup(this, true)
         // The layout uses a toolbar with a back arrow, not a
         // separate btnBack button — looking up btnBack would
         // return null and crash (same class of bug as v0.1.33).

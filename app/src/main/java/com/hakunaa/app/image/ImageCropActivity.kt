@@ -15,6 +15,7 @@ import com.hakunaa.app.core.FileUtils
 import com.hakunaa.app.core.MediaStoreSaver
 import com.hakunaa.app.scanner.CropView
 import java.io.File
+import com.hakunaa.app.core.StatusBar
 
 /**
  * Crop — remove unwanted parts of the photo.
@@ -35,6 +36,8 @@ class ImageCropActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_image_crop)
 
+        // Status bar (v0.1.97): keep it visible, no overlap.
+        StatusBar.setup(this, false)
         findViewById<ImageButton>(R.id.btnBack).setOnClickListener { finish() }
 
         val uriString = intent.getStringExtra(EXTRA_IMAGE_URI)

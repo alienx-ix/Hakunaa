@@ -57,6 +57,7 @@ import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import com.hakunaa.app.core.StatusBar
 
 /**
  * PDF Scanner — professional document scanner, 100% on-device.
@@ -608,6 +609,8 @@ class ScannerActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_scanner)
 
+        // Status bar (v0.1.97): keep it visible, no overlap.
+        StatusBar.setup(this, false)
         // Back (system or gesture) leaves the scanner — in
         // Batch with pages captured, ask first (v0.1.74),
         // because leaving discards the draft batch.

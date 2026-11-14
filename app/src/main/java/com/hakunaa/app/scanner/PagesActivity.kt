@@ -21,6 +21,7 @@ import com.hakunaa.app.R
 import com.hakunaa.app.core.FileUtils
 import java.io.File
 import java.util.Collections
+import com.hakunaa.app.core.StatusBar
 
 /**
  * Pages screen — the CamScanner-style multi-page review.
@@ -126,6 +127,8 @@ class PagesActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_pages)
 
+        // Status bar (v0.1.97): keep it visible, no overlap.
+        StatusBar.setup(this, true)
         findViewById<ImageButton>(R.id.btnBack).setOnClickListener {
             setResult(RESULT_CANCELED, pagesResultData())
             finish()

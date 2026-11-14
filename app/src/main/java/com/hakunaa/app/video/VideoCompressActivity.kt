@@ -15,6 +15,7 @@ import com.hakunaa.app.R
 import com.hakunaa.app.core.FileUtils
 import com.hakunaa.app.core.MediaStoreSaver
 import java.io.File
+import com.hakunaa.app.core.StatusBar
 
 class VideoCompressActivity : AppCompatActivity() {
     private var inputUri: Uri? = null
@@ -38,6 +39,8 @@ class VideoCompressActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_video_compress)
 
+        // Status bar (v0.1.97): keep it visible, no overlap.
+        StatusBar.setup(this, true)
         findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar)
             .setNavigationOnClickListener { finish() }
 

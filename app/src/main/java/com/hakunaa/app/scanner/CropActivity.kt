@@ -14,6 +14,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import com.hakunaa.app.R
 import java.io.File
+import com.hakunaa.app.core.StatusBar
 
 /**
  * Crop screen — the CamScanner-style crop step after capture.
@@ -67,6 +68,8 @@ class CropActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_crop)
 
+        // Status bar (v0.1.97): keep it visible, no overlap.
+        StatusBar.setup(this, false)
         findViewById<ImageButton>(R.id.btnBack).setOnClickListener { finish() }
 
         val path = intent.getStringExtra(EXTRA_PHOTO_PATH)

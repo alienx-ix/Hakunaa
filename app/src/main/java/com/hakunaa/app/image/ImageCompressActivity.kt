@@ -13,6 +13,7 @@ import com.hakunaa.app.R
 import com.hakunaa.app.core.FileUtils
 import com.hakunaa.app.core.MediaStoreSaver
 import java.io.File
+import com.hakunaa.app.core.StatusBar
 
 /**
  * Image tools hub — Puma Photo Resize & Compress style.
@@ -52,6 +53,8 @@ class ImageCompressActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_image_compress)
 
+        // Status bar (v0.1.97): keep it visible, no overlap.
+        StatusBar.setup(this, true)
         findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar)
             .setNavigationOnClickListener { finish() }
 

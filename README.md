@@ -630,6 +630,11 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.97 — Status bar fixed across the entire app
+
+- **Root cause:** on Android 15 the app runs edge-to-edge — content went UNDER the status bar (white icons invisible on light screens; top bar overlapped on the dark scanner screen).
+- **Fix (new `core/StatusBar.kt`, called from all 17 Activities):** content sits below the status bar (no overlap anywhere), icons match the screen — DARK icons on light screens (Home, PDF/Image/Video/WhatsApp tools, Pages, Export), LIGHT icons on dark screens (Scanner, Book, Crop, Enhance, Page Preview, Image Crop). Status bar gets a solid colour matching the screen.
+
 ## v0.1.96 — Two Enhance modes + Draw/Sign/Text lock after Done
 
 - **Thumbnail click → review mode:** the Enhance screen comes WITH the left back-arrow (←) + 6 tools + Tick, and the tune icon on the selected filter. Tap ← to go back to the camera and capture more — only then can you capture again.

@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.os.Bundle
 import android.widget.ScrollView
 import android.widget.TextView
+import com.hakunaa.app.core.StatusBar
 
 /**
  * Shows the exact crash error on screen (plain Activity, no Material,
@@ -29,5 +30,7 @@ class CrashReportActivity : Activity() {
         }
         val scroll = ScrollView(this).apply { addView(text) }
         setContentView(scroll)
+        // Status bar (v0.1.97): keep it visible, no overlap.
+        StatusBar.setup(this, true)
     }
 }

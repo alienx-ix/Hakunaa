@@ -18,6 +18,7 @@ import com.hakunaa.app.R
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
+import com.hakunaa.app.core.StatusBar
 
 /**
  * Full-screen page preview — tap a page in the Pages screen
@@ -57,6 +58,8 @@ class PagePreviewActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_page_preview)
 
+        // Status bar (v0.1.97): keep it visible, no overlap.
+        StatusBar.setup(this, false)
         val path = intent.getStringExtra(EXTRA_PAGE_PATH)
         val label = intent.getStringExtra(EXTRA_PAGE_LABEL) ?: "Page"
         if (path.isNullOrEmpty()) {

@@ -32,6 +32,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
+import com.hakunaa.app.core.StatusBar
 
 /**
  * Enhance screen — the CamScanner-style enhance step after crop.
@@ -223,6 +224,8 @@ class EnhanceActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_enhance)
 
+        // Status bar (v0.1.97): keep it visible, no overlap.
+        StatusBar.setup(this, false)
         findViewById<ImageButton>(R.id.btnBack).setOnClickListener { finish() }
 
         // Default document name, CamScanner style: "Hakunaa 11-12-2026 19.53".

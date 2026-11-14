@@ -31,6 +31,7 @@ import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.hakunaa.app.core.StatusBar
 
 /**
  * Book Scan — scan a whole book, two pages at a time.
@@ -283,6 +284,8 @@ class BookScannerActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_book_scanner)
 
+        // Status bar (v0.1.97): keep it visible, no overlap.
+        StatusBar.setup(this, false)
         docName = "Hakunaa Book " + SimpleDateFormat("dd-MM-yyyy HH.mm", Locale.US).format(Date())
 
         findViewById<ImageButton>(R.id.btnClose).setOnClickListener { attemptLeave() }

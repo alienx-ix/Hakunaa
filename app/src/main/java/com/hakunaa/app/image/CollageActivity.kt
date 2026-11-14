@@ -19,6 +19,7 @@ import com.hakunaa.app.core.FileUtils
 import com.hakunaa.app.core.MediaStoreSaver
 import java.io.File
 import java.io.FileOutputStream
+import com.hakunaa.app.core.StatusBar
 
 /**
  * Collage Maker — combine 2–4 photos into one image.
@@ -51,6 +52,8 @@ class CollageActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_collage)
 
+        // Status bar (v0.1.97): keep it visible, no overlap.
+        StatusBar.setup(this, true)
         findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar)
             .setNavigationOnClickListener { finish() }
 

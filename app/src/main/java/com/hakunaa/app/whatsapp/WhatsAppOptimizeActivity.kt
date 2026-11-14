@@ -24,6 +24,7 @@ import com.hakunaa.app.video.VideoCompressor
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.rendering.PDFRenderer
 import java.io.File
+import com.hakunaa.app.core.StatusBar
 
 /**
  * WhatsApp Optimize — one tap: pick a video, photo or PDF, see its
@@ -65,6 +66,8 @@ class WhatsAppOptimizeActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_whatsapp_optimize)
+        // Status bar (v0.1.97): keep it visible, no overlap.
+        StatusBar.setup(this, true)
         findViewById<MaterialToolbar>(R.id.toolbar).setNavigationOnClickListener { finish() }
 
         findViewById<Button>(R.id.btnPickVideo).setOnClickListener { if (!optimizing) pickVideo.launch("video/*") }
