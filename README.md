@@ -630,6 +630,10 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.107 — Multiple texts per page (on v0.1.106)
+
+- **Texts no longer delete each other:** Add Text was a single slot per page — a second text recycled the first. Now each page holds a LIST of texts (same shape as multiple signatures since v0.1.92): every new text APPENDS and stacks a little lower, so it never lands on top of the last one. Tap any plain text to select it (box + X + handle come back on THAT text); Erase-tap removes just that one; Remove takes the selected one (or the most recent); Done locks ALL texts on the page. Every text is drawn into the saved PDF and persists across Enhance sessions via the store (textFiles/textRects lists).
+
 ## v0.1.106 — Book instructions removed entirely (on v0.1.105)
 
 - **No instruction text in Book at all:** the status line is gone — no more "Point the camera…", no mode hints, no "Torch on/off", no "Capturing…". The screen is clean: the A/B spine, the Level, the Capture button and the strips speak for themselves. Errors and confirmations (camera failed, capture failed, PDF saved) are now short Toasts instead of on-screen text, so nothing ever sits on the photo. (`bg_status_pill.xml` deleted with it.)

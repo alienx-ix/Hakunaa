@@ -148,7 +148,21 @@ class EnhanceActivity : AppCompatActivity() {
      *  pageFrame (v0.1.92) — one per signature, rebuilt by
      *  layoutSignatureOverlay(). */
     private val signatureViews = mutableListOf<ImageView>()
-    private val pageTexts = mutableMapOf<String, PlacedOverlay>()
+    /** Texts per page (v0.1.107): a page can hold MORE
+     *  than one text now — adding a second text no longer
+     *  deletes the first (the old single-slot map recycled
+     *  it). Same shape as signatures since v0.1.92. */
+    private val pageTexts = mutableMapOf<String, MutableList<PlacedOverlay>>()
+    /** The ImageViews showing this page's NON-selected texts
+     *  in pageFrame — one per text, rebuilt by
+     *  layoutTextOverlay(). The SELECTED text lives in the
+     *  static textBoxContainer (ivTextOverlay) instead, with
+     *  the box + X + handle. */
+    private val textViews = mutableListOf<ImageView>()
+    /** The text currently being edited (v0.1.107) — the one
+     *  in the box. Null = none selected; every text shows
+     *  plain. */
+    private var selectedText: PlacedOverlay? = null
 
     // The placed text's selection state (v0.1.86): the box,
     // the X and the resize handle are EDITING tools — they
@@ -344,7 +358,8 @@ class EnhanceActivity : AppCompatActivity() {
             // so it no longer drags or re-selects. Deselect
             // it: the box, the X and the handle go away, and
             // only the plain text stays on the page (v0.1.86).
-            pageTexts[imagePath]?.locked = true
+            pageTexts[imagePath]?.forEach { it.locked = true }
+            selectedText = null
             textSelected = false
             layoutTextOverlay()
             findViewById<View>(R.id.textPanel).visibility = View.GONE
@@ -787,7 +802,7 @@ class EnhanceActivity : AppCompatActivity() {
                         pageSignatures[path]?.forEach { sig ->
                             sig.rectNorm = DrawView.rotateRectCCW(sig.rectNorm)
                         }
-                        pageTexts[path]?.let { txt ->
+                        pageTexts[path]?.forEach { txt ->
                             txt.rectNorm = DrawView.rotateRectCCW(txt.rectNorm)
                         }
                         // Persist the rotated overlays now
@@ -843,6 +858,7 @@ class EnhanceActivity : AppCompatActivity() {
         // no box — the box comes back only when the text is
         // tapped (v0.1.86).
         textSelected = false
+        selectedText = null
         findViewById<View>(R.id.textPanel).visibility = View.GONE
         layoutTextOverlay()
     }
@@ -1183,7 +1199,7 @@ class EnhanceActivity : AppCompatActivity() {
         val box = findViewById<View>(R.id.textBoxContainer)
         box.setOnTouchListener { _, event ->
             val path = imagePath ?: return@setOnTouchListener false
-            val txt = pageTexts[path] ?: return@setOnTouchListener false
+            val txt = selectedText ?: return@setOnTouchListener false
             val frame = findViewById<View>(R.id.pageFrame)
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
@@ -1191,7 +1207,7 @@ class EnhanceActivity : AppCompatActivity() {
                     // (removes it), instead of selecting or
                     // dragging it (v0.1.87).
                     if (toolMode == ToolMode.ERASE) {
-                        removeText()
+                        removeText(txt)
                         return@setOnTouchListener true
                     }
                     // Locked (Done tapped, v0.1.96): the text
@@ -1254,7 +1270,7 @@ class EnhanceActivity : AppCompatActivity() {
         var resizing = false
         handle.setOnTouchListener { _, event ->
             val path = imagePath ?: return@setOnTouchListener false
-            val txt = pageTexts[path] ?: return@setOnTouchListener false
+            val txt = selectedText ?: return@setOnTouchListener false
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     // Locked (Done tapped, v0.1.96): the text
@@ -1434,15 +1450,22 @@ class EnhanceActivity : AppCompatActivity() {
     private fun placeText(textBmp: Bitmap) {
         val path = imagePath ?: return
         val bmp = bitmap ?: return
-        // Drop any old text bitmap for this page first.
-        pageTexts[path]?.bitmap?.recycle()
+        // APPEND (v0.1.107) — the old code recycled the
+        // page's single text here, so a second text DELETED
+        // the first. Now every text stays; the new one stacks
+        // a little lower so it never lands exactly on top of
+        // the last one (like the signature shift, v0.1.92).
+        val list = pageTexts.getOrPut(path) { mutableListOf() }
         val wFrac = 0.30f
         val hFrac = wFrac * textBmp.height / textBmp.width * bmp.width / bmp.height
-        val top = (0.10f).coerceAtLeast(0.02f)
+        val shift = minOf(list.size * 0.12f, 0.4f)
+        val top = minOf(0.10f + shift, 1f - hFrac).coerceAtLeast(0.02f)
         val rect = floatArrayOf(0.35f, top, 0.35f + wFrac, top + hFrac)
-        pageTexts[path] = PlacedOverlay(textBmp, rect)
+        val placed = PlacedOverlay(textBmp, rect)
+        list.add(placed)
         // Just placed — it is selected, so the box + X +
         // handle show for adjusting (v0.1.86).
+        selectedText = placed
         textSelected = true
         layoutTextOverlay()
         findViewById<View>(R.id.textPanel).visibility = View.VISIBLE
@@ -1461,28 +1484,73 @@ class EnhanceActivity : AppCompatActivity() {
      *  while the text is selected (v0.1.86). When it is not
      *  selected, the same container shows just the plain
      *  text — no border, no X, no handle. */
+    /** Position the texts (Word-style, v0.1.85/86) from
+     *  their stored normalized rects (and show / hide them).
+     *  (v0.1.107) Every NON-selected text gets its own plain
+     *  ImageView in pageFrame (like signatures, v0.1.92) —
+     *  tap one to select it. The SELECTED text lives in the
+     *  static textBoxContainer, which wraps it with a teal
+     *  border + 6dp padding, so the box is a little bigger
+     *  than the text itself — the box's top-left sits 6dp
+     *  up-left of the text's.
+     *
+     *  The border, the X and the resize handle show ONLY
+     *  while a text is selected (v0.1.86). When none is
+     *  selected, every text shows plain — no border, no X,
+     *  no handle. */
     private fun layoutTextOverlay() {
         val path = imagePath
-        val txt = if (path == null) null else pageTexts[path]
+        val list = if (path == null) null else pageTexts[path]
+        val frame = findViewById<FrameLayout>(R.id.pageFrame)
+        // Drop the old plain-text views first, then add one
+        // per NON-selected text.
+        for (view in textViews) frame.removeView(view)
+        textViews.clear()
         val box = findViewById<View>(R.id.textBoxContainer)
         val overlay = findViewById<ImageView>(R.id.ivTextOverlay)
-        if (txt == null || bitmap == null) {
+        val del = findViewById<View>(R.id.btnTextDelete)
+        val res = findViewById<View>(R.id.btnTextResize)
+        if (list.isNullOrEmpty() || bitmap == null) {
             box.visibility = View.GONE
-            findViewById<View>(R.id.btnTextDelete).visibility = View.GONE
-            findViewById<View>(R.id.btnTextResize).visibility = View.GONE
+            del.visibility = View.GONE
+            res.visibility = View.GONE
             return
         }
         val pad = dpToPx(6f).toInt()
         val r = displayedRect()
-        val rect = txt.rectNorm
+        val sel = selectedText
+        // Plain views for every text that is NOT selected.
+        for (txt in list) {
+            if (txt === sel) continue
+            val rect = txt.rectNorm
+            val w = ((rect[2] - rect[0]) * r[2]).toInt().coerceAtLeast(1)
+            val h = ((rect[3] - rect[1]) * r[3]).toInt().coerceAtLeast(1)
+            val view = ImageView(this)
+            view.setImageBitmap(txt.bitmap)
+            val params = FrameLayout.LayoutParams(w, h)
+            params.leftMargin = (r[0] + rect[0] * r[2]).toInt()
+            params.topMargin = (r[1] + rect[1] * r[3]).toInt()
+            view.layoutParams = params
+            frame.addView(view)
+            textViews.add(view)
+            attachTextTap(view, txt)
+        }
+        // The selected text goes in the box (or hides it).
+        if (sel == null || !list.contains(sel)) {
+            box.visibility = View.GONE
+            del.visibility = View.GONE
+            res.visibility = View.GONE
+            return
+        }
+        val rect = sel.rectNorm
         val tw = ((rect[2] - rect[0]) * r[2]).toInt().coerceAtLeast(1)
         val th = ((rect[3] - rect[1]) * r[3]).toInt().coerceAtLeast(1)
         // The text bitmap fills the box's inside (the box's
         // padding is the 6dp border gap).
         overlay.layoutParams = FrameLayout.LayoutParams(tw, th)
-        if (overlay.drawable == null || overlay.getTag(R.id.ivTextOverlay) !== txt.bitmap) {
-            overlay.setImageBitmap(txt.bitmap)
-            overlay.setTag(R.id.ivTextOverlay, txt.bitmap)
+        if (overlay.drawable == null || overlay.getTag(R.id.ivTextOverlay) !== sel.bitmap) {
+            overlay.setImageBitmap(sel.bitmap)
+            overlay.setTag(R.id.ivTextOverlay, sel.bitmap)
         }
         val params = FrameLayout.LayoutParams(tw + pad * 2, th + pad * 2)
         params.leftMargin = (r[0] + rect[0] * r[2]).toInt() - pad
@@ -1501,13 +1569,11 @@ class EnhanceActivity : AppCompatActivity() {
             val boxTop = params.topMargin
             val boxRight = boxLeft + tw + pad * 2
             val boxBottom = boxTop + th + pad * 2
-            val del = findViewById<View>(R.id.btnTextDelete)
             val delParams = FrameLayout.LayoutParams(dpToPx(32f).toInt(), dpToPx(32f).toInt())
             delParams.leftMargin = boxRight - half
             delParams.topMargin = boxTop - half
             del.layoutParams = delParams
             del.visibility = View.VISIBLE
-            val res = findViewById<View>(R.id.btnTextResize)
             val resParams = FrameLayout.LayoutParams(dpToPx(32f).toInt(), dpToPx(32f).toInt())
             resParams.leftMargin = boxRight - half
             resParams.topMargin = boxBottom - half
@@ -1515,23 +1581,54 @@ class EnhanceActivity : AppCompatActivity() {
             res.visibility = View.VISIBLE
         } else {
             box.background = null
-            findViewById<View>(R.id.btnTextDelete).visibility = View.GONE
-            findViewById<View>(R.id.btnTextResize).visibility = View.GONE
+            del.visibility = View.GONE
+            res.visibility = View.GONE
         }
         box.visibility = View.VISIBLE
     }
 
-    private fun removeText() {
+    /** Tap a plain (unselected) text to select it (v0.1.107):
+     *  the box + X + handle come back on THAT text, so it can
+     *  be adjusted or deleted. Erase-tap removes THAT text. */
+    private fun attachTextTap(view: View, txt: PlacedOverlay) {
+        view.setOnTouchListener { _, event ->
+            if (event.action != MotionEvent.ACTION_DOWN) return@setOnTouchListener false
+            if (toolMode == ToolMode.ERASE) {
+                removeText(txt)
+                return@setOnTouchListener true
+            }
+            if (txt.locked) return@setOnTouchListener false
+            selectedText = txt
+            textSelected = true
+            layoutTextOverlay()
+            findViewById<View>(R.id.textPanel).visibility = View.VISIBLE
+            true
+        }
+    }
+
+
+    /** Remove ONE text (v0.1.107): the one passed in (Erase
+     *  tap on it, or the X on its box), or — when none is
+     *  passed, from the text panel's Remove button — the
+     *  SELECTED one, or the most recent when nothing is
+     *  selected. The others stay. */
+    private fun removeText(txt: PlacedOverlay? = null) {
         val path = imagePath ?: return
-        pageTexts[path]?.bitmap?.recycle()
-        pageTexts.remove(path)
-        textSelected = false
-        findViewById<View>(R.id.textBoxContainer).visibility = View.GONE
-        findViewById<View>(R.id.btnTextDelete).visibility = View.GONE
-        findViewById<View>(R.id.btnTextResize).visibility = View.GONE
-        findViewById<View>(R.id.textPanel).visibility = View.GONE
+        val list = pageTexts[path] ?: return
+        val target = txt ?: selectedText ?: list.lastOrNull() ?: return
+        list.remove(target)
+        target.bitmap.recycle()
+        if (selectedText === target) {
+            selectedText = null
+            textSelected = false
+        }
+        if (list.isEmpty()) {
+            findViewById<View>(R.id.textPanel).visibility = View.GONE
+        }
+        layoutTextOverlay()
         writeOverlaysToStore(path)
     }
+
 
     // ---------- Overlay persistence (v0.1.84) ----------
 
@@ -1574,12 +1671,14 @@ class EnhanceActivity : AppCompatActivity() {
                 }
                 if (sigs.isNotEmpty()) pageSignatures[rawPath] = sigs
             }
-            if (data.textFile != null && data.textRect != null) {
-                val txtBmp = BitmapFactory.decodeFile(data.textFile)
-                if (txtBmp != null) {
-                    pageTexts[rawPath] =
-                        PlacedOverlay(txtBmp, data.textRect.copyOf(), locked = true)
+            if (data.textFiles.isNotEmpty()) {
+                val txts = mutableListOf<PlacedOverlay>()
+                for ((i, file) in data.textFiles.withIndex()) {
+                    val rect = data.textRects.getOrNull(i) ?: continue
+                    val txtBmp = BitmapFactory.decodeFile(file) ?: continue
+                    txts.add(PlacedOverlay(txtBmp, rect.copyOf(), locked = true))
                 }
+                if (txts.isNotEmpty()) pageTexts[rawPath] = txts
             }
         }
     }
@@ -1592,7 +1691,7 @@ class EnhanceActivity : AppCompatActivity() {
     private fun writeOverlaysToStore(rawPath: String) {
         val strokes = pageDrawings[rawPath]?.toList() ?: emptyList()
         val sigs = pageSignatures[rawPath]
-        val txt = pageTexts[rawPath]
+        val txts = pageTexts[rawPath]
         val sigFiles = mutableListOf<String>()
         val sigRects = mutableListOf<FloatArray>()
         if (!sigs.isNullOrEmpty()) {
@@ -1602,19 +1701,22 @@ class EnhanceActivity : AppCompatActivity() {
                 sigRects.add(sig.rectNorm.copyOf())
             }
         }
-        var txtFile: String? = null
-        var txtRect: FloatArray? = null
-        if (txt != null) {
-            txtFile = saveOverlayBitmap(txt.bitmap, "text")
-            txtRect = txt.rectNorm.copyOf()
+        val txtFiles = mutableListOf<String>()
+        val txtRects = mutableListOf<FloatArray>()
+        if (!txts.isNullOrEmpty()) {
+            for (txt in txts) {
+                val file = saveOverlayBitmap(txt.bitmap, "text") ?: continue
+                txtFiles.add(file)
+                txtRects.add(txt.rectNorm.copyOf())
+            }
         }
         // Keep the store entry only when there is something.
-        if (strokes.isEmpty() && sigFiles.isEmpty() && txtFile == null) {
+        if (strokes.isEmpty() && sigFiles.isEmpty() && txtFiles.isEmpty()) {
             OverlayStore.remove(rawPath)
         } else {
             OverlayStore.put(
                 rawPath,
-                OverlayStore.OverlayData(strokes, sigFiles, sigRects, txtFile, txtRect)
+                OverlayStore.OverlayData(strokes, sigFiles, sigRects, txtFiles, txtRects)
             )
         }
     }
@@ -1649,7 +1751,7 @@ class EnhanceActivity : AppCompatActivity() {
         // the live maps while the user could still be drawing.
         val drawingsSnapshot = pageDrawings.mapValues { it.value.toList() }
         val signaturesSnapshot = pageSignatures.toMap()
-        val textsSnapshot = pageTexts.toMap()
+        val textsSnapshot = pageTexts.mapValues { it.value.toList() }
         Thread {
             try {
                 val docName = findViewById<EditText>(R.id.etDocName).text.toString()
@@ -1697,8 +1799,8 @@ class EnhanceActivity : AppCompatActivity() {
                         // is safe.
                         val strokes = drawingsSnapshot[path]
                         val sigs = signaturesSnapshot[path]
-                        val txt = textsSnapshot[path]
-                        if (!strokes.isNullOrEmpty() || !sigs.isNullOrEmpty() || txt != null) {
+                        val txts = textsSnapshot[path]
+                        if (!strokes.isNullOrEmpty() || !sigs.isNullOrEmpty() || !txts.isNullOrEmpty()) {
                             val composited =
                                 final.copy(Bitmap.Config.ARGB_8888, true)
                             final.recycle()
@@ -1723,15 +1825,17 @@ class EnhanceActivity : AppCompatActivity() {
                                     canvas.drawBitmap(sig.bitmap, null, dst, null)
                                 }
                             }
-                            if (txt != null) {
-                                val r = txt.rectNorm
-                                val dst = RectF(
-                                    r[0] * composited.width,
-                                    r[1] * composited.height,
-                                    r[2] * composited.width,
-                                    r[3] * composited.height
-                                )
-                                canvas.drawBitmap(txt.bitmap, null, dst, null)
+                            if (!txts.isNullOrEmpty()) {
+                                for (txt in txts) {
+                                    val r = txt.rectNorm
+                                    val dst = RectF(
+                                        r[0] * composited.width,
+                                        r[1] * composited.height,
+                                        r[2] * composited.width,
+                                        r[3] * composited.height
+                                    )
+                                    canvas.drawBitmap(txt.bitmap, null, dst, null)
+                                }
                             }
                             final = composited
                         }
@@ -1777,6 +1881,6 @@ class EnhanceActivity : AppCompatActivity() {
         previewBitmap?.recycle()
         currentPreview?.recycle()
         for (sigs in pageSignatures.values) for (sig in sigs) sig.bitmap.recycle()
-        for (txt in pageTexts.values) txt.bitmap.recycle()
+        for (list in pageTexts.values) for (txt in list) txt.bitmap.recycle()
     }
 }

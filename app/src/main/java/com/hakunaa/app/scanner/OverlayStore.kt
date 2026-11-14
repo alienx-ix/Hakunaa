@@ -33,10 +33,11 @@ object OverlayStore {
         val signatureFiles: List<String> = emptyList(),
         /** Signature normalized rects [l, t, r, b], one per file. */
         val signatureRects: List<FloatArray> = emptyList(),
-        /** Text PNG file path, or null when none. */
-        val textFile: String? = null,
-        /** Text normalized rect [l, t, r, b], or null. */
-        val textRect: FloatArray? = null
+        /** Text PNG file paths (v0.1.107: a page can hold
+         *  MORE than one text), parallel to [textRects]. */
+        val textFiles: List<String> = emptyList(),
+        /** Text normalized rects [l, t, r, b], one per file. */
+        val textRects: List<FloatArray> = emptyList()
     )
 
     private val store = mutableMapOf<String, OverlayData>()
