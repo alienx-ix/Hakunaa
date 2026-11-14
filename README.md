@@ -630,6 +630,15 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.104 — Book navigation fixed + professional Single/Double (on v0.1.103)
+
+- **Back button works now:** the arrow is the LAST child of the layout (topmost). Before, the clickable left strip covered the corner and ate every tap, so the button did nothing.
+- **Thumbnail shows the last capture:** tapping the small thumbnail opens the last scanned page full-screen (PagePreviewActivity), so the user can check it without leaving the camera.
+- **Save shows the preview from the first page:** Save PDF now goes straight to the Preview (PagesActivity) with the pages from the first one; its Save goes to Export. Filters are still available through the Pages button, which goes via Enhance.
+- **Exit button (Book only):** a small Exit button sits below the Capture button, right where the shooting hand is — same leave warning as Back, so leaving does not mean hunting for the corner arrow.
+- **Single/Double, professional:** the toggle sits a little LOWER (top spacer 1.3, bottom spacer 0.7) and the selected mode is now a subtle GREY pill (`mode_single_double_selected.xml`, #616161) like the pro scanner apps, not a bright teal block.
+- **Warning dialog, compact like Single:** the "Discard book?" dialog used 85% of the screen WIDTH — in landscape that is the long side (2048px), so it came out nearly full-screen. It now uses 85% of the SHORTER side, exactly like Single/Batch — a compact professional dialog.
+
 ## v0.1.103 — Book capture: A/B pages come out as proper portrait pages (on v0.1.102)
 
 - **The bug:** Book capture was "completely malfunction" — A/B pages never came out as portrait. Root cause: `processBookPhoto` decoded the capture with plain `BitmapFactory.decodeFile`, which IGNORES the EXIF rotation. On this phone the spread came out in the sensor's raw orientation instead of the landscape the user held it in, so splitting it gave wrong halves. The main scanner hit the exact same bug (v0.1.66) and the same helper fixed it there.

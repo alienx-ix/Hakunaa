@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Selected Single / Double button in Book (v0.1.101) — a grey
-     pill, exactly like the CamScanner screenshot: the selected
-     mode reads as a grey pill on the dark outer pill, not teal. -->
+<!-- Selected Single / Double button in Book (v0.1.104) — a grey
+     pill, like the professional scanner apps: the selected mode
+     reads as a subtle grey pill on the dark outer pill, not a
+     bright teal block. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <corners android:radius="16dp" />
+    <corners android:radius="8dp" />
     <solid android:color="#616161" />
 </shape>

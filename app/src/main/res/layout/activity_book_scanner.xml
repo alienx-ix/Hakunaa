@@ -76,22 +76,6 @@
         android:layout_gravity="center_vertical|end"
         android:layout_marginEnd="152dp" />
 
-    <!-- Back arrow (v0.1.102) — top-LEFT corner, over the
-         preview, just below the status bar. It used to sit
-         inside the left strip, inset from the corner — the
-         wrong place. -->
-    <ImageButton
-        android:id="@+id/btnClose"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:layout_gravity="top|start"
-        android:layout_marginStart="16dp"
-        android:layout_marginTop="36dp"
-        android:background="@drawable/circle_button_bg"
-        android:contentDescription="Close"
-        android:src="@drawable/ic_arrow_back"
-        android:tint="#FFFFFF" />
-
     <!-- LEFT strip — file actions + the Single / Double
          toggle in the middle. (Close moved to the top-left
          corner in v0.1.102.) -->
@@ -106,10 +90,12 @@
         <View
             android:layout_width="0dp"
             android:layout_height="0dp"
-            android:layout_weight="1" />
+            android:layout_weight="1.3" />
 
-        <!-- Single / Double — real segmented buttons: the
-             selected one is a teal pill, the other is plain.
+        <!-- Single / Double (v0.1.104) — sits a little LOWER
+             now (top spacer 1.3, bottom spacer 0.7), and the
+             selected mode is a professional GREY pill (like
+             the pro scanner apps), not a bright teal block.
              Double captures both pages at once (A then B),
              Single captures one tapped page. -->
         <LinearLayout
@@ -154,13 +140,13 @@
         <View
             android:layout_width="0dp"
             android:layout_height="0dp"
-            android:layout_weight="1" />
+            android:layout_weight="0.7" />
 
         <!-- Latest page thumbnail (v0.1.74): a small image of
              the most recent capture, beside the Pages count —
              like CamScanner, not just a number changing.
              Hidden until the first page is captured. Tapping
-             it opens Pages, like the Pages button. -->
+             it shows the last capture full-screen (v0.1.104). -->
         <ImageView
             android:id="@+id/ivLastPageThumb"
             android:layout_width="64dp"
@@ -192,7 +178,10 @@
          pinned to the top, the big capture button at the TRUE
          vertical centre (centerInParent). The old LinearLayout
          with two equal spacers pushed Capture below centre,
-         because the Torch took space at the top. -->
+         because the Torch took space at the top.
+         v0.1.104: an Exit button sits below Capture — Book's
+         own way out, right where the shooting hand is, so
+         leaving does not mean hunting for the corner arrow. -->
     <RelativeLayout
         android:layout_width="140dp"
         android:layout_height="match_parent"
@@ -219,6 +208,38 @@
             android:layout_centerInParent="true"
             android:background="@drawable/capture_button"
             android:contentDescription="Capture" />
+
+        <!-- Exit (v0.1.104) — below Capture, Book only. -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnExit"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_below="@id/btnCapture"
+            android:layout_centerHorizontal="true"
+            android:layout_marginTop="20dp"
+            android:text="Exit"
+            android:textSize="14sp" />
     </RelativeLayout>
+
+    <!-- Back arrow (v0.1.102) — top-LEFT corner, over the
+         preview, just below the status bar. It used to sit
+         inside the left strip, inset from the corner — the
+         wrong place.
+         v0.1.104: it MUST be the LAST child in this file.
+         The left strip is clickable and covers the corner, so
+         when the arrow sat before the strips the strip ate
+         every tap and the back button did nothing. Last child
+         = topmost = receives the tap. -->
+    <ImageButton
+        android:id="@+id/btnClose"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="36dp"
+        android:background="@drawable/circle_button_bg"
+        android:contentDescription="Close"
+        android:src="@drawable/ic_arrow_back"
+        android:tint="#FFFFFF" />
 
 </FrameLayout>

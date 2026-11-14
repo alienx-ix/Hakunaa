@@ -291,7 +291,17 @@ class BookScannerActivity : AppCompatActivity() {
         val dialog = Dialog(this)
         dialog.setContentView(R.layout.dialog_discard)
         dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
-        val width = (resources.displayMetrics.widthPixels * 0.85).toInt()
+        // Width from the SHORTER side (v0.1.104): in landscape
+        // widthPixels is the LONG side (2048), so 85% of it
+        // made the dialog nearly full-screen. Single/Batch
+        // (portrait) use 85% of the short side — the same
+        // compact professional dialog. Use the smaller
+        // dimension here so Book matches Single exactly.
+        val shorter = minOf(
+            resources.displayMetrics.widthPixels,
+            resources.displayMetrics.heightPixels
+        )
+        val width = (shorter * 0.85).toInt()
         dialog.window?.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
         val n = pages.size
         dialog.findViewById<TextView>(R.id.tvDiscardTitle).text = "Discard book?"
@@ -329,12 +339,20 @@ class BookScannerActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.btnClose).setOnClickListener { attemptLeave() }
         findViewById<ImageButton>(R.id.btnTorch).setOnClickListener { toggleTorch() }
         findViewById<ImageButton>(R.id.btnCapture).setOnClickListener { captureBook() }
+        // Exit (v0.1.104, Book only) — right by the Capture
+        // button, so leaving does not mean hunting for the
+        // corner arrow. Same leave warning as Back.
+        findViewById<com.google.android.material.button.MaterialButton>(R.id.btnExit)
+            .setOnClickListener { attemptLeave() }
         findViewById<TextView>(R.id.tvSingle).setOnClickListener { setDoubleMode(false) }
         findViewById<TextView>(R.id.tvDouble).setOnClickListener { setDoubleMode(true) }
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnPages)
             .setOnClickListener { openPages() }
+        // Thumbnail (v0.1.104) — shows the LAST capture
+        // full-screen, so the user can check the page they
+        // just scanned without leaving the camera.
         findViewById<ImageView>(R.id.ivLastPageThumb)
-            .setOnClickListener { openPages() }
+            .setOnClickListener { openLastCapture() }
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnSavePdf)
             .setOnClickListener { saveAsPdf() }
 
@@ -437,7 +455,7 @@ class BookScannerActivity : AppCompatActivity() {
         val singleView = findViewById<TextView>(R.id.tvSingle)
         val doubleView = findViewById<TextView>(R.id.tvDouble)
         if (double) {
-            doubleView.background = getDrawable(R.drawable.mode_tab_selected)
+            doubleView.background = getDrawable(R.drawable.mode_single_double_selected)
             doubleView.setTextColor(getColor(android.R.color.white))
             doubleView.setTypeface(null, android.graphics.Typeface.BOLD)
             singleView.background = null
@@ -447,7 +465,7 @@ class BookScannerActivity : AppCompatActivity() {
             findViewById<TextView>(R.id.tvStatus).text =
                 "Double — both pages at once (A then B)"
         } else {
-            singleView.background = getDrawable(R.drawable.mode_tab_selected)
+            singleView.background = getDrawable(R.drawable.mode_single_double_selected)
             singleView.setTextColor(getColor(android.R.color.white))
             singleView.setTypeface(null, android.graphics.Typeface.BOLD)
             doubleView.background = null
@@ -810,6 +828,21 @@ class BookScannerActivity : AppCompatActivity() {
         enhanceLauncher.launch(intent)
     }
 
+    /** Thumbnail tap (v0.1.104): show the LAST capture
+     *  full-screen, so the user can check the page they just
+     *  scanned without leaving the camera. */
+    private fun openLastCapture() {
+        if (pages.isEmpty()) return
+        val last = pages.last()
+        val intent = Intent(this, PagePreviewActivity::class.java)
+        intent.putExtra(PagePreviewActivity.EXTRA_PAGE_PATH, last.absolutePath)
+        intent.putExtra(
+            PagePreviewActivity.EXTRA_PAGE_LABEL,
+            "Page ${pages.size}"
+        )
+        startActivity(intent)
+    }
+
     /** Book after Enhance (v0.1.71): the Preview screen.
      *  Filters are already picked, so EXTRA_BATCH_ENHANCE is
      *  false — Save in the Preview goes straight to Export
@@ -840,12 +873,21 @@ class BookScannerActivity : AppCompatActivity() {
     }
 
     private fun saveAsPdf() {
-        // Save PDF now goes through the Filter (Enhance) screen
-        // first (v0.1.71), then the Preview — the user picks
-        // filters, reorders, and Saves there, which opens
-        // Export. Export is a separate screen: while it is open
-        // this activity stops, CameraX releases the camera, and
-        // no scan runs in the background.
-        openBookEnhance()
+        // Save PDF (v0.1.104) — straight to the Preview,
+        // showing the pages from the FIRST one. The Preview's
+        // Save goes to Export. Filters are still available
+        // through the Pages button, which goes via Enhance.
+        if (pages.isEmpty()) {
+            Toast.makeText(this, "Scan at least one page first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val intent = Intent(this, PagesActivity::class.java)
+        intent.putStringArrayListExtra(
+            PagesActivity.EXTRA_PAGE_PATHS,
+            ArrayList(pages.map { it.absolutePath })
+        )
+        intent.putExtra(PagesActivity.EXTRA_DOC_NAME, docName)
+        intent.putExtra(PagesActivity.EXTRA_BATCH_ENHANCE, false)
+        pagesLauncher.launch(intent)
     }
 }
