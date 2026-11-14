@@ -1,85 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Book Scan — landscape. The phone is held sideways so both
-     pages of an open book fit side by side; the dashed spine
-     line splits them into A (left) and B (right).
-     Two narrow control strips leave the preview filling the
-     whole screen — no top/bottom bars squeezing it, and
-     nothing overlaps the status bar.
-       LEFT strip — Close at the top, the Single / Double
-       toggle in the middle, Pages (with the count) and Save
-       PDF at the bottom.
-       RIGHT strip — the shooting actions: Torch at the top,
-       the big capture button at the centre. -->
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- Book Scan — portrait, CamScanner-style (v0.1.99). NO screen
+     rotation: the phone stays in portrait, the camera preview
+     is a landscape (4:3) band in the middle, and a hint tells
+     the user to rotate the CAMERA (the phone) to a landscape
+     view. Simple, like CamScanner — the UI never rotates.
+     Layout, top to bottom:
+       Top bar — Close (X) left, Torch right.
+       Preview — landscape 4:3 band: corner brackets, dashed
+         spine, A / B letters; "Rotate your camera" hint pill
+         at the top; Single / Double pill at the bottom centre.
+       Bottom — the latest-page thumbnail ABOVE the capture
+         button; Pages (count) left, Capture centre, Save PDF
+         right; status line at the very bottom. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000">
+    android:background="#000000"
+    android:orientation="vertical">
 
-    <androidx.camera.view.PreviewView
-        android:id="@+id/previewView"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        app:scaleType="fitCenter" />
-
-    <!-- Draggable dashed spine line + A / B page labels. -->
-    <com.hakunaa.app.scanner.SpineLineView
-        android:id="@+id/spineLine"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
-
-    <!-- Capture thumbnail (v0.1.73): after a capture, a small
-         image of the page appears here (centre) and flies to
-         the Pages button, like a professional scanner. Hidden
-         until a capture lands. White background so it reads as
-         a page card. -->
-    <ImageView
-        android:id="@+id/ivCaptureThumb"
-        android:layout_width="120dp"
-        android:layout_height="120dp"
-        android:layout_gravity="center"
-        android:background="#FFFFFF"
-        android:scaleType="fitCenter"
-        android:visibility="gone" />
-
-    <!-- Status line — overlaid at the bottom of the preview,
-         so it never covers the book or squeezes the screen. -->
-    <TextView
-        android:id="@+id/tvStatus"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="16dp"
-        android:shadowColor="#CC000000"
-        android:shadowDx="0"
-        android:shadowDy="1"
-        android:shadowRadius="4"
-        android:text="Point the camera at an open book — both pages at once"
-        android:textColor="#FFFFFF"
-        android:textSize="13sp" />
-
-    <!-- LEFT strip — file actions + the Single / Double
-         toggle. The toggle moved here (v0.1.58): on the right
-         it sat under the torch, cramped, and the left strip
-         was mostly empty space. Now it sits in the middle of
-         the left strip — a better placement, and the empty
-         space is used. -->
+    <!-- Top bar — Close (X) and Torch. -->
     <LinearLayout
-        android:layout_width="140dp"
-        android:layout_height="match_parent"
-        android:layout_gravity="start"
-        android:clickable="true"
-        android:orientation="vertical"
-        android:padding="12dp">
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp">
 
         <ImageButton
             android:id="@+id/btnClose"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:layout_gravity="center_horizontal"
             android:background="@drawable/circle_button_bg"
             android:contentDescription="Close"
-            android:src="@drawable/ic_arrow_back"
+            android:src="@drawable/ic_text_close"
             android:tint="#FFFFFF" />
 
         <View
@@ -87,17 +42,81 @@
             android:layout_height="0dp"
             android:layout_weight="1" />
 
-        <!-- Single / Double — real segmented buttons: the
-             selected one is a teal pill, the other is plain.
-             Double captures both pages at once (A then B),
-             Single captures one tapped page. -->
+        <ImageButton
+            android:id="@+id/btnTorch"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="@drawable/circle_button_bg"
+            android:contentDescription="Torch"
+            android:src="@drawable/ic_flash_off" />
+    </LinearLayout>
+
+    <!-- Preview — landscape 4:3 band in the middle of the
+         portrait screen. The PreviewView is fitCenter, so the
+         4:3 image sits as a wide band (letterboxed top and
+         bottom); the spine line, brackets and A / B live on
+         that band, never on the black bars. -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <androidx.camera.view.PreviewView
+            android:id="@+id/previewView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            app:scaleType="fitCenter" />
+
+        <!-- Draggable dashed spine line + A / B page labels. -->
+        <com.hakunaa.app.scanner.SpineLineView
+            android:id="@+id/spineLine"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <!-- "Rotate your camera" hint pill (CamScanner-style):
+             the phone stays in portrait, the user turns the
+             CAMERA to landscape to frame the open book. -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal"
+            android:layout_gravity="top|center_horizontal"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/dialog_dark_bg"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp">
+
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:src="@drawable/ic_rotate_left"
+                android:tint="#FFFFFF" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="Rotate your camera to a landscape view"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <!-- Single / Double — real segmented buttons at the
+             bottom centre of the preview: the selected one is
+             a teal pill, the other is plain. Double captures
+             both pages at once (A then B), Single captures one
+             tapped page. -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="12dp"
             android:background="@drawable/mode_tabs_bg"
             android:gravity="center"
-            android:orientation="vertical"
+            android:orientation="horizontal"
             android:paddingStart="4dp"
             android:paddingEnd="4dp"
             android:paddingTop="4dp"
@@ -130,16 +149,38 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
-        <View
-            android:layout_width="0dp"
-            android:layout_height="0dp"
-            android:layout_weight="1" />
+        <!-- Capture thumbnail (v0.1.73): after a capture, a
+             small image of the page appears here (centre) and
+             flies to the Pages button, like a professional
+             scanner. Hidden until a capture lands. White
+             background so it reads as a page card. -->
+        <ImageView
+            android:id="@+id/ivCaptureThumb"
+            android:layout_width="120dp"
+            android:layout_height="120dp"
+            android:layout_gravity="center"
+            android:background="#FFFFFF"
+            android:scaleType="fitCenter"
+            android:visibility="gone" />
+    </FrameLayout>
+
+    <!-- Bottom controls — thumbnail ABOVE the capture button
+         (CamScanner-style), Pages left, Capture centre,
+         Save PDF right, status line at the very bottom. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="16dp">
 
         <!-- Latest page thumbnail (v0.1.74): a small image of
-             the most recent capture, beside the Pages count —
-             like CamScanner, not just a number changing.
-             Hidden until the first page is captured. Tapping
-             it opens Pages, like the Pages button. -->
+             the most recent capture, ABOVE the capture button
+             — like CamScanner. Hidden until the first page is
+             captured. Tapping it opens Pages, like the Pages
+             button. -->
         <ImageView
             android:id="@+id/ivLastPageThumb"
             android:layout_width="64dp"
@@ -150,61 +191,60 @@
             android:scaleType="fitCenter"
             android:visibility="gone" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnPages"
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:text="Pages (0)"
-            android:textSize="14sp" />
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnSavePdf"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:layout_marginTop="8dp"
-            android:text="Save PDF"
-            android:textSize="14sp"
-            android:visibility="gone" />
+            <!-- Spirit Level (v0.1.99): the 2D bullseye, in the
+                 All Features spot at the far left of the capture
+                 row (CamScanner-style). Display-only — it shows
+                 the phone's tilt live, always on. -->
+            <com.hakunaa.app.scanner.SpiritLevelView
+                android:id="@+id/levelView"
+                android:layout_width="56dp"
+                android:layout_height="56dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnPages"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:text="Pages (0)"
+                android:textSize="14sp" />
+
+            <!-- Big round capture button, centred. -->
+            <ImageButton
+                android:id="@+id/btnCapture"
+                android:layout_width="72dp"
+                android:layout_height="72dp"
+                android:layout_marginStart="16dp"
+                android:layout_marginEnd="16dp"
+                android:background="@drawable/capture_button"
+                android:contentDescription="Capture" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSavePdf"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="Save PDF"
+                android:textSize="14sp"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <!-- Status line. -->
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="12dp"
+            android:text="Point the camera at an open book — both pages at once"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp" />
     </LinearLayout>
 
-    <!-- RIGHT strip — shooting actions: Torch at the top, the
-         big capture button centred. (Single / Double moved to
-         the left strip — better placement, less cramped.) -->
-    <LinearLayout
-        android:layout_width="140dp"
-        android:layout_height="match_parent"
-        android:layout_gravity="end"
-        android:clickable="true"
-        android:orientation="vertical"
-        android:padding="12dp">
-
-        <ImageButton
-            android:id="@+id/btnTorch"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_gravity="center_horizontal"
-            android:background="@drawable/circle_button_bg"
-            android:contentDescription="Torch"
-            android:src="@drawable/ic_flash_off" />
-
-        <View
-            android:layout_width="0dp"
-            android:layout_height="0dp"
-            android:layout_weight="1" />
-
-        <!-- Big round capture button, centred on the right. -->
-        <ImageButton
-            android:id="@+id/btnCapture"
-            android:layout_width="72dp"
-            android:layout_height="72dp"
-            android:layout_gravity="center_horizontal"
-            android:background="@drawable/capture_button"
-            android:contentDescription="Capture" />
-
-        <View
-            android:layout_width="0dp"
-            android:layout_height="0dp"
-            android:layout_weight="1" />
-    </LinearLayout>
-
-</FrameLayout>
+</LinearLayout>

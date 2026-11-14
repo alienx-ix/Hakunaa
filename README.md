@@ -630,6 +630,12 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.99 — Book redesigned CamScanner-style, NO screen rotation
+
+- **No more forced rotation (user pick):** BookScannerActivity is PORTRAIT now — the screen never rotates when opening Book. The camera preview is a landscape (4:3) band in the middle of the portrait screen, with a "Rotate your camera to a landscape view" hint pill, like CamScanner. Simple.
+- **CamScanner Book UI:** top bar (X close + Torch); corner brackets, dashed spine, A / B letters on the preview; Single / Double pill at the bottom centre of the preview; the latest-page thumbnail sits ABOVE the capture button; Spirit Level (2D bullseye, live, always on) in the All Features spot at the far left of the capture row; Pages (count) left, Capture centre, Save PDF right; status line at the bottom.
+- **Capture still works:** the split needs a landscape spread, so a portrait sensor image is rotated to landscape first (normally a no-op — the sensor is landscape). Spine stays MANUAL (drag only), A/B split, Enhance → Preview → Export unchanged.
+
 ## v0.1.98 — Status bar done the professional way (transparent + dynamic)
 
 - **Problem in v0.1.97:** the solid status bar colour showed a visible band — white on the black scanner screen (time invisible), and a shade edge on Home.

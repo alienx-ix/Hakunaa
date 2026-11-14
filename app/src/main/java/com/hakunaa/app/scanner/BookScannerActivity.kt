@@ -6,7 +6,12 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.graphics.RectF
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
@@ -130,6 +135,33 @@ class BookScannerActivity : AppCompatActivity() {
     private var doubleMode = true
     private var selectedSide = SpineLineView.SIDE_LEFT
     private var spineFraction = 0.5f
+
+    // Spirit Level (v0.1.99): the 2D bullseye in the All
+    // Features spot (far left of the capture row). Display-only,
+    // always on — it shows the phone's tilt live so the user
+    // holds the book level. Same sensor pattern as the main
+    // scanner, but no Settings toggle here.
+    private var sensorManager: SensorManager? = null
+    private var levelSensor: Sensor? = null
+    private var smoothRoll = 0f
+    private var smoothPitch = 0f
+    private val levelListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            val x = event.values[0]
+            val y = event.values[1]
+            val z = event.values[2]
+            val roll = SpiritLevelView.rollFromAccelerometer(x, y, z)
+            val pitch = SpiritLevelView.pitchFromAccelerometer(x, y, z)
+            // Low-pass: the bubble must not jitter with every
+            // hand tremor.
+            smoothRoll += 0.25f * (roll - smoothRoll)
+            smoothPitch += 0.25f * (pitch - smoothPitch)
+            findViewById<SpiritLevelView>(R.id.levelView)
+                .setTilt(smoothRoll, smoothPitch)
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+    }
 
     private fun spineLine(): SpineLineView =
         findViewById(R.id.spineLine)
@@ -340,6 +372,7 @@ class BookScannerActivity : AppCompatActivity() {
         // recreated surface. Rebind fresh on every resume so
         // the camera always comes back.
         if (!cameraBound) startCamera()
+        startSpiritLevel()
     }
 
     override fun onPause() {
@@ -351,8 +384,33 @@ class BookScannerActivity : AppCompatActivity() {
         cameraResumed = false
         cameraBound = false
         cameraStarting = false
+        stopSpiritLevel()
         try {
             cameraProvider?.unbindAll()
+        } catch (_: Throwable) {
+        }
+    }
+
+    /** The spirit level only listens while this screen is
+     *  visible — a sensor listener left running in the
+     *  background would burn battery. */
+    private fun startSpiritLevel() {
+        if (sensorManager == null) {
+            sensorManager = getSystemService(SENSOR_SERVICE) as? SensorManager
+            levelSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        }
+        val sensor = levelSensor ?: return
+        try {
+            sensorManager?.registerListener(
+                levelListener, sensor, SensorManager.SENSOR_DELAY_UI
+            )
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun stopSpiritLevel() {
+        try {
+            sensorManager?.unregisterListener(levelListener)
         } catch (_: Throwable) {
         }
     }
@@ -455,9 +513,10 @@ class BookScannerActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
-    /** The preview is 4:3 fitCenter inside the full-screen
-     *  PreviewView, so the sides are black bars in landscape.
-     *  Only the image rect holds the book. */
+    /** The preview is 4:3 fitCenter inside the PreviewView,
+     *  so the preview is a landscape band in the portrait
+     *  screen (letterboxed top and bottom). Only the image
+     *  rect holds the book. */
     private fun previewContentRect(): RectF {
         val previewView = findViewById<PreviewView>(R.id.previewView)
         val w = previewView.width.toFloat()
@@ -621,13 +680,27 @@ class BookScannerActivity : AppCompatActivity() {
      *  ticks up when it lands, like a professional scanner. */
     private fun processBookPhoto(photoFile: File) {
         try {
-            val bitmap = BitmapFactory.decodeFile(photoFile.absolutePath)
+            var bitmap = BitmapFactory.decodeFile(photoFile.absolutePath)
             if (bitmap == null) {
                 runOnUiThread {
                     isCapturing = false
                     findViewById<TextView>(R.id.tvStatus).text = "Couldn't read that photo — try again"
                 }
                 return
+            }
+            // Portrait activity (v0.1.99): the sensor image can
+            // come back portrait — the split needs a LANDSCAPE
+            // spread, so turn it to landscape first. (The
+            // sensor is landscape, so this is normally a no-op;
+            // it is only a safety net.)
+            if (bitmap.height > bitmap.width) {
+                val matrix = Matrix()
+                matrix.postRotate(90f)
+                val rotated = Bitmap.createBitmap(
+                    bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
+                )
+                bitmap.recycle()
+                bitmap = rotated
             }
             val split = DocumentDetector.splitSpread(bitmap, spineFraction)
             bitmap.recycle()

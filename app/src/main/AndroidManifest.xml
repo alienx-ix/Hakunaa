@@ -37,7 +37,7 @@
         <activity
             android:name=".scanner.BookScannerActivity"
             android:exported="false"
-            android:screenOrientation="landscape" />
+            android:screenOrientation="portrait" />
         <activity android:name=".scanner.CropActivity" android:exported="false" />
         <activity android:name=".scanner.EnhanceActivity" android:exported="false" />
         <activity android:name=".scanner.PagesActivity" android:exported="false" />
