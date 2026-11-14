@@ -191,14 +191,17 @@ class EnhanceActivity : AppCompatActivity() {
         setupSwipe()
 
         findViewById<LinearLayout>(R.id.btnRotateLeft).setOnClickListener { rotateLeft() }
-        findViewById<ImageButton>(R.id.btnSave).setOnClickListener { save() }
-        // The confirm label says what happens next (v0.1.76):
-        // "Continue" from a thumbnail review (back to the
-        // camera), "Finish" from Done / Single / Book (on to
-        // Preview / Export). It sits BELOW the round button
-        // (style 6, user pick), in bold white.
-        findViewById<TextView>(R.id.tvSaveLabel).text =
-            intent.getStringExtra(EXTRA_CONFIRM_LABEL) ?: "Finish"
+        val btnSave = findViewById<ImageButton>(R.id.btnSave)
+        btnSave.setOnClickListener { save() }
+        // Symbol only, no text (user pick): the icon says what
+        // happens next. "Continue" from a thumbnail review
+        // (back to the camera) shows a right arrow; "Finish"
+        // from Done / Single / Book (on to Preview / Export)
+        // shows a tick.
+        btnSave.setImageResource(
+            if (intent.getStringExtra(EXTRA_CONFIRM_LABEL) == "Continue")
+                R.drawable.ic_arrow_right else R.drawable.ic_check
+        )
         // Adjust opens ONLY from its menu button — never on its
         // own after a capture. The panel stays hidden until the
         // user asks for it.

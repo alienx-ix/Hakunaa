@@ -276,12 +276,12 @@
     <!-- Bottom bar: Left / Crop / Adjust / Finish (v0.1.76:
          Markup and Sign were removed — they are later steps
          and only took space; the Finish / Continue button
-         needs the room). The bar is 80dp so the round
-         confirm button and its label fit INSIDE it with a
-         margin — nothing hidden at the bottom or the sides. -->
+         needs the room). The bar is 72dp: the 56dp round
+         confirm button sits centred with an even 8dp margin
+         top and bottom, a little inside from the sides. -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="80dp"
+        android:layout_height="72dp"
         android:background="#1A1A1A"
         android:gravity="center_vertical"
         android:orientation="horizontal"
@@ -373,37 +373,19 @@
             android:layout_height="0dp"
             android:layout_weight="1" />
 
-        <!-- Confirm — style 6, picked by the user: a big
-             round teal check (56dp) with the word below it
-             ("Continue" from a thumbnail review, back to the
-             camera; "Finish" from Done / Single / Book, on to
-             Preview / Export). It sits a little inside from
-             the bottom and the sides — fully visible, nothing
-             hidden at the edges. -->
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:gravity="center"
-            android:orientation="vertical">
-
-            <ImageButton
-                android:id="@+id/btnSave"
-                android:layout_width="56dp"
-                android:layout_height="56dp"
-                android:background="@drawable/bg_teal_button"
-                android:contentDescription="Save"
-                android:src="@drawable/ic_check"
-                android:tint="#FFFFFF" />
-
-            <TextView
-                android:id="@+id/tvSaveLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:text="Finish"
-                android:textColor="#FFFFFF"
-                android:textSize="16sp"
-                android:textStyle="bold" />
-        </LinearLayout>
+        <!-- Confirm — symbol only, no text (user pick):
+             a big round teal button (56dp). Finish shows a
+             tick, Continue shows a right arrow (the icon is
+             set in code from EXTRA_CONFIRM_LABEL). It sits
+             centred in the bar, a little inside from the
+             bottom and the sides. -->
+        <ImageButton
+            android:id="@+id/btnSave"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:background="@drawable/bg_teal_button"
+            android:contentDescription="Save"
+            android:src="@drawable/ic_check"
+            android:tint="#FFFFFF" />
     </LinearLayout>
 </LinearLayout>

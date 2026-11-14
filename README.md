@@ -630,6 +630,10 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.81 — Confirm button is symbol-only (tick / arrow)
+
+The confirm button is a big round teal button (56dp), symbol only, no text. Finish shows a tick, Continue shows a right arrow (the icon is set from the confirm label). It sits centred in the 72dp bar with an even 8dp margin — a little inside from the bottom and the sides, professional placement.
+
 ## v0.1.80 — Confirm button is the picked round teal check (style 6)
 
 The confirm button is style 6 from the options sheet, picked by the user: a big round teal check (56dp) with the word below it in bold white ("Continue" from a thumbnail review, "Finish" from Done / Single / Book). It sits a little inside from the bottom and the sides — fully visible, nothing hidden at the edges. (The v0.1.79 boxy button was rejected as worst.)
