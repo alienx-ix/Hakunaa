@@ -45,20 +45,26 @@
         android:scaleType="fitCenter"
         android:visibility="gone" />
 
-    <!-- Status line — overlaid at the bottom of the preview,
-         so it never covers the book or squeezes the screen. -->
+    <!-- Status line (v0.1.105) — BELOW the Spirit Level,
+         right-aligned with it (marginEnd 152dp, same as the
+         Level), a little gap under the bubble (marginTop
+         48dp from the vertical centre). Single's clean look:
+         small GREY text (#B0B0B0, 13sp) on a dark pill, so
+         the busy page and the spine line never touch it. -->
     <TextView
         android:id="@+id/tvStatus"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="16dp"
-        android:shadowColor="#CC000000"
-        android:shadowDx="0"
-        android:shadowDy="1"
-        android:shadowRadius="4"
+        android:layout_gravity="center_vertical|end"
+        android:layout_marginTop="48dp"
+        android:layout_marginEnd="152dp"
+        android:background="@drawable/bg_status_pill"
+        android:paddingStart="14dp"
+        android:paddingTop="7dp"
+        android:paddingEnd="14dp"
+        android:paddingBottom="7dp"
         android:text="Point the camera at an open book — both pages at once"
-        android:textColor="#FFFFFF"
+        android:textColor="#B0B0B0"
         android:textSize="13sp" />
 
     <!-- Spirit Level (v0.1.102) — EXACTLY like Single/Batch:
@@ -209,22 +215,25 @@
             android:background="@drawable/capture_button"
             android:contentDescription="Capture" />
 
-        <!-- Exit (v0.1.104) — below Capture, Book only. -->
+        <!-- Exit (v0.1.105) — at the BOTTOM of the right
+             strip, level with the Save PDF button on the left
+             strip, so the shooting hand reaches it without
+             stretching. alignParentBottom puts it at the
+             strip's bottom (the 12dp padding insets it
+             exactly like Save PDF on the left). -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnExit"
             android:layout_width="wrap_content"
             android:layout_height="40dp"
-            android:layout_below="@id/btnCapture"
+            android:layout_alignParentBottom="true"
             android:layout_centerHorizontal="true"
-            android:layout_marginTop="20dp"
             android:text="Exit"
             android:textSize="14sp" />
     </RelativeLayout>
 
     <!-- Back arrow (v0.1.102) — top-LEFT corner, over the
-         preview, just below the status bar. It used to sit
-         inside the left strip, inset from the corner — the
-         wrong place.
+         preview. v0.1.105: marginTop 20dp (was 36dp) — sits
+         a little higher, in the true top-left corner.
          v0.1.104: it MUST be the LAST child in this file.
          The left strip is clickable and covers the corner, so
          when the arrow sat before the strips the strip ate
@@ -236,7 +245,7 @@
         android:layout_height="48dp"
         android:layout_gravity="top|start"
         android:layout_marginStart="16dp"
-        android:layout_marginTop="36dp"
+        android:layout_marginTop="20dp"
         android:background="@drawable/circle_button_bg"
         android:contentDescription="Close"
         android:src="@drawable/ic_arrow_back"

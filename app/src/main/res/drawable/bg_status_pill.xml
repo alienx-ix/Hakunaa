@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dark pill behind the Book status hint (v0.1.105): the hint
+     sits ON the camera photo, so grey text alone gets lost
+     on the busy page and the spine line cuts through it.
+     This pill gives it Single's clean grey-on-black look. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="16dp" />
+    <solid android:color="#CC000000" />
+</shape>

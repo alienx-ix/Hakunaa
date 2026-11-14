@@ -630,6 +630,12 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.105 — Exit at the bottom + back arrow higher (on v0.1.104)
+
+- **Exit, at the bottom:** the Exit button now sits at the BOTTOM of the right strip, level with the Save PDF button on the left strip — `alignParentBottom` instead of below Capture, so the shooting hand reaches it without stretching.
+- **Back arrow, a little higher:** marginTop 36dp → 20dp, in the true top-left corner like the pro scanner apps. (Still the last layout child, so it stays topmost and tappable.)
+- **Status hint, below the Level:** the instruction line now sits right below the Spirit Level (right-aligned with it), on a dark pill with small GREY text (#B0B0B0, 13sp) — Single's clean look, and the busy page and spine line never touch it.
+
 ## v0.1.104 — Book navigation fixed + professional Single/Double (on v0.1.103)
 
 - **Back button works now:** the arrow is the LAST child of the layout (topmost). Before, the clickable left strip covered the corner and ate every tap, so the button did nothing.
