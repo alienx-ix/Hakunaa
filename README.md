@@ -630,6 +630,15 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.90 — Preview delete sticks; text ×/⤢ visible
+
+- **Delete in Preview sticks (the bug):** deleting a page in the final Preview only removed it from that screen — the camera's own list still had it, and the raw file still existed, so the page came back the next time. Now the Preview hands its updated list back, and the camera syncs to it (delete + reorder both stick), dropping the raw file and the saved edits of any removed page.
+- **× and ⤢ show now (v0.1.89 fix, in this build):** `clipChildren=false` alone was not enough — the box also clips to its padding, so the X and handle sitting outside were still cut off. Now the box and the page also allow drawing past the padding (`clipToPadding=false`), so the teal × and ⤢ show clearly outside the box.
+
+## v0.1.89 — Text ×/⤢ actually visible outside the box
+
+- **× and ⤢ show now:** `clipChildren=false` alone was not enough — the box also clips to its padding, so the X and handle sitting outside were still cut off. Now the box and the page also allow drawing past the padding (`clipToPadding=false`), so the teal × and ⤢ show clearly outside the box.
+
 ## v0.1.88 — Text ×/⤢ visible outside the box; Rotate stays after tick
 
 - **× and ⤢ are visible now:** moving them outside the box made the box cut them off (they were invisible). The box and the page now let them draw past the edge, so the teal × and ⤢ show clearly outside the box.

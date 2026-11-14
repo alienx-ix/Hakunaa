@@ -108,11 +108,28 @@ class PagesActivity : AppCompatActivity() {
             }
         }
 
+    /** The pages as they stand now, for the caller: when
+     *  this screen closes (back, Add Page, or the last page
+     *  deleted), the caller must get the updated list — a
+     *  delete or a reorder made here has to stick, not come
+     *  back the next time the pages are opened (v0.1.90). */
+    private fun pagesResultData(): Intent {
+        val data = Intent()
+        data.putStringArrayListExtra(
+            EXTRA_PAGE_PATHS,
+            ArrayList(pages.map { it.absolutePath })
+        )
+        return data
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_pages)
 
-        findViewById<ImageButton>(R.id.btnBack).setOnClickListener { finish() }
+        findViewById<ImageButton>(R.id.btnBack).setOnClickListener {
+            setResult(RESULT_CANCELED, pagesResultData())
+            finish()
+        }
 
         val paths = intent.getStringArrayListExtra(EXTRA_PAGE_PATHS)
         docName = intent.getStringExtra(EXTRA_DOC_NAME)
@@ -136,6 +153,9 @@ class PagesActivity : AppCompatActivity() {
                 pages.removeAt(index)
                 if (pages.isEmpty()) {
                     Toast.makeText(this, "No pages left", Toast.LENGTH_SHORT).show()
+                    // No pages left — tell the caller the list
+                    // is empty, so it drops the batch too.
+                    setResult(RESULT_CANCELED, pagesResultData())
                     finish()
                 } else {
                     adapter.notifyItemRemoved(index)
@@ -177,7 +197,9 @@ class PagesActivity : AppCompatActivity() {
 
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnAddPage)
             .setOnClickListener {
-                setResult(RESULT_ADD_PAGE)
+                val data = pagesResultData()
+                data.putExtra("add_page", true)
+                setResult(RESULT_ADD_PAGE, data)
                 finish()
             }
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnSavePdf)

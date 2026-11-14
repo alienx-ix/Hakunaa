@@ -470,7 +470,44 @@ class ScannerActivity : AppCompatActivity() {
                 Toast.makeText(this, "Discarded", Toast.LENGTH_SHORT).show()
             }
             // RESULT_ADD_PAGE or back: stay on the camera, pages kept.
+            // But Pages may have deleted or reordered pages —
+            // sync to the list it returns (v0.1.90), so a
+            // deleted page does not come back the next time
+            // the pages are opened.
+            val returned = result.data?.getStringArrayListExtra(PagesActivity.EXTRA_PAGE_PATHS)
+            if (returned != null) {
+                syncPages(returned)
+            }
         }
+
+    /** Replace the batch with the page list Pages returns
+     *  (after a delete / reorder there). Pages that are gone
+     *  drop out of [rawPaths] and the overlay store too, so
+     *  nothing deleted can come back. */
+    private fun syncPages(returned: ArrayList<String>) {
+        val kept = returned.mapNotNull { path ->
+            val f = File(path)
+            if (f.exists()) f else null
+        }
+        val keptSet = kept.map { it.absolutePath }.toSet()
+        // Drop the raw-path + overlay entries of pages that
+        // are no longer in the batch.
+        val removed = pages.filter { it.absolutePath !in keptSet }
+        for (file in removed) {
+            val raw = rawPathFor(file)
+            rawPaths.remove(file.absolutePath)
+            OverlayStore.remove(raw)
+            // Also drop the raw file itself (if it is a
+            // different file), so nothing deleted lingers.
+            if (raw != file.absolutePath) {
+                try { File(raw).delete() } catch (_: Throwable) { }
+            }
+        }
+        rawPaths.keys.retainAll(keptSet)
+        pages.clear()
+        pages.addAll(kept)
+        updatePagesLabel()
+    }
 
     // Batch Done → Filter (Enhance) directly (v0.1.58): the
     // Batch flow was Done → Pages → Save → Enhance → Export,
