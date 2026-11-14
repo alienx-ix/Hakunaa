@@ -630,6 +630,11 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.95 — Enhance bar back to the previous design (Adjust below)
+
+- **Previous design restored (user pick):** the Enhance bar is back to Rotate → Crop → **Adjust** → Draw → Erase → Text → Sign + Tick (right only, no left back-arrow). Adjust lives BELOW in the bar with the other tools — the tune icon on the filter thumbnail is gone.
+- Export button ('Export • N pages') and thumbnail tap both still open this same Filter screen, then Preview → Export.
+
 ## v0.1.94 — Export button back (same place, label Export); Enhance bar tick-only
 
 - **Export button restored (user pick):** the Done button is back in the SAME place — a big teal pill, same size and style — but labelled **"Export • N pages"** instead of "Done". Both the Export button AND the thumbnail tap open the SAME Filter (Enhance) screen, then Preview → Export.
