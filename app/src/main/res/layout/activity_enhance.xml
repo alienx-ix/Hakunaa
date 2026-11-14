@@ -372,24 +372,28 @@
             android:layout_height="0dp"
             android:layout_weight="1" />
 
-        <!-- Confirm — a boxy rectangle (v0.1.78), not a
-             circle: the user did not want the round button.
-             The word sits INSIDE the button ("Continue" from a
-             thumbnail review, back to the camera; "Finish"
-             from Done / Single / Book, on to Preview /
-             Export), and the fill is a deeper teal so it is
-             less highlighted than the bright pill. -->
+        <!-- Confirm — the approved boxy button (v0.1.79,
+             user-approved from the preview image): 48dp tall,
+             tight fit around the text (no empty space inside),
+             deeper teal, 22sp bold text inside. From a
+             thumbnail review it says "Continue" (back to the
+             camera); from Done / Single / Book it says
+             "Finish" (on to Preview / Export). -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnSave"
             android:layout_width="wrap_content"
-            android:layout_height="40dp"
-            android:minWidth="160dp"
+            android:layout_height="48dp"
+            android:minWidth="0dp"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
             android:text="Finish"
             android:textColor="#FFFFFF"
+            android:textSize="22sp"
             android:textStyle="bold"
             app:backgroundTint="#00897B"
             app:cornerRadius="8dp"
             app:icon="@drawable/ic_check"
+            app:iconPadding="6dp"
             app:iconTint="#FFFFFF" />
     </LinearLayout>
 </LinearLayout>

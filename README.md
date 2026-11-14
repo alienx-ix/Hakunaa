@@ -630,6 +630,10 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## v0.1.79 — Approved confirm button (48dp, tight fit, 22sp bold)
+
+The confirm button is the user-approved design from the preview image: a boxy rectangle (8dp corners, 48dp tall), tight fit around the text with no empty space inside, deeper teal (#00897B), 22sp bold text inside ("Continue" from a thumbnail review, "Finish" from Done / Single / Book).
+
 ## v0.1.78 — Confirm button is a boxy rectangle, less highlighted, text inside; smoother
 
 The round button is gone — the user did not want a circle. The confirm is a boxy rectangle (8dp corners, 40dp tall, 160dp wide) with the word inside it in bold ("Continue" from a thumbnail review, "Finish" from Done / Single / Book), and the fill is a deeper teal (#00897B) so it is less highlighted than the bright pill.
