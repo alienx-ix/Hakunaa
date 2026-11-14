@@ -58,57 +58,12 @@
         android:textColor="#FFFFFF"
         android:textSize="13sp" />
 
-    <!-- Single / Double (v0.1.101) — exactly like the
-         CamScanner screenshot: a HORIZONTAL pill at the bottom
-         centre of the preview, dark outer pill, the selected
-         mode a grey pill (bold white text), the other plain.
-         Double captures both pages at once (A then B), Single
-         captures one tapped page. Sits above the status line. -->
-    <LinearLayout
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="52dp"
-        android:background="@drawable/mode_tabs_bg"
-        android:gravity="center"
-        android:orientation="horizontal"
-        android:paddingStart="4dp"
-        android:paddingEnd="4dp"
-        android:paddingTop="4dp"
-        android:paddingBottom="4dp">
-
-        <TextView
-            android:id="@+id/tvSingle"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp"
-            android:text="Single"
-            android:textColor="#FFFFFF"
-            android:textSize="16sp" />
-
-        <TextView
-            android:id="@+id/tvDouble"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:background="@drawable/mode_single_double_selected"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp"
-            android:text="Double"
-            android:textColor="#FFFFFF"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-    </LinearLayout>
-
-    <!-- LEFT strip — file actions: Close at the top, Pages
-         (with the count) and Save PDF at the bottom. (The
-         Single / Double toggle moved to the bottom centre of
-         the preview in v0.1.101, exactly like the CamScanner
-         screenshot — a horizontal pill, not a vertical stack.) -->
+    <!-- LEFT strip — file actions + the Single / Double
+         toggle. The toggle moved here (v0.1.58): on the right
+         it sat under the torch, cramped, and the left strip
+         was mostly empty space. Now it sits in the middle of
+         the left strip — a better placement, and the empty
+         space is used. -->
     <LinearLayout
         android:layout_width="140dp"
         android:layout_height="match_parent"
@@ -126,6 +81,54 @@
             android:contentDescription="Close"
             android:src="@drawable/ic_arrow_back"
             android:tint="#FFFFFF" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <!-- Single / Double — real segmented buttons: the
+             selected one is a teal pill, the other is plain.
+             Double captures both pages at once (A then B),
+             Single captures one tapped page. -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:background="@drawable/mode_tabs_bg"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp">
+
+            <TextView
+                android:id="@+id/tvSingle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:text="Single"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp" />
+
+            <TextView
+                android:id="@+id/tvDouble"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/mode_tab_selected"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:text="Double"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+        </LinearLayout>
 
         <View
             android:layout_width="0dp"
@@ -197,17 +200,6 @@
             android:layout_gravity="center_horizontal"
             android:background="@drawable/capture_button"
             android:contentDescription="Capture" />
-
-        <!-- Spirit Level (v0.1.101): the 2D bullseye, below the
-             capture button in the right strip. Display-only —
-             it shows the phone's tilt live, always on, so the
-             user holds the book level. -->
-        <com.hakunaa.app.scanner.SpiritLevelView
-            android:id="@+id/levelView"
-            android:layout_width="56dp"
-            android:layout_height="56dp"
-            android:layout_gravity="center_horizontal"
-            android:layout_marginTop="24dp" />
 
         <View
             android:layout_width="0dp"
