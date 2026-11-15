@@ -655,6 +655,12 @@ Image: JPEG 85% is visually lossless for photos. WebP is
 - **Video tools menu** agreed (user idea, 2026-11-15): Standard Compress (basic), Smart Compress (multiple results at once, user picks), Advanced (full manual control), Convert (13 formats), Rotate, Color (grading), Video to Audio, Video Cutter.
 - **Same quality, smaller size (visually lossless)** clarified (2026-11-15): quality looks the same to the eye, only the size reduces — this is what the CRF ladder already does (CRF 23-28, 40-60% smaller). Mathematical lossless (CRF 0) makes the file bigger — not wanted; true 0% loss with no size change is Quick Remux.
 
+## v0.1.115 — Back steps back inside the tool, leaving asks first, Target size rejects too-big values (on v0.1.114)
+
+- **Back steps back inside the tool now** — system Back and the in-app Back go one step back within Compress (Quality → 3 buttons, resolution → Quality, results → resolution) instead of exiting the whole tool at once.
+- **Leaving a tool asks first** — pressing back at the first step (or in any single-step tool) shows "Leave this tool? / Your work will be discarded." (Cancel stays, Leave exits).
+- **Target size validation** — entering a target at or above the original image size is NOT allowed: the input box turns red (`bg_input_error`, white pill + red border) and the status says "Target must be smaller than the original (X)". Typing again clears the red. (The photo-remember fix and the small Quality cards are noted for the final build, not in this version.)
+
 ## v0.1.114 — Quality % + Target screens professional, HD is true 0% loss, photo remembered, Quick Squish is Smart Compress (on v0.1.113)
 
 - **Quality % is professional cards now** — 95/90/80/70/60/50/Custom 85 as tappable menu-style cards (no radio list); tap goes straight to the resolution step.
@@ -663,6 +669,8 @@ Image: JPEG 85% is visually lossless for photos. WebP is
 - **Picked photo is remembered (user, 2026-11-15 — major fix):** the photo is copied to a fixed cache file + path saved in prefs, restored when the menu opens, so going back and re-entering a tool never asks again. A small current-photo row (thumbnail + name + Change) lets the user pick a different photo.
 - **Quick Squish is Smart Compress now (user, 2026-11-15):** renamed card + new MODE_SMART — one tap tries all levels in the ORIGINAL format and shows ALL results with real sizes; the user picks the size they need and taps to save.
 - **Quick Squish / compressBest keeps the original format (user, 2026-11-15):** a JPG stays a JPG, a WebP stays a WebP — no surprise format change. New `formatOf()` detects the format from magic bytes. (WebP is accepted by WhatsApp/Instagram/web, but most Govt portals accept only JPG/JPEG — so JPG stays JPG for Govt forms.)
+- **PENDING FIX (user correction, 2026-11-15 18:26 IST — fix in the final build):** the picked photo must NOT be remembered. Pick a photo, back, the photo GOES AWAY; a NEW photo must be picked every time a tool is entered. The v0.1.114 remember-photo (Change row) is the wrong behaviour — clear the picked photo on back/leave.
+- **PENDING FIX (user, 2026-11-15 18:29 IST — fix in the final build):** the Quality % cards are too big — make them SMALL/compact, not big boxes. Format: "95% - Maximum Quality" on ONE line (the label must NOT sit on a separate line below).
 
 ## v0.1.113 — Compress is 3 professional buttons, HD has no options (on v0.1.112)
 

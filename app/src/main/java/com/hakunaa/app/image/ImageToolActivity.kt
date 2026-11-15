@@ -100,9 +100,30 @@ class ImageToolActivity : AppCompatActivity() {
                 step--
                 renderStep()
             } else {
-                finish()
+                attemptLeave()
             }
         }
+
+        // System Back must step back within the tool (not exit it outright).
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (mode == MODE_COMPRESS && step > 0) {
+                    step--
+                    renderStep()
+                } else {
+                    attemptLeave()
+                }
+            }
+        })
+
+        findViewById<android.widget.EditText>(R.id.etTargetSize).addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                findViewById<android.widget.EditText>(R.id.etTargetSize)
+                    .setBackgroundResource(R.drawable.bg_search)
+            }
+        })
 
         findViewById<TextView>(R.id.tvUnitKb).setOnClickListener {
             targetUnitIsMb = false
@@ -303,6 +324,16 @@ class ImageToolActivity : AppCompatActivity() {
         return checked.tag as? String
     }
 
+    /** Leaving the tool asks first — the work is discarded on Leave. */
+    private fun attemptLeave() {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Leave this tool?")
+            .setMessage("Your work will be discarded.")
+            .setPositiveButton("Leave") { _, _ -> finish() }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     /** Smart Compress: try all levels, show every result, user picks one. */
     private fun runSmartCompress() {
         val input = inputFile ?: return
@@ -344,10 +375,17 @@ class ImageToolActivity : AppCompatActivity() {
                 1 -> { /* Quality is picked by tapping a card (Next is hidden there). */ }
                 2 -> {
                     val targetBytes = targetSizeBytes()
+                    val etTarget = findViewById<android.widget.EditText>(R.id.etTargetSize)
                     if (targetBytes == null || targetBytes <= 0) {
                         status.text = "Enter a size first (e.g. 500 KB or 2 MB)"
                         return
                     }
+                    if (targetBytes >= inputSize) {
+                        etTarget.setBackgroundResource(R.drawable.bg_input_error)
+                        status.text = "Target must be smaller than the original (${com.hakunaa.app.core.FileUtils.formatSize(inputSize)})"
+                        return
+                    }
+                    etTarget.setBackgroundResource(R.drawable.bg_search)
                     status.text = "Working…"
                     val nextBtn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnNext)
                     nextBtn.isEnabled = false
