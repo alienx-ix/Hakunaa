@@ -655,6 +655,12 @@ Image: JPEG 85% is visually lossless for photos. WebP is
 - **Video tools menu** agreed (user idea, 2026-11-15): Standard Compress (basic), Smart Compress (multiple results at once, user picks), Advanced (full manual control), Convert (13 formats), Rotate, Color (grading), Video to Audio, Video Cutter.
 - **Same quality, smaller size (visually lossless)** clarified (2026-11-15): quality looks the same to the eye, only the size reduces — this is what the CRF ladder already does (CRF 23-28, 40-60% smaller). Mathematical lossless (CRF 0) makes the file bigger — not wanted; true 0% loss with no size change is Quick Remux.
 
+## v0.1.113 — Compress is 3 professional buttons, HD has no options (on v0.1.112)
+
+- **Compress mode picker is 3 buttons now** (menu-style cards, teal-tint icons) — no radio list: **Quality** (choose a quality %), **Target size** (enter MB or KB), **HD Compress** (only size reduces, 0% quality loss). Tapping a button goes straight in — no Next press.
+- **Target:** tap the button → the MB/KB value entry opens directly.
+- **HD Compress: no options any more** — one tap, Full Quality (JPEG 95), half the size, saved. The Half / HD 1920 / Quarter picker is gone.
+
 ## v0.1.112 — Smart-results crash fixed + per-tool file pick + Compress is 3 buttons (on v0.1.111)
 
 - **Crash fixed:** the Smart results screen crashed (`Resources$NotFoundException`, attribute id passed as a drawable). The ripple background is now resolved through the theme first (`TypedValue` + `resolveAttribute`) — the results screen opens.

@@ -122,19 +122,20 @@ class ImageToolActivity : AppCompatActivity() {
         group.visibility = View.VISIBLE
         findViewById<LinearLayout>(R.id.resultsContainer).visibility = View.GONE
         findViewById<LinearLayout>(R.id.targetSizeContainer).visibility = View.GONE
-        findViewById<com.google.android.material.button.MaterialButton>(R.id.btnNext).text =
-            if (mode == MODE_COMPRESS && isCompressDoneStep()) "Done" else "Next"
+        findViewById<LinearLayout>(R.id.modeContainer).visibility = View.GONE
+        val nextBtn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnNext)
+        // Step 0 is the 3 buttons — tapping one IS the action, so no Next button.
+        nextBtn.visibility = if (mode == MODE_COMPRESS && step == 0) View.GONE else View.VISIBLE
+        nextBtn.text = if (mode == MODE_COMPRESS && isCompressDoneStep()) "Done" else "Next"
         val subtitle = findViewById<TextView>(R.id.tvSubtitle)
         when (mode) {
             MODE_COMPRESS -> {
                 when (step) {
                     0 -> {
                         subtitle.text = "Choose how to compress"
-                        addOptions(group, listOf(
-                            "quality" to "Quality — Choose a quality %",
-                            "target" to "Target size — Enter MB or KB",
-                            "hd" to "HD Compress — Only size reduces, 0% quality loss"
-                        ), 0)
+                        group.visibility = View.GONE
+                        findViewById<LinearLayout>(R.id.modeContainer).visibility = View.VISIBLE
+                        buildCompressModeCards()
                     }
                     1 -> when (compressMode) {
                         1 -> {
@@ -286,17 +287,9 @@ class ImageToolActivity : AppCompatActivity() {
         val input = inputFile ?: return
         val status = findViewById<TextView>(R.id.tvStatus)
         // Compress: 3 buttons — Quality %, Target size (MB/KB),
-        // HD Compress (size only, 0% quality loss).
-        if (mode == MODE_COMPRESS && step == 0) {
-            compressMode = when (selectedTag()) {
-                "target" -> 2
-                "hd" -> 3
-                else -> 1
-            }
-            step = 1
-            renderStep()
-            return
-        }
+        // HD Compress (size only, 0% quality loss). Step 0 is the
+        // buttons (Next is hidden there), so nothing to do here.
+        if (mode == MODE_COMPRESS && step == 0) return
         if (mode == MODE_COMPRESS && step == 1) {
             when (compressMode) {
                 1 -> {
@@ -336,40 +329,7 @@ class ImageToolActivity : AppCompatActivity() {
                         }
                     }.start()
                 }
-                3 -> {
-                    val scale = selectedTag() ?: "50"
-                    val longest = imageLongestSide()
-                    val maxDim = when (scale) {
-                        "1920" -> 1920
-                        "25" -> (longest * 0.25).toInt().coerceAtLeast(240)
-                        else -> (longest * 0.5).toInt().coerceAtLeast(240)
-                    }
-                    status.text = "Working…"
-                    val nextBtn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnNext)
-                    nextBtn.isEnabled = false
-                    Thread {
-                        try {
-                            val outFile = File(cacheDir, "hakunaa_hd_${System.currentTimeMillis()}.jpg")
-                            val ok = ImageCompressor.compress(input, outFile, 95, ImageCompressor.Format.JPEG, maxDim)
-                            runOnUiThread {
-                                nextBtn.isEnabled = true
-                                if (ok && outFile.exists() && outFile.length() < input.length()) {
-                                    step = 2
-                                    renderStep()
-                                    saveSingleResult(outFile)
-                                } else {
-                                    try { outFile.delete() } catch (_: Throwable) { }
-                                    status.text = "Already optimized — this photo is already small"
-                                }
-                            }
-                        } catch (_: Throwable) {
-                            runOnUiThread {
-                                nextBtn.isEnabled = true
-                                status.text = "Failed — try another image"
-                            }
-                        }
-                    }.start()
-                }
+                3 -> runHdCompress()
             }
             return
         }
@@ -496,6 +456,75 @@ class ImageToolActivity : AppCompatActivity() {
         1 -> step == 3
         2, 3 -> step == 2
         else -> false
+    }
+
+    /** The 3 professional Compress buttons: Quality / Target size / HD Compress. */
+    private fun buildCompressModeCards() {
+        val container = findViewById<LinearLayout>(R.id.modeContainer)
+        container.removeAllViews()
+        val inflater = android.view.LayoutInflater.from(this)
+        val gapPx = (12 * resources.displayMetrics.density).toInt()
+        val modes = listOf(
+            Triple(R.drawable.ic_tune, "Quality", "Choose a quality %") to 1,
+            Triple(R.drawable.ic_text_resize, "Target size", "Enter MB or KB") to 2,
+            Triple(R.drawable.ic_bolt, "HD Compress", "Only size reduces, 0% quality loss") to 3
+        )
+        for ((index, entry) in modes.withIndex()) {
+            val (info, mode) = entry
+            val (icon, title, subtitle) = info
+            val card = inflater.inflate(R.layout.item_image_tool, container, false)
+            card.findViewById<android.widget.ImageView>(R.id.ivIcon).setImageResource(icon)
+            card.findViewById<TextView>(R.id.tvTitle).text = title
+            card.findViewById<TextView>(R.id.tvSubtitle).text = subtitle
+            if (index > 0) {
+                val params = card.layoutParams as? LinearLayout.LayoutParams
+                params?.topMargin = gapPx
+                card.layoutParams = params
+            }
+            card.setOnClickListener {
+                compressMode = mode
+                if (mode == 3) {
+                    runHdCompress()
+                } else {
+                    step = 1
+                    renderStep()
+                }
+            }
+            container.addView(card)
+        }
+    }
+
+    /** HD Compress: one tap, no options — Full Quality (JPEG 95), half the size. */
+    private fun runHdCompress() {
+        val input = inputFile ?: return
+        val status = findViewById<TextView>(R.id.tvStatus)
+        status.text = "Working…"
+        val nextBtn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnNext)
+        nextBtn.isEnabled = false
+        Thread {
+            try {
+                val longest = imageLongestSide()
+                val maxDim = (longest * 0.5).toInt().coerceAtLeast(240)
+                val outFile = File(cacheDir, "hakunaa_hd_${System.currentTimeMillis()}.jpg")
+                val ok = ImageCompressor.compress(input, outFile, 95, ImageCompressor.Format.JPEG, maxDim)
+                runOnUiThread {
+                    nextBtn.isEnabled = true
+                    if (ok && outFile.exists() && outFile.length() < input.length()) {
+                        step = 2
+                        renderStep()
+                        saveSingleResult(outFile)
+                    } else {
+                        try { outFile.delete() } catch (_: Throwable) { }
+                        status.text = "Already optimized — this photo is already small"
+                    }
+                }
+            } catch (_: Throwable) {
+                runOnUiThread {
+                    nextBtn.isEnabled = true
+                    status.text = "Failed — try another image"
+                }
+            }
+        }.start()
     }
 
     /** Target size in bytes from the custom input (number + KB/MB). */
