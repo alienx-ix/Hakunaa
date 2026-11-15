@@ -386,28 +386,18 @@ class ImageToolActivity : AppCompatActivity() {
                         return
                     }
                     etTarget.setBackgroundResource(R.drawable.bg_search)
-                    status.text = "Working…"
+                    status.text = "Checking…"
                     val nextBtn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnNext)
                     nextBtn.isEnabled = false
                     Thread {
-                        try {
-                            val outFile = File(cacheDir, "hakunaa_target_${System.currentTimeMillis()}.jpg")
-                            val result = ImageCompressor.compressToTargetSize(input, outFile, targetBytes)
-                            runOnUiThread {
+                        // Dynamic check: how small can this photo actually go?
+                        val minBytes = ImageCompressor.minPossibleSize(input)
+                        runOnUiThread {
+                            if (targetBytes < minBytes) {
                                 nextBtn.isEnabled = true
-                                if (result != null && result.exists() && result.length() <= targetBytes) {
-                                    step = 2
-                                    renderStep()
-                                    saveSingleResult(result)
-                                } else {
-                                    try { outFile.delete() } catch (_: Throwable) { }
-                                    status.text = "Could not reach that size — try a bigger target"
-                                }
-                            }
-                        } catch (_: Throwable) {
-                            runOnUiThread {
-                                nextBtn.isEnabled = true
-                                status.text = "Failed — try another image"
+                                showTooLowWarning(targetBytes, minBytes)
+                            } else {
+                                runTargetCompress(targetBytes)
                             }
                         }
                     }.start()
@@ -609,6 +599,80 @@ class ImageToolActivity : AppCompatActivity() {
         }.start()
     }
 
+    /** Run the Target-size compress on a background thread. */
+    private fun runTargetCompress(targetBytes: Long) {
+        val input = inputFile ?: return
+        val status = findViewById<TextView>(R.id.tvStatus)
+        status.text = "Working…"
+        val nextBtn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnNext)
+        nextBtn.isEnabled = false
+        Thread {
+            try {
+                val outFile = File(cacheDir, "hakunaa_target_${System.currentTimeMillis()}.jpg")
+                val result = ImageCompressor.compressToTargetSize(input, outFile, targetBytes)
+                runOnUiThread {
+                    nextBtn.isEnabled = true
+                    if (result != null && result.exists() && result.length() <= targetBytes) {
+                        step = 2
+                        renderStep()
+                        saveSingleResult(result)
+                    } else {
+                        try { outFile.delete() } catch (_: Throwable) { }
+                        status.text = "Could not reach that size — try a bigger target"
+                    }
+                }
+            } catch (_: Throwable) {
+                runOnUiThread {
+                    nextBtn.isEnabled = true
+                    status.text = "Failed — try another image"
+                }
+            }
+        }.start()
+    }
+
+    /** Target too low: warn FIRST — the photo will look poor. */
+    private fun showTooLowWarning(targetBytes: Long, minBytes: Long) {
+        val status = findViewById<TextView>(R.id.tvStatus)
+        status.text = "That size is too low — the photo will look poor."
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Very low target?")
+            .setMessage("The smallest this photo can be is ${com.hakunaa.app.core.FileUtils.formatSize(minBytes)}. A ${com.hakunaa.app.core.FileUtils.formatSize(targetBytes)} target will look very poor. Continue anyway?")
+            .setPositiveButton("Continue anyway") { _, _ -> runTargetCompress(targetBytes) }
+            .setNegativeButton("Change target", null)
+            .show()
+    }
+
+    /** Quality % -> Smart results at FULL resolution (no resolution step). */
+    private fun runQualitySmartResults() {
+        val input = inputFile ?: return
+        val status = findViewById<TextView>(R.id.tvStatus)
+        status.text = "Working…"
+        val nextBtn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnNext)
+        nextBtn.isEnabled = false
+        Thread {
+            try {
+                val base = File(cacheDir, "hakunaa_smart_${System.currentTimeMillis()}")
+                val results = ImageCompressor.compressAtQuality(input, base, qualityChoice, 10000)
+                runOnUiThread {
+                    nextBtn.isEnabled = true
+                    if (results.isEmpty()) {
+                        status.text = "Already optimized — even the strongest settings couldn't shrink this image."
+                    } else {
+                        smartResults = results
+                        step = 3
+                        renderStep()
+                        showSmartResults(results)
+                    }
+                }
+            } catch (_: Throwable) {
+                runOnUiThread {
+                    nextBtn.isEnabled = true
+                    status.text = "Failed — try another image"
+                }
+            }
+        }.start()
+    }
+
     /** Target size in bytes from the custom input (number + KB/MB toggle). */
     private fun targetSizeBytes(): Long? {
         val text = findViewById<android.widget.EditText>(R.id.etTargetSize).text.toString().trim()
@@ -637,11 +701,12 @@ class ImageToolActivity : AppCompatActivity() {
     }
 
     /** Quality % as professional tappable cards (not a radio list). */
+    /** Quality % as SMALL compact rows, one line: "95% - Maximum Quality". */
     private fun buildQualityCards() {
         val container = findViewById<LinearLayout>(R.id.qualityContainer)
         container.removeAllViews()
-        val inflater = android.view.LayoutInflater.from(this)
-        val gapPx = (12 * resources.displayMetrics.density).toInt()
+        val density = resources.displayMetrics.density
+        val gapPx = (8 * density).toInt()
         val qualities = listOf(
             95 to "Maximum quality",
             90 to "High quality",
@@ -653,19 +718,31 @@ class ImageToolActivity : AppCompatActivity() {
         )
         for ((index, entry) in qualities.withIndex()) {
             val (quality, label) = entry
-            val card = inflater.inflate(R.layout.item_image_tool, container, false)
-            card.findViewById<android.widget.ImageView>(R.id.ivIcon).setImageResource(R.drawable.ic_tune)
-            card.findViewById<TextView>(R.id.tvTitle).text = "$quality%"
-            card.findViewById<TextView>(R.id.tvSubtitle).text = label
-            if (index > 0) {
-                val params = card.layoutParams as? LinearLayout.LayoutParams
-                params?.topMargin = gapPx
-                card.layoutParams = params
+            val card = com.google.android.material.card.MaterialCardView(this).apply {
+                radius = 12f * density
+                cardElevation = 2f * density
+                setCardBackgroundColor(getColor(R.color.hakunaa_surface))
             }
+            val tv = TextView(this).apply {
+                text = "$quality% - $label"
+                textSize = 15f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(getColor(R.color.hakunaa_text))
+                setPadding(
+                    (16 * density).toInt(), (12 * density).toInt(),
+                    (16 * density).toInt(), (12 * density).toInt()
+                )
+            }
+            card.addView(tv)
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            if (index > 0) params.topMargin = gapPx
+            card.layoutParams = params
             card.setOnClickListener {
                 qualityChoice = quality
-                step = 2
-                renderStep()
+                runQualitySmartResults()
             }
             container.addView(card)
         }

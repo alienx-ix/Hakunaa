@@ -425,6 +425,19 @@ object ImageCompressor {
         return results.sortedBy { it.size }
     }
 
+    /** Smallest this photo can be (JPEG quality 10, full resolution). */
+    fun minPossibleSize(input: File): Long {
+        return try {
+            val out = File(input.parent, "hakunaa_min_${System.currentTimeMillis()}.jpg")
+            val ok = compress(input, out, 10, Format.JPEG, 10000)
+            val size = if (ok && out.exists()) out.length() else Long.MAX_VALUE
+            try { out.delete() } catch (_: Throwable) { }
+            size
+        } catch (_: Throwable) {
+            Long.MAX_VALUE
+        }
+    }
+
     /**
      * Smart Compress: try every level in the ORIGINAL format and
      * return ALL results smaller than the original, smallest first.

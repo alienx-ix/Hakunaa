@@ -655,6 +655,13 @@ Image: JPEG 85% is visually lossless for photos. WebP is
 - **Video tools menu** agreed (user idea, 2026-11-15): Standard Compress (basic), Smart Compress (multiple results at once, user picks), Advanced (full manual control), Convert (13 formats), Rotate, Color (grading), Video to Audio, Video Cutter.
 - **Same quality, smaller size (visually lossless)** clarified (2026-11-15): quality looks the same to the eye, only the size reduces — this is what the CRF ladder already does (CRF 23-28, 40-60% smaller). Mathematical lossless (CRF 0) makes the file bigger — not wanted; true 0% loss with no size change is Quick Remux.
 
+## v0.1.116 — Photo NOT remembered, Quality cards small one-line, resolution step removed, Target too-low warning (on v0.1.115)
+
+- **Photo NOT remembered** — the v0.1.114 remember-photo (Change row, persisted pick) is REMOVED. Back from a tool clears the photo; a NEW photo must be picked every time a tool is entered. Same after every direct action.
+- **Quality % cards SMALL** — compact one-line rows, "95% - Maximum Quality" (no big boxes, no separate label line).
+- **Resolution step REMOVED** — tapping a Quality % goes straight to Smart results at full resolution; the long "Change photo resolution" list is gone (it confused).
+- **Target too-low warning** — entering a very low target (1 KB / 10 KB) analyses the image first (JPEG 10 = minimum possible) and warns BEFORE compressing: "Very low target? The smallest this photo can be is X. A Y target will look very poor." [Continue anyway] / [Change target].
+
 ## v0.1.115 — Back steps back inside the tool, leaving asks first, Target size rejects too-big values (on v0.1.114)
 
 - **Back steps back inside the tool now** — system Back and the in-app Back go one step back within Compress (Quality → 3 buttons, resolution → Quality, results → resolution) instead of exiting the whole tool at once.

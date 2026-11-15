@@ -52,17 +52,15 @@ class ImageCompressActivity : AppCompatActivity() {
 
     private var inputUri: Uri? = null
     private var inputSize: Long = -1
-    private var inputName: String = ""
+
+    /** True while a tool screen is open — the pick is cleared on return. */
+    private var launchedTool = false
 
     private val pickImage =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
             inputUri = uri
             if (uri != null) {
                 inputSize = FileUtils.fileSize(contentResolver, uri)
-                inputName = FileUtils.fileName(contentResolver, uri)
-                // Remember this photo so the next visit doesn't ask again.
-                Thread { persistLastPick(uri) }.start()
-                updateCurrentPhotoRow()
                 // The tool that was tapped waits for the pick — run it now.
                 val action = pendingAction
                 pendingAction = null
@@ -72,66 +70,19 @@ class ImageCompressActivity : AppCompatActivity() {
             }
         }
 
-    /** The picked photo, remembered across visits (fixed cache file + prefs). */
-    private fun persistLastPick(uri: Uri) {
-        try {
-            val name = FileUtils.fileName(contentResolver, uri)
-            val ext = if (name.lowercase().endsWith(".png")) "png" else "jpg"
-            val dest = File(cacheDir, "hakunaa_last_pick.$ext")
-            val other = File(cacheDir, if (ext == "png") "hakunaa_last_pick.jpg" else "hakunaa_last_pick.png")
-            try { other.delete() } catch (_: Throwable) { }
-            val tmp = FileUtils.copyUriToCache(this, uri, "last_pick_tmp")
-            tmp.copyTo(dest, overwrite = true)
-            try { tmp.delete() } catch (_: Throwable) { }
-            getSharedPreferences("hakunaa_prefs", MODE_PRIVATE).edit()
-                .putString("last_pick_path", dest.absolutePath)
-                .putString("last_pick_name", name)
-                .apply()
-        } catch (_: Throwable) {
-            // Remembering is a convenience — a failure just means re-pick next time.
-        }
+    /** Forget the picked photo — a NEW photo is picked every time. */
+    private fun clearPickedPhoto() {
+        inputUri = null
+        inputSize = -1
     }
 
-    /** Restore the remembered photo when the menu opens (if it still exists). */
-    private fun restoreLastPick() {
-        val prefs = getSharedPreferences("hakunaa_prefs", MODE_PRIVATE)
-        val path = prefs.getString("last_pick_path", null) ?: return
-        val file = File(path)
-        if (!file.exists()) {
-            prefs.edit().remove("last_pick_path").remove("last_pick_name").apply()
-            return
+    override fun onResume() {
+        super.onResume()
+        // Back from a tool: the photo goes away, next tap picks fresh.
+        if (launchedTool) {
+            launchedTool = false
+            clearPickedPhoto()
         }
-        inputUri = Uri.fromFile(file)
-        inputSize = file.length()
-        inputName = prefs.getString("last_pick_name", file.name) ?: file.name
-        updateCurrentPhotoRow()
-    }
-
-    /** Show the remembered photo (thumbnail + name) or hide the row. */
-    private fun updateCurrentPhotoRow() {
-        val row = findViewById<LinearLayout>(R.id.currentPhotoRow)
-        val uri = inputUri
-        if (uri == null) {
-            row.visibility = View.GONE
-            return
-        }
-        row.visibility = View.VISIBLE
-        findViewById<TextView>(R.id.tvCurrentPhotoName).text = inputName
-        val thumb = findViewById<ImageView>(R.id.ivCurrentPhoto)
-        Thread {
-            try {
-                val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                contentResolver.openInputStream(uri)?.use {
-                    android.graphics.BitmapFactory.decodeStream(it, null, opts)
-                }
-                val sample = maxOf(1, minOf(opts.outWidth, opts.outHeight) / 96)
-                val bmpOpts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
-                val bmp = contentResolver.openInputStream(uri)?.use {
-                    android.graphics.BitmapFactory.decodeStream(it, null, bmpOpts)
-                }
-                runOnUiThread { if (bmp != null) thumb.setImageBitmap(bmp) }
-            } catch (_: Throwable) { }
-        }.start()
     }
 
     /** The tool tapped while no image was picked yet — runs after the pick. */
@@ -209,11 +160,6 @@ class ImageCompressActivity : AppCompatActivity() {
             }
         )
 
-        restoreLastPick()
-        findViewById<LinearLayout>(R.id.currentPhotoRow).setOnClickListener {
-            pickImage.launch("image/*")
-        }
-
         buildToolGrid("")
         findViewById<EditText>(R.id.etSearch).addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -277,6 +223,7 @@ class ImageCompressActivity : AppCompatActivity() {
 
     private fun openTool(mode: String) {
         if (!requireImage()) return
+        launchedTool = true
         val intent = Intent(this, ImageToolActivity::class.java)
         intent.putExtra(ImageToolActivity.EXTRA_MODE, mode)
         intent.putExtra(ImageToolActivity.EXTRA_IMAGE_URI, inputUri.toString())
@@ -285,6 +232,7 @@ class ImageCompressActivity : AppCompatActivity() {
 
     private fun openEdit() {
         if (!requireImage()) return
+        launchedTool = true
         val intent = Intent(this, ImageEditActivity::class.java)
         intent.putExtra(ImageEditActivity.EXTRA_IMAGE_URI, inputUri.toString())
         startActivity(intent)
@@ -292,6 +240,7 @@ class ImageCompressActivity : AppCompatActivity() {
 
     private fun openCrop() {
         if (!requireImage()) return
+        launchedTool = true
         val intent = Intent(this, ImageCropActivity::class.java)
         intent.putExtra(ImageCropActivity.EXTRA_IMAGE_URI, inputUri.toString())
         startActivity(intent)
@@ -312,6 +261,7 @@ class ImageCompressActivity : AppCompatActivity() {
                 val out = File(cacheDir, "hakunaa_enhanced_${System.currentTimeMillis()}.jpg")
                 val ok = ImageCompressor.autoEnhance(input, out)
                 runOnUiThread {
+                    clearPickedPhoto()
                     if (ok && out.exists()) {
                         val saved = MediaStoreSaver.save(
                             this, out, MediaStoreSaver.Kind.IMAGE, out.name
@@ -353,6 +303,7 @@ class ImageCompressActivity : AppCompatActivity() {
                 val ok = if (circle) ImageCompressor.circleCrop(input, out)
                 else ImageCompressor.fitToAspect(input, out, 1, 1)
                 runOnUiThread {
+                    clearPickedPhoto()
                     if (ok && out.exists()) {
                         val saved = MediaStoreSaver.save(
                             this, out, MediaStoreSaver.Kind.IMAGE, out.name
@@ -386,6 +337,7 @@ class ImageCompressActivity : AppCompatActivity() {
                 val out = File(cacheDir, "hakunaa_clean_${System.currentTimeMillis()}.$ext")
                 val ok = ImageCompressor.stripMetadata(input, out)
                 runOnUiThread {
+                    clearPickedPhoto()
                     if (ok && out.exists()) {
                         val saved = MediaStoreSaver.save(
                             this, out, MediaStoreSaver.Kind.IMAGE, out.name
@@ -418,6 +370,7 @@ class ImageCompressActivity : AppCompatActivity() {
                 val out = File(cacheDir, "hakunaa_image_${System.currentTimeMillis()}.pdf")
                 val ok = PdfTools.imageToPdf(input, out)
                 runOnUiThread {
+                    clearPickedPhoto()
                     if (ok && out.exists()) {
                         val saved = MediaStoreSaver.save(
                             this, out, MediaStoreSaver.Kind.DOCUMENT, out.name
