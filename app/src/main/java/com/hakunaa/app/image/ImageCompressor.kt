@@ -335,6 +335,171 @@ object ImageCompressor {
         }
     }
 
+    /** Full professional Adjust parameters (ImageEditActivity sliders).
+     *  Ranges: exposure/brightness/highlights/shade/vibrance/
+     *  temperature/tone -100..100; contrast/saturation 0.5..2.0;
+     *  sharpness/fading/vignette/enhance/dehaze 0..100. */
+    data class AdjustParams(
+        var exposure: Float = 0f,
+        var brightness: Float = 0f,
+        var contrast: Float = 1f,
+        var highlights: Float = 0f,
+        var shade: Float = 0f,
+        var saturation: Float = 1f,
+        var vibrance: Float = 0f,
+        var temperature: Float = 0f,
+        var tone: Float = 0f,
+        var sharpness: Float = 0f,
+        var fading: Float = 0f,
+        var vignette: Float = 0f,
+        var enhance: Float = 0f,
+        var dehaze: Float = 0f
+    )
+
+    /**
+     * Full Adjust: every slider really changes the image.
+     * Exposure/temperature scale the channels, brightness/contrast
+     * shift around mid-grey, Tone is a gamma curve, Highlights/Shade
+     * lift only bright/dark pixels, Fading lifts the blacks,
+     * Saturation/Vibrance colour the image, Vignette darkens the
+     * edges, Enhance/Dehaze add contrast + saturation pop, and
+     * Sharpness is a 3x3 convolution. The linear tone curve is a
+     * 256-entry lookup table per channel (fast even at full res);
+     * only Sharpness needs a neighbour pass. Output is JPEG 90%.
+     */
+    fun adjustFull(input: File, output: File, p: AdjustParams): Boolean {
+        return try {
+            val bitmap = BitmapFactory.decodeFile(input.absolutePath) ?: return false
+            val w = bitmap.width
+            val h = bitmap.height
+            val pixels = IntArray(w * h)
+            bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
+            val exposureScale = Math.pow(2.0, p.exposure / 100.0 * 1.5).toFloat()
+            val effContrast = (p.contrast *
+                (1f + p.enhance / 100f * 0.15f + p.dehaze / 100f * 0.25f)).coerceIn(0.3f, 3f)
+            val effSat = (p.saturation *
+                (1f + p.enhance / 100f * 0.15f + p.dehaze / 100f * 0.2f)).coerceIn(0f, 3f)
+            val tempR = 1f + p.temperature / 100f * 0.15f
+            val tempB = 1f - p.temperature / 100f * 0.15f
+            val gamma = Math.pow(2.0, -p.tone / 100.0 * 0.5).toFloat()
+            // Per-channel tone LUT: exposure + temperature + contrast
+            // + brightness + gamma, all in one 256-entry table each.
+            fun toneLut(scale: Float): IntArray {
+                val lut = IntArray(256)
+                for (v in 0..255) {
+                    var x = v * exposureScale * scale
+                    x = (x - 128f) * effContrast + 128f + p.brightness
+                    val n = (x / 255f).coerceIn(0f, 1f)
+                    lut[v] = (255f * Math.pow(n.toDouble(), gamma.toDouble()).toFloat())
+                        .toInt().coerceIn(0, 255)
+                }
+                return lut
+            }
+            val lutR = toneLut(tempR)
+            val lutG = toneLut(1f)
+            val lutB = toneLut(tempB)
+            val cx = w / 2f
+            val cy = h / 2f
+            val maxDist = cx * cx + cy * cy
+            val hl = p.highlights / 100f
+            val sh = p.shade / 100f
+            val fade = p.fading / 100f
+            val vib = p.vibrance / 100f
+            val vig = p.vignette / 100f
+            for (y in 0 until h) {
+                val dy = y - cy
+                for (x in 0 until w) {
+                    val idx = y * w + x
+                    var r = lutR[(pixels[idx] shr 16) and 0xFF].toFloat()
+                    var g = lutG[(pixels[idx] shr 8) and 0xFF].toFloat()
+                    var b = lutB[pixels[idx] and 0xFF].toFloat()
+                    val lum = (r * 0.299f + g * 0.587f + b * 0.114f) / 255f
+                    if (hl != 0f) {
+                        val wgt = (lum - 0.5f).coerceIn(0f, 1f) * 2f
+                        val d = hl * wgt * 40f
+                        r += d; g += d; b += d
+                    }
+                    if (sh != 0f) {
+                        val wgt = (0.5f - lum).coerceIn(0f, 1f) * 2f
+                        val d = sh * wgt * 40f
+                        r += d; g += d; b += d
+                    }
+                    if (fade != 0f) {
+                        r = r * (1f - fade * 0.25f) + fade * 32f
+                        g = g * (1f - fade * 0.25f) + fade * 32f
+                        b = b * (1f - fade * 0.25f) + fade * 32f
+                    }
+                    val avg = (r + g + b) / 3f
+                    val pixelSat = maxOf(r, g, b) - minOf(r, g, b)
+                    val s = effSat * (1f + vib * (1f - pixelSat / 255f))
+                    r = avg + (r - avg) * s
+                    g = avg + (g - avg) * s
+                    b = avg + (b - avg) * s
+                    if (vig != 0f) {
+                        val dx = x - cx
+                        val d2 = (dx * dx + dy * dy) / maxDist
+                        val fall = 1f - vig * d2 * 1.2f
+                        r *= fall; g *= fall; b *= fall
+                    }
+                    val ri = r.toInt().coerceIn(0, 255)
+                    val gi = g.toInt().coerceIn(0, 255)
+                    val bi = b.toInt().coerceIn(0, 255)
+                    pixels[idx] = (0xFF shl 24) or (ri shl 16) or (gi shl 8) or bi
+                }
+            }
+            var result = Bitmap.createBitmap(pixels, w, h, Bitmap.Config.ARGB_8888)
+            if (p.sharpness != 0f) result = sharpen(result, p.sharpness / 100f)
+            FileOutputStream(output).use { out ->
+                result.compress(Bitmap.CompressFormat.JPEG, 90, out)
+            }
+            bitmap.recycle()
+            result.recycle()
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /** 3x3 sharpen: out = centre + amount * (4*centre - neighbours). */
+    private fun sharpen(bitmap: Bitmap, amount: Float): Bitmap {
+        val w = bitmap.width
+        val h = bitmap.height
+        val src = IntArray(w * h)
+        bitmap.getPixels(src, 0, w, 0, 0, w, h)
+        val dst = src.copyOf()
+        for (y in 1 until h - 1) {
+            for (x in 1 until w - 1) {
+                val i = y * w + x
+                val c = src[i]
+                val up = src[i - w]
+                val down = src[i + w]
+                val left = src[i - 1]
+                val right = src[i + 1]
+                val r = ((c shr 16) and 0xFF) + (amount * (
+                    4 * ((c shr 16) and 0xFF) -
+                    ((up shr 16) and 0xFF) - ((down shr 16) and 0xFF) -
+                    ((left shr 16) and 0xFF) - ((right shr 16) and 0xFF)
+                )).toInt()
+                val g = ((c shr 8) and 0xFF) + (amount * (
+                    4 * ((c shr 8) and 0xFF) -
+                    ((up shr 8) and 0xFF) - ((down shr 8) and 0xFF) -
+                    ((left shr 8) and 0xFF) - ((right shr 8) and 0xFF)
+                )).toInt()
+                val b = (c and 0xFF) + (amount * (
+                    4 * (c and 0xFF) -
+                    (up and 0xFF) - (down and 0xFF) -
+                    (left and 0xFF) - (right and 0xFF)
+                )).toInt()
+                dst[i] = (0xFF shl 24) or
+                    (r.coerceIn(0, 255) shl 16) or
+                    (g.coerceIn(0, 255) shl 8) or b.coerceIn(0, 255)
+            }
+        }
+        val out = Bitmap.createBitmap(dst, w, h, Bitmap.Config.ARGB_8888)
+        bitmap.recycle()
+        return out
+    }
+
     /**
      * Crop to a rectangle (in pixels, in the original image).
      * Returns true on success. Output is JPEG 92%.
@@ -566,6 +731,34 @@ object ImageCompressor {
             val canvas = Canvas(result)
             val path = Path()
             path.addCircle(size / 2f, size / 2f, size / 2f, Path.Direction.CW)
+            canvas.clipPath(path)
+            canvas.drawBitmap(square, 0f, 0f, Paint(Paint.ANTI_ALIAS_FLAG))
+            FileOutputStream(output).use { out ->
+                result.compress(Bitmap.CompressFormat.PNG, 100, out)
+            }
+            bitmap.recycle()
+            square.recycle()
+            result.recycle()
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /** DP Circle with a CHOSEN square: crop the [left, top, size]
+     *  square, mask it to a circle, save as PNG (transparent
+     *  outside the circle). */
+    fun circleCropRect(input: File, output: File, left: Int, top: Int, size: Int): Boolean {
+        return try {
+            val bitmap = FileUtils.decodeBitmapWithExif(input.absolutePath) ?: return false
+            val s = size.coerceIn(1, minOf(bitmap.width, bitmap.height))
+            val l = left.coerceIn(0, bitmap.width - s)
+            val t = top.coerceIn(0, bitmap.height - s)
+            val square = Bitmap.createBitmap(bitmap, l, t, s, s)
+            val result = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(result)
+            val path = Path()
+            path.addCircle(s / 2f, s / 2f, s / 2f, Path.Direction.CW)
             canvas.clipPath(path)
             canvas.drawBitmap(square, 0f, 0f, Paint(Paint.ANTI_ALIAS_FLAG))
             FileOutputStream(output).use { out ->

@@ -18,19 +18,26 @@
 
     <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:padding="16dp">
+        android:layout_height="0dp"
+        android:layout_weight="1">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical">
+            android:orientation="vertical"
+            android:padding="16dp">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnPickPhotos"
+            <HorizontalScrollView
                 android:layout_width="match_parent"
-                android:layout_height="56dp"
-                android:text="Pick 2–4 photos" />
+                android:layout_height="wrap_content"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:id="@+id/photoStrip"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
 
             <TextView
                 android:id="@+id/tvPhotos"
@@ -41,69 +48,121 @@
                 android:textColor="@color/hakunaa_text_secondary"
                 android:textSize="13sp" />
 
-            <com.google.android.material.card.MaterialCardView
+            <ImageView
+                android:id="@+id/ivPreview"
+                android:layout_width="match_parent"
+                android:layout_height="300dp"
+                android:layout_marginTop="12dp"
+                android:background="#EDEFF2"
+                android:scaleType="fitCenter" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="STYLE"
+                android:textColor="@color/hakunaa_text_secondary"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:id="@+id/styleRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:orientation="horizontal" />
+
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                app:cardCornerRadius="12dp"
-                app:cardElevation="2dp">
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Borders"
+                    android:textColor="@color/hakunaa_text"
+                    android:textSize="14sp" />
+
+                <SeekBar
+                    android:id="@+id/sbBorder"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:layout_weight="1" />
+
+                <TextView
+                    android:id="@+id/tvBorderValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="8dp"
+                    android:textColor="@color/hakunaa_text_secondary"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="BACKGROUND"
+                android:textColor="@color/hakunaa_text_secondary"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:id="@+id/colorRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="RATIO"
+                android:textColor="@color/hakunaa_text_secondary"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:id="@+id/ratioRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="LAYOUT"
+                android:textColor="@color/hakunaa_text_secondary"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:scrollbars="none">
 
                 <LinearLayout
-                    android:layout_width="match_parent"
+                    android:id="@+id/templateRow"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="16dp">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="LAYOUT"
-                        android:textColor="@color/hakunaa_text_secondary"
-                        android:textSize="12sp"
-                        android:textStyle="bold" />
-
-                    <RadioGroup
-                        android:id="@+id/rgLayout"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp">
-
-                        <RadioButton
-                            android:id="@+id/rbLayoutGrid"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:checked="true"
-                            android:text="Grid 2x2 (4 photos)" />
-                        <RadioButton
-                            android:id="@+id/rbLayoutSideBySide"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Side by side (2 photos)" />
-                        <RadioButton
-                            android:id="@+id/rbLayoutStacked"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Stacked (2 photos)" />
-                        <RadioButton
-                            android:id="@+id/rbLayoutRow3"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Row of 3 (3 photos)" />
-                        <RadioButton
-                            android:id="@+id/rbLayoutCol3"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Column of 3 (3 photos)" />
-                    </RadioGroup>
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnMakeCollage"
                 android:layout_width="match_parent"
                 android:layout_height="56dp"
                 android:layout_marginTop="16dp"
-                android:text="Make Collage" />
+                android:text="Save Collage" />
 
             <TextView
                 android:id="@+id/tvStatus"

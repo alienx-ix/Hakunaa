@@ -1,9 +1,15 @@
 package com.hakunaa.app.image
 
+import android.app.Dialog
+import android.content.res.ColorStateList
 import android.graphics.BitmapFactory
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
+import android.view.Window
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.RadioButton
@@ -46,6 +52,8 @@ class ImageToolActivity : AppCompatActivity() {
         const val MODE_FIT_SOCIAL = "fit_social"
         const val MODE_CONVERT = "convert"
         const val MODE_SMART = "smart"
+        const val MODE_DP = "dp"
+        const val MODE_METADATA = "metadata"
     }
 
     private var mode = MODE_COMPRESS
@@ -53,7 +61,16 @@ class ImageToolActivity : AppCompatActivity() {
     private var inputSize: Long = 0
     private var inputW = 0
     private var inputH = 0
+    private var inputUriString: String? = null
+    private var inputName: String = ""
     private var step = 0 // Compress has 2 steps: quality, then resolution.
+    /** Card-based option selection (Resize / Fit / Convert / DP). */
+    private var selectedCardTag: String? = null
+    /** WebP rows in Smart results are hidden until "More Compress". */
+    private var webpShown = false
+    /** Metadata before removal (for the Before/After view). */
+    private var metadataBefore: List<Pair<String, String>> = emptyList()
+    private var metadataRemovedList: List<String> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,6 +86,8 @@ class ImageToolActivity : AppCompatActivity() {
             return
         }
         val uri = Uri.parse(uriString)
+        inputUriString = uriString
+        inputName = FileUtils.fileName(contentResolver, uri)
         Thread {
             try {
                 val file = FileUtils.copyUriToCache(this, uri, "input_image")
@@ -95,25 +114,11 @@ class ImageToolActivity : AppCompatActivity() {
             }
         }.start()
 
-        findViewById<TextView>(R.id.btnBack).setOnClickListener {
-            if (mode == MODE_COMPRESS && step > 0) {
-                step--
-                renderStep()
-            } else {
-                attemptLeave()
-            }
-        }
+        findViewById<TextView>(R.id.btnBack).setOnClickListener { backStep() }
 
         // System Back must step back within the tool (not exit it outright).
         onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                if (mode == MODE_COMPRESS && step > 0) {
-                    step--
-                    renderStep()
-                } else {
-                    attemptLeave()
-                }
-            }
+            override fun handleOnBackPressed() { backStep() }
         })
 
         findViewById<android.widget.EditText>(R.id.etTargetSize).addTextChangedListener(object : android.text.TextWatcher {
@@ -135,7 +140,20 @@ class ImageToolActivity : AppCompatActivity() {
         }
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnNext)
             .setOnClickListener { next() }
-        findViewById<ImageView>(R.id.btnClose).setOnClickListener { finish() }
+        // Top X: same as Back — step back inside the tool, or ask first.
+        findViewById<ImageView>(R.id.btnClose).setOnClickListener { backStep() }
+    }
+
+    /** One Back press: step back inside the tool, or ask before leaving.
+     *  Quality mode never lands on the resolution step (step 2) — going
+     *  back from the results (step 3) returns to the Quality cards (1). */
+    private fun backStep() {
+        if (mode == MODE_COMPRESS && step > 0) {
+            step = if (compressMode == 1 && step == 3) 1 else step - 1
+            renderStep()
+        } else {
+            attemptLeave()
+        }
     }
 
     private fun titleForMode(): String = when (mode) {
@@ -145,6 +163,8 @@ class ImageToolActivity : AppCompatActivity() {
         MODE_FIT_SOCIAL -> "Fit to social media"
         MODE_CONVERT -> "Convert"
         MODE_SMART -> "Smart Compress"
+        MODE_DP -> "DP Edit"
+        MODE_METADATA -> "Remove Metadata"
         else -> "Compress"
     }
 
@@ -157,13 +177,19 @@ class ImageToolActivity : AppCompatActivity() {
         findViewById<LinearLayout>(R.id.targetSizeContainer).visibility = View.GONE
         findViewById<LinearLayout>(R.id.modeContainer).visibility = View.GONE
         findViewById<LinearLayout>(R.id.qualityContainer).visibility = View.GONE
+        findViewById<LinearLayout>(R.id.cardsContainer).visibility = View.GONE
+        findViewById<LinearLayout>(R.id.metadataContainer).visibility = View.GONE
         val nextBtn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnNext)
-        // Step 0 (3 buttons) and the Quality cards: tapping IS the action, so no Next.
+        // Tapping IS the action (no Next) for: Compress step 0, Quality
+        // cards, Fit to social media, DP shapes, Metadata step 0.
         // Smart Compress: step 0 is working (no Next), step 1 shows results (Done).
         nextBtn.visibility = if ((mode == MODE_COMPRESS && (step == 0 || (step == 1 && compressMode == 1))) ||
-            (mode == MODE_SMART && step == 0)) View.GONE else View.VISIBLE
+            (mode == MODE_SMART && step == 0) ||
+            mode == MODE_FIT_SOCIAL || mode == MODE_DP ||
+            (mode == MODE_METADATA && step == 0)) View.GONE else View.VISIBLE
         nextBtn.text = if ((mode == MODE_COMPRESS && isCompressDoneStep()) ||
-            (mode == MODE_SMART && step == 1)) "Done" else "Next"
+            (mode == MODE_SMART && step == 1) ||
+            (mode == MODE_METADATA && step == 1)) "Done" else "Next"
         val subtitle = findViewById<TextView>(R.id.tvSubtitle)
         when (mode) {
             MODE_COMPRESS -> {
@@ -197,8 +223,15 @@ class ImageToolActivity : AppCompatActivity() {
                     }
                     2 -> when (compressMode) {
                         1 -> {
-                            subtitle.text = "Change photo resolution"
-                            addResolutionOptions(group)
+                            // Quality NEVER shows the resolution step (fix 3):
+                            // jump straight to the results instead.
+                            if (smartResults.isNotEmpty()) {
+                                step = 3
+                                renderStep()
+                                showSmartResults(smartResults)
+                            } else {
+                                runQualitySmartResults()
+                            }
                         }
                         else -> {
                             subtitle.text = "Compressed — see the result below"
@@ -224,7 +257,8 @@ class ImageToolActivity : AppCompatActivity() {
             }
             MODE_RESIZE -> {
                 subtitle.text = "Change photo resolution"
-                addResolutionOptions(group)
+                group.visibility = View.GONE
+                buildResolutionCards()
             }
             MODE_TARGET_SIZE -> {
                 subtitle.text = "Resize to target file size"
@@ -242,30 +276,194 @@ class ImageToolActivity : AppCompatActivity() {
                 subtitle.text = if (mode == MODE_FIT_SOCIAL)
                     "Fit to Instagram, FB, TikTok and more"
                 else "Adjust to social media, square, any size"
-                val options = if (mode == MODE_FIT_SOCIAL) listOf(
-                    "1:1" to "Instagram post (square)",
-                    "4:5" to "Instagram feed (portrait)",
-                    "9:16" to "Instagram / TikTok story",
-                    "16:9" to "Facebook / YouTube cover",
-                    "1:1" to "Facebook profile"
-                ) else listOf(
-                    "1:1" to "Square",
-                    "4:5" to "Portrait 4:5",
-                    "9:16" to "Story 9:16",
-                    "16:9" to "Landscape 16:9",
-                    "3:2" to "Photo 3:2"
-                )
-                addOptions(group, options, 0)
+                group.visibility = View.GONE
+                buildAspectCards()
             }
             MODE_CONVERT -> {
                 subtitle.text = "Change format to PNG, JPG, WebP"
-                addOptions(group, listOf(
-                    "jpg" to "JPG — smallest, best for photos",
-                    "png" to "PNG — lossless, best for graphics",
-                    "webp" to "WebP — smaller than JPG"
-                ), 0)
+                group.visibility = View.GONE
+                buildFormatCards()
+            }
+            MODE_DP -> {
+                subtitle.text = "Choose a DP shape"
+                group.visibility = View.GONE
+                buildDpCards()
+            }
+            MODE_METADATA -> {
+                if (step == 0) {
+                    subtitle.text = "This photo's metadata"
+                    group.visibility = View.GONE
+                    buildMetadataRows()
+                } else {
+                    subtitle.text = "Metadata removed"
+                    group.visibility = View.GONE
+                    buildMetadataAfterRows()
+                }
             }
         }
+    }
+
+    /** Clean selectable card rows (title + subtitle), selected one
+     *  highlighted teal. Used by Resize / Fit / Convert / DP. */
+    private fun buildOptionCards(
+        options: List<Triple<String, String, String>>,
+        selected: String?,
+        onSelect: (String) -> Unit
+    ) {
+        val container = findViewById<LinearLayout>(R.id.cardsContainer)
+        container.removeAllViews()
+        container.visibility = View.VISIBLE
+        val density = resources.displayMetrics.density
+        val gapPx = (8 * density).toInt()
+        for ((index, opt) in options.withIndex()) {
+            val (tag, title, subtitle) = opt
+            val isSelected = tag == selected
+            val card = com.google.android.material.card.MaterialCardView(this).apply {
+                radius = 12f * density
+                cardElevation = 2f * density
+                setCardBackgroundColor(
+                    if (isSelected) 0xFFE0F2F1.toInt() else getColor(R.color.hakunaa_surface)
+                )
+                strokeWidth = if (isSelected) (2 * density).toInt() else 0
+                strokeColor = getColor(R.color.hakunaa_teal)
+            }
+            val inner = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(
+                    (16 * density).toInt(), (12 * density).toInt(),
+                    (16 * density).toInt(), (12 * density).toInt()
+                )
+            }
+            val tvTitle = TextView(this).apply {
+                text = title
+                textSize = 15f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(getColor(R.color.hakunaa_text))
+            }
+            inner.addView(tvTitle)
+            if (subtitle.isNotEmpty()) {
+                val tvSub = TextView(this).apply {
+                    text = subtitle
+                    textSize = 13f
+                    setTextColor(getColor(R.color.hakunaa_text_secondary))
+                }
+                inner.addView(tvSub)
+            }
+            card.addView(inner)
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            if (index > 0) params.topMargin = gapPx
+            card.layoutParams = params
+            card.setOnClickListener { onSelect(tag) }
+            container.addView(card)
+        }
+    }
+
+    /** Resize: Custom FIRST (exam photos need exact sizes), selected
+     *  by default, then Keep resolution, then the presets. */
+    private fun buildResolutionCards() {
+        val options = mutableListOf<Triple<String, String, String>>()
+        options.add(
+            Triple(
+                "Custom: ${inputW}x${inputH}",
+                "Custom: ${inputW}x${inputH}",
+                "Enter your own size — for exam forms"
+            )
+        )
+        options.add(Triple("Keep resolution", "Keep resolution", "No change to the photo size"))
+        for (p in listOf(
+            "240x534", "360x800", "480x1068", "600x1334", "768x1708",
+            "1024x2276", "1200x2668", "1280x2844", "1152x2560",
+            "1440x3200", "3072x6828"
+        )) options.add(Triple(p, p, ""))
+        if (selectedCardTag == null) selectedCardTag = "Custom: ${inputW}x${inputH}"
+        buildOptionCards(options, selectedCardTag) { tag ->
+            selectedCardTag = tag
+            renderStep()
+        }
+    }
+
+    /** Fit / Fit to social media: aspect cards. Tapping one in
+     *  FIT_SOCIAL opens the crop preview (adjustable frame); in FIT
+     *  it just selects, and Next applies it. */
+    private fun buildAspectCards() {
+        val options = if (mode == MODE_FIT_SOCIAL) listOf(
+            Triple("1:1", "1:1", "Instagram post (square)"),
+            Triple("4:5", "4:5", "Instagram feed (portrait)"),
+            Triple("9:16", "9:16", "Instagram / TikTok story"),
+            Triple("16:9", "16:9", "Facebook / YouTube cover"),
+            Triple("1:1", "1:1", "Facebook profile")
+        ) else listOf(
+            Triple("1:1", "1:1", "Square"),
+            Triple("4:5", "4:5", "Portrait 4:5"),
+            Triple("9:16", "9:16", "Story 9:16"),
+            Triple("16:9", "16:9", "Landscape 16:9"),
+            Triple("3:2", "3:2", "Photo 3:2")
+        )
+        if (selectedCardTag == null) selectedCardTag = "1:1"
+        buildOptionCards(options, selectedCardTag) { tag ->
+            selectedCardTag = tag
+            if (mode == MODE_FIT_SOCIAL) {
+                val parts = tag.split(":")
+                launchCropActivity(
+                    parts.getOrNull(0)?.toIntOrNull() ?: 1,
+                    parts.getOrNull(1)?.toIntOrNull() ?: 1,
+                    circle = false
+                )
+            } else {
+                renderStep()
+            }
+        }
+    }
+
+    /** Convert: format cards with compatibility info. */
+    private fun buildFormatCards() {
+        val options = listOf(
+            Triple(
+                "jpg", "JPG",
+                "Smallest, best for photos. Accepted everywhere, including Govt forms."
+            ),
+            Triple("png", "PNG", "Lossless, best for graphics."),
+            Triple(
+                "webp", "WebP",
+                "Smaller than JPG. Works on WhatsApp, Instagram, web. NOT accepted in Govt forms/portals."
+            )
+        )
+        if (selectedCardTag == null) selectedCardTag = "jpg"
+        buildOptionCards(options, selectedCardTag) { tag ->
+            selectedCardTag = tag
+            renderStep()
+        }
+    }
+
+    /** DP Edit: Circle / Square cards — tapping one opens the
+     *  crop preview (adjustable frame) for that shape. */
+    private fun buildDpCards() {
+        val options = listOf(
+            Triple(
+                "circle", "Circle",
+                "Round profile photo (PNG, transparent outside)"
+            ),
+            Triple("square", "Square", "Square profile photo (JPG)")
+        )
+        buildOptionCards(options, selectedCardTag) { tag ->
+            selectedCardTag = tag
+            launchCropActivity(1, 1, circle = tag == "circle")
+        }
+    }
+
+    /** Open the crop preview with an aspect ratio locked (and
+     *  optionally a circle frame for DP Circle). */
+    private fun launchCropActivity(aspectW: Int, aspectH: Int, circle: Boolean) {
+        val uri = inputUriString ?: return
+        val intent = android.content.Intent(this, ImageCropActivity::class.java)
+        intent.putExtra(ImageCropActivity.EXTRA_IMAGE_URI, uri)
+        intent.putExtra(ImageCropActivity.EXTRA_ASPECT_W, aspectW)
+        intent.putExtra(ImageCropActivity.EXTRA_ASPECT_H, aspectH)
+        intent.putExtra(ImageCropActivity.EXTRA_CIRCLE, circle)
+        startActivity(intent)
     }
 
     private fun addOptions(group: RadioGroup, options: List<Pair<String, String>>, checked: Int) {
@@ -281,57 +479,98 @@ class ImageToolActivity : AppCompatActivity() {
         }
     }
 
-    private fun addResolutionOptions(group: RadioGroup) {
-        // Resolutions scaled to the image's aspect ratio.
-        val ratio = if (inputH > 0) inputW.toFloat() / inputH else 1f
-        val presets = listOf(
-            "Keep resolution" to null,
-            "240x534" to Pair(240, 534),
-            "360x800" to Pair(360, 800),
-            "480x1068" to Pair(480, 1068),
-            "600x1334" to Pair(600, 1334),
-            "768x1708" to Pair(768, 1708),
-            "1024x2276" to Pair(1024, 2276),
-            "1200x2668" to Pair(1200, 2668),
-            "1280x2844" to Pair(1280, 2844),
-            "1152x2560" to Pair(1152, 2560),
-            "1440x3200" to Pair(1440, 3200),
-            "3072x6828" to Pair(3072, 6828)
-        )
-        for ((i, preset) in presets.withIndex()) {
-            val radio = RadioButton(this)
-            radio.id = View.generateViewId()
-            radio.tag = preset.first
-            radio.text = preset.first
-            radio.isChecked = i == 0
-            radio.setPadding(16, 24, 16, 24)
-            radio.textSize = 16f
-            group.addView(radio)
-        }
-        // Custom: the image's own resolution.
-        val custom = RadioButton(this)
-        custom.id = View.generateViewId()
-        custom.tag = "Custom: ${inputW}x${inputH}"
-        custom.text = "Custom: ${inputW}x${inputH}"
-        custom.setPadding(16, 24, 16, 24)
-        custom.textSize = 16f
-        group.addView(custom)
-    }
-
     private fun selectedTag(): String? {
         val group = findViewById<RadioGroup>(R.id.rgOptions)
         val checked = group.findViewById<RadioButton>(group.checkedRadioButtonId) ?: return null
         return checked.tag as? String
     }
 
-    /** Leaving the tool asks first — the work is discarded on Leave. */
+    /** Leaving the tool asks first — a polished professional dialog:
+     *  rounded card, amber warning icon, clear title + message, a
+     *  prominent teal "Leave" action and a subtle "Cancel". */
     private fun attemptLeave() {
-        androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Leave this tool?")
-            .setMessage("Your work will be discarded.")
-            .setPositiveButton("Leave") { _, _ -> finish() }
-            .setNegativeButton("Cancel", null)
-            .show()
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.setCancelable(true)
+        val outer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((24 * density).toInt(), 0, (24 * density).toInt(), 0)
+        }
+        val card = com.google.android.material.card.MaterialCardView(this).apply {
+            radius = 20f * density
+            cardElevation = 8f * density
+            setCardBackgroundColor(getColor(R.color.hakunaa_surface))
+        }
+        val inner = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(
+                (24 * density).toInt(), (24 * density).toInt(),
+                (24 * density).toInt(), (20 * density).toInt()
+            )
+        }
+        val icon = TextView(this).apply {
+            text = "!"
+            textSize = 24f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setTextColor(getColor(android.R.color.white))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(0xFFF59E0B.toInt())
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                (48 * density).toInt(), (48 * density).toInt()
+            )
+        }
+        val title = TextView(this).apply {
+            text = "Leave this tool?"
+            textSize = 18f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            setPadding(0, (16 * density).toInt(), 0, 0)
+        }
+        val message = TextView(this).apply {
+            text = "Your work will be discarded."
+            textSize = 14f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            setPadding(0, (8 * density).toInt(), 0, 0)
+        }
+        val buttons = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+            setPadding(0, (20 * density).toInt(), 0, 0)
+        }
+        val cancelBtn = android.widget.Button(this).apply {
+            text = "Cancel"
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            setBackgroundResource(android.R.color.transparent)
+            setPadding((16 * density).toInt(), 0, (16 * density).toInt(), 0)
+        }
+        val leaveBtn = com.google.android.material.button.MaterialButton(this).apply {
+            text = "Leave"
+            setTextColor(getColor(android.R.color.white))
+            backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+            cornerRadius = (12 * density).toInt()
+            setPadding((20 * density).toInt(), 0, (20 * density).toInt(), 0)
+        }
+        cancelBtn.setOnClickListener { dialog.dismiss() }
+        leaveBtn.setOnClickListener { dialog.dismiss(); finish() }
+        buttons.addView(cancelBtn)
+        buttons.addView(leaveBtn)
+        inner.addView(icon)
+        inner.addView(title)
+        inner.addView(message)
+        inner.addView(buttons)
+        card.addView(inner)
+        outer.addView(card)
+        dialog.setContentView(outer)
+        dialog.window?.setLayout(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        dialog.show()
     }
 
     /** Smart Compress: try all levels, show every result, user picks one. */
@@ -362,6 +601,10 @@ class ImageToolActivity : AppCompatActivity() {
     private fun next() {
         val input = inputFile ?: return
         val status = findViewById<TextView>(R.id.tvStatus)
+        if (mode == MODE_METADATA) {
+            if (step == 1) finish()
+            return
+        }
         if (mode == MODE_SMART) {
             if (step == 1) finish()
             return
@@ -408,33 +651,9 @@ class ImageToolActivity : AppCompatActivity() {
         }
         if (mode == MODE_COMPRESS && step == 2) {
             if (compressMode == 1) {
-                val maxDim = resolutionMaxDimension()
-                val quality = qualityChoice
-                status.text = "Working…"
-                val nextBtn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnNext)
-                nextBtn.isEnabled = false
-                Thread {
-                    try {
-                        val base = File(cacheDir, "hakunaa_smart_${System.currentTimeMillis()}")
-                        val results = ImageCompressor.compressAtQuality(input, base, quality, maxDim)
-                        runOnUiThread {
-                            nextBtn.isEnabled = true
-                            if (results.isEmpty()) {
-                                status.text = "Already optimized — even the strongest settings couldn't shrink this image."
-                            } else {
-                                smartResults = results
-                                step = 3
-                                renderStep()
-                                showSmartResults(results)
-                            }
-                        }
-                    } catch (_: Throwable) {
-                        runOnUiThread {
-                            nextBtn.isEnabled = true
-                            status.text = "Failed — try another image"
-                        }
-                    }
-                }.start()
+                // Safety net: Quality must never sit on the resolution
+                // step — go straight to the Smart results instead.
+                runQualitySmartResults()
                 return
             }
             finish()
@@ -444,12 +663,18 @@ class ImageToolActivity : AppCompatActivity() {
             finish()
             return
         }
+        // Resize Custom: ask for the exact size on the UI thread
+        // (a dialog must never be shown from a background thread).
+        if (mode == MODE_RESIZE && (selectedCardTag ?: selectedTag())?.startsWith("Custom") == true) {
+            showCustomSizeDialog()
+            return
+        }
         status.text = "Working…"
         Thread {
             try {
                 val out = when (mode) {
                     MODE_RESIZE -> {
-                        val resolution = selectedTag()
+                        val resolution = selectedCardTag ?: selectedTag()
                         val outFile = File(cacheDir, "hakunaa_resized_${System.currentTimeMillis()}.jpg")
                         val ok = if (resolution == null || resolution == "Keep resolution" || resolution.startsWith("Custom")) {
                             input.copyTo(outFile, overwrite = true)
@@ -469,7 +694,7 @@ class ImageToolActivity : AppCompatActivity() {
                         ImageCompressor.compressToTargetSize(input, outFile, kb * 1024)
                     }
                     MODE_FIT, MODE_FIT_SOCIAL -> {
-                        val aspect = selectedTag() ?: "1:1"
+                        val aspect = selectedCardTag ?: selectedTag() ?: "1:1"
                         val parts = aspect.split(":")
                         val w = parts.getOrNull(0)?.toIntOrNull() ?: 1
                         val h = parts.getOrNull(1)?.toIntOrNull() ?: 1
@@ -477,7 +702,7 @@ class ImageToolActivity : AppCompatActivity() {
                         if (ImageCompressor.fitToAspect(input, outFile, w, h)) outFile else null
                     }
                     MODE_CONVERT -> {
-                        val format = when (selectedTag()) {
+                        val format = when (selectedCardTag ?: selectedTag()) {
                             "png" -> ImageCompressor.Format.PNG
                             "webp" -> ImageCompressor.Format.WEBP
                             else -> ImageCompressor.Format.JPEG
@@ -507,16 +732,6 @@ class ImageToolActivity : AppCompatActivity() {
                 runOnUiThread { status.text = "Failed — try another image" }
             }
         }.start()
-    }
-
-    /** Longest side for the chosen resolution (10000 = keep original). */
-    private fun resolutionMaxDimension(): Int {
-        val tag = selectedTag() ?: return 10000
-        if (tag == "Keep resolution" || tag.startsWith("Custom")) return 10000
-        val dims = tag.split("x")
-        val w = dims.getOrNull(0)?.toIntOrNull() ?: return 10000
-        val h = dims.getOrNull(1)?.toIntOrNull() ?: return 10000
-        return maxOf(w, h)
     }
 
     private var smartResults: List<ImageCompressor.LevelResult> = emptyList()
@@ -701,12 +916,16 @@ class ImageToolActivity : AppCompatActivity() {
     }
 
     /** Quality % as professional tappable cards (not a radio list). */
-    /** Quality % as SMALL compact rows, one line: "95% - Maximum Quality". */
+    /** Quality % as SMALL compact rows, one line: "95% - Maximum Quality".
+     *  Every row is EXACTLY 48dp tall, full-width, same 16dp side
+     *  padding, same 8dp gap, text vertically centred — perfect
+     *  alignment and spacing. */
     private fun buildQualityCards() {
         val container = findViewById<LinearLayout>(R.id.qualityContainer)
         container.removeAllViews()
         val density = resources.displayMetrics.density
         val gapPx = (8 * density).toInt()
+        val rowHeightPx = (48 * density).toInt()
         val qualities = listOf(
             95 to "Maximum quality",
             90 to "High quality",
@@ -728,15 +947,17 @@ class ImageToolActivity : AppCompatActivity() {
                 textSize = 15f
                 setTypeface(null, android.graphics.Typeface.BOLD)
                 setTextColor(getColor(R.color.hakunaa_text))
-                setPadding(
-                    (16 * density).toInt(), (12 * density).toInt(),
-                    (16 * density).toInt(), (12 * density).toInt()
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding((16 * density).toInt(), 0, (16 * density).toInt(), 0)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.MATCH_PARENT
                 )
             }
             card.addView(tv)
             val params = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
+                rowHeightPx
             )
             if (index > 0) params.topMargin = gapPx
             card.layoutParams = params
@@ -746,6 +967,62 @@ class ImageToolActivity : AppCompatActivity() {
             }
             container.addView(card)
         }
+    }
+
+    /** Resize Custom: ask for the exact width x height (exam forms). */
+    private fun showCustomSizeDialog() {
+        val density = resources.displayMetrics.density
+        val pad = (16 * density).toInt()
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, pad)
+        }
+        val etW = android.widget.EditText(this).apply {
+            hint = "Width (px)"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText(inputW.toString())
+        }
+        val etH = android.widget.EditText(this).apply {
+            hint = "Height (px)"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText(inputH.toString())
+        }
+        layout.addView(etW)
+        layout.addView(etH)
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Custom size")
+            .setMessage("Enter the exact size you need (e.g. for exam forms).")
+            .setView(layout)
+            .setPositiveButton("Resize") { _, _ ->
+                val w = etW.text.toString().toIntOrNull()
+                val h = etH.text.toString().toIntOrNull()
+                if (w != null && h != null && w > 0 && h > 0) resizeToCustom(w, h)
+                else android.widget.Toast.makeText(
+                    this, "Enter a valid width and height",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** Resize to an exact custom size and save. */
+    private fun resizeToCustom(w: Int, h: Int) {
+        val input = inputFile ?: return
+        val status = findViewById<TextView>(R.id.tvStatus)
+        status.text = "Working…"
+        Thread {
+            try {
+                val outFile = File(cacheDir, "hakunaa_resized_${System.currentTimeMillis()}.jpg")
+                val ok = ImageCompressor.resizeTo(input, outFile, w, h)
+                runOnUiThread {
+                    if (ok && outFile.exists()) saveSingleResult(outFile)
+                    else status.text = "Failed — try another image"
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Failed — try another image" }
+            }
+        }.start()
     }
 
     /** Save one finished file to Pictures/Hakunaa and show its sizes. */
@@ -760,65 +1037,289 @@ class ImageToolActivity : AppCompatActivity() {
                 "(${FileUtils.savedPercent(inputSize, after)})"
     }
 
-    /** Smart results rows: label + Best badge + real size + saving. Tap = save. */
+    /** One Smart result row: label + optional Best badge + size + saving. */
+    private fun buildResultRow(r: ImageCompressor.LevelResult, showBest: Boolean): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(16, 20, 16, 20)
+            // selectableItemBackground is an ATTRIBUTE, not a drawable —
+            // pass it straight to setBackgroundResource and it crashes
+            // (Resources$NotFoundException #0x101030e). Resolve it first.
+            val typedValue = android.util.TypedValue()
+            theme.resolveAttribute(
+                android.R.attr.selectableItemBackground, typedValue, true
+            )
+            setBackgroundResource(typedValue.resourceId)
+            isClickable = true
+            isFocusable = true
+        }
+        val line1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val label = TextView(this).apply {
+            text = r.label
+            textSize = 16f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+        }
+        line1.addView(label)
+        if (showBest) {
+            val best = TextView(this).apply {
+                text = "  Best  "
+                textSize = 12f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(getColor(android.R.color.white))
+                setBackgroundColor(getColor(R.color.hakunaa_teal))
+                setPadding(12, 4, 12, 4)
+            }
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            lp.marginStart = 12
+            line1.addView(best, lp)
+        }
+        val line2 = TextView(this).apply {
+            text = "${FileUtils.formatSize(r.size)}  •  saved ${r.savingPercent}%"
+            textSize = 14f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+        }
+        row.addView(line1)
+        row.addView(line2)
+        row.setOnClickListener { saveSmartResult(r) }
+        return row
+    }
+
+    private fun addDivider(container: LinearLayout) {
+        val div = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 1
+            )
+            setBackgroundColor(getColor(R.color.hakunaa_outline))
+        }
+        container.addView(div)
+    }
+
+    /** Smart results rows: JPG ONLY (users don't know WebP from JPG).
+     *  Best badge stays on the smallest JPG row. A "More Compress"
+     *  button below reveals the WebP results with a compatibility
+     *  note (where WebP works, where it doesn't). Tap a row = save. */
     private fun showSmartResults(results: List<ImageCompressor.LevelResult>) {
         val container = findViewById<LinearLayout>(R.id.resultsContainer)
         container.removeAllViews()
-        for ((index, r) in results.withIndex()) {
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(16, 20, 16, 20)
-                // selectableItemBackground is an ATTRIBUTE, not a drawable —
-                // pass it straight to setBackgroundResource and it crashes
-                // (Resources$NotFoundException #0x101030e). Resolve it first.
-                val typedValue = android.util.TypedValue()
-                theme.resolveAttribute(
-                    android.R.attr.selectableItemBackground, typedValue, true
-                )
-                setBackgroundResource(typedValue.resourceId)
-                isClickable = true
-                isFocusable = true
-            }
-            val line1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            val label = TextView(this).apply {
-                text = r.label
-                textSize = 16f
-                setTypeface(null, android.graphics.Typeface.BOLD)
-                setTextColor(getColor(R.color.hakunaa_text))
-            }
-            line1.addView(label)
-            if (index == 0) {
-                val best = TextView(this).apply {
-                    text = "  Best  "
-                    textSize = 12f
-                    setTypeface(null, android.graphics.Typeface.BOLD)
-                    setTextColor(getColor(android.R.color.white))
-                    setBackgroundColor(getColor(R.color.hakunaa_teal))
-                    setPadding(12, 4, 12, 4)
-                }
+        webpShown = false
+        val jpgResults = results.filter { it.format == ImageCompressor.Format.JPEG }
+        val webpResults = results.filter { it.format == ImageCompressor.Format.WEBP }
+        val show = if (jpgResults.isNotEmpty()) jpgResults else results
+        for ((index, r) in show.withIndex()) {
+            container.addView(buildResultRow(r, index == 0))
+            addDivider(container)
+        }
+        if (jpgResults.isNotEmpty() && webpResults.isNotEmpty()) {
+            val moreBtn = com.google.android.material.button.MaterialButton(this).apply {
+                text = "More Compress"
+                setTextColor(getColor(R.color.hakunaa_teal))
+                backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_surface))
+                strokeColor = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+                strokeWidth = (2 * resources.displayMetrics.density).toInt()
+                cornerRadius = (12 * resources.displayMetrics.density).toInt()
                 val lp = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 )
-                lp.marginStart = 12
-                line1.addView(best, lp)
+                lp.topMargin = (12 * resources.displayMetrics.density).toInt()
+                layoutParams = lp
             }
-            val line2 = TextView(this).apply {
-                text = "${FileUtils.formatSize(r.size)}  •  saved ${r.savingPercent}%"
+            moreBtn.setOnClickListener {
+                if (webpShown) return@setOnClickListener
+                webpShown = true
+                container.removeView(moreBtn)
+                val note = TextView(this).apply {
+                    text = "WebP — smaller than JPG. Works on WhatsApp, Instagram and the web. NOT accepted in Govt forms/portals."
+                    textSize = 13f
+                    setTextColor(getColor(R.color.hakunaa_text_secondary))
+                    setPadding(16, 16, 16, 8)
+                }
+                container.addView(note)
+                for (r in webpResults) {
+                    container.addView(buildResultRow(r, false))
+                    addDivider(container)
+                }
+            }
+            container.addView(moreBtn)
+        }
+    }
+
+    /** Read every bit of this image's metadata (EXIF via the
+     *  framework android.media.ExifInterface — no new dependency). */
+    private fun readMetadata(): List<Pair<String, String>> {
+        val file = inputFile ?: return emptyList()
+        val rows = mutableListOf<Pair<String, String>>()
+        rows.add("File" to inputName.ifEmpty { file.name })
+        rows.add("Format" to ImageCompressor.formatOf(file).name)
+        rows.add("Size" to FileUtils.formatSize(inputSize))
+        rows.add("Dimensions" to "${inputW} x ${inputH} px")
+        try {
+            val exif = android.media.ExifInterface(file.absolutePath)
+            val dt = exif.getAttribute(android.media.ExifInterface.TAG_DATETIME)
+            rows.add("Date taken" to (dt ?: "Not present"))
+            val make = exif.getAttribute(android.media.ExifInterface.TAG_MAKE)
+            val model = exif.getAttribute(android.media.ExifInterface.TAG_MODEL)
+            val camera = listOfNotNull(make, model).joinToString(" ").ifEmpty { "Not present" }
+            rows.add("Camera" to camera)
+            val latLong = FloatArray(2)
+            val hasGps = exif.getLatLong(latLong)
+            rows.add(
+                "Location" to if (hasGps) "${latLong[0]}, ${latLong[1]}" else "Not present"
+            )
+            val orient = exif.getAttributeInt(
+                android.media.ExifInterface.TAG_ORIENTATION, -1
+            )
+            rows.add("Orientation" to if (orient >= 0) orient.toString() else "Not present")
+            val iso = exif.getAttribute(android.media.ExifInterface.TAG_ISO_SPEED_RATINGS)
+            rows.add("ISO" to (iso ?: "Not present"))
+        } catch (_: Throwable) {
+            rows.add("Details" to "Could not read")
+        }
+        return rows
+    }
+
+    private fun addMetadataRow(container: LinearLayout, label: String, value: String) {
+        val density = resources.displayMetrics.density
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, (6 * density).toInt(), 0, (6 * density).toInt())
+        }
+        val tvLabel = TextView(this).apply {
+            text = label
+            textSize = 14f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            layoutParams = LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+            )
+        }
+        val tvValue = TextView(this).apply {
+            text = value
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            layoutParams = LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+            )
+        }
+        row.addView(tvLabel)
+        row.addView(tvValue)
+        container.addView(row)
+    }
+
+    /** Step 0: show ALL the image's metadata + a Remove button. */
+    private fun buildMetadataRows() {
+        val container = findViewById<LinearLayout>(R.id.metadataContainer)
+        container.removeAllViews()
+        container.visibility = View.VISIBLE
+        if (metadataBefore.isEmpty()) metadataBefore = readMetadata()
+        for ((label, value) in metadataBefore) addMetadataRow(container, label, value)
+        val density = resources.displayMetrics.density
+        val removeBtn = com.google.android.material.button.MaterialButton(this).apply {
+            text = "Remove metadata"
+            setTextColor(getColor(android.R.color.white))
+            backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+            cornerRadius = (12 * density).toInt()
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            lp.topMargin = (16 * density).toInt()
+            layoutParams = lp
+        }
+        removeBtn.setOnClickListener { doRemoveMetadata() }
+        container.addView(removeBtn)
+    }
+
+    /** Strip the metadata, then show the Before/After view. */
+    private fun doRemoveMetadata() {
+        val input = inputFile ?: return
+        val status = findViewById<TextView>(R.id.tvStatus)
+        status.text = "Removing metadata…"
+        Thread {
+            try {
+                val removed = mutableListOf<String>()
+                for ((label, value) in metadataBefore) {
+                    if (value != "Not present" && label in listOf(
+                            "Date taken", "Camera", "Location", "ISO", "Orientation"
+                        )
+                    ) removed.add(label)
+                }
+                val ext = if (input.name.lowercase().endsWith(".png")) "png" else "jpg"
+                val out = File(cacheDir, "hakunaa_clean_${System.currentTimeMillis()}.$ext")
+                val ok = ImageCompressor.stripMetadata(input, out)
+                runOnUiThread {
+                    if (ok && out.exists()) {
+                        metadataRemovedList = removed
+                        val saved = MediaStoreSaver.save(
+                            this, out, MediaStoreSaver.Kind.IMAGE, out.name
+                        )
+                        status.text = if (saved != null) "Done — saved to Pictures/Hakunaa"
+                        else "Done, but couldn't save to Pictures — please try again"
+                        findViewById<TextView>(R.id.tvResult).text =
+                            "${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(out.length())}"
+                        step = 1
+                        renderStep()
+                    } else {
+                        status.text = "Failed — try another image"
+                    }
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Failed — try another image" }
+            }
+        }.start()
+    }
+
+    /** Step 1: Before/After — what the photo had, what was removed. */
+    private fun buildMetadataAfterRows() {
+        val container = findViewById<LinearLayout>(R.id.metadataContainer)
+        container.removeAllViews()
+        container.visibility = View.VISIBLE
+        val density = resources.displayMetrics.density
+        val beforeTitle = TextView(this).apply {
+            text = "Before"
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            setPadding(0, 0, 0, (4 * density).toInt())
+        }
+        container.addView(beforeTitle)
+        for ((label, value) in metadataBefore) addMetadataRow(container, label, value)
+        val afterTitle = TextView(this).apply {
+            text = "After — removed"
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            setPadding(0, (16 * density).toInt(), 0, (4 * density).toInt())
+        }
+        container.addView(afterTitle)
+        if (metadataRemovedList.isEmpty()) {
+            val none = TextView(this).apply {
+                text = "Nothing to remove — this photo had no location, camera or date info."
                 textSize = 14f
                 setTextColor(getColor(R.color.hakunaa_text_secondary))
             }
-            row.addView(line1)
-            row.addView(line2)
-            row.setOnClickListener { saveSmartResult(r) }
-            container.addView(row)
-            val div = View(this).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, 1
-                )
-                setBackgroundColor(getColor(R.color.hakunaa_outline))
+            container.addView(none)
+        } else {
+            for (item in metadataRemovedList) {
+                val row = TextView(this).apply {
+                    text = "✓ $item removed"
+                    textSize = 14f
+                    setTextColor(getColor(R.color.hakunaa_success))
+                    setPadding(0, (4 * density).toInt(), 0, (4 * density).toInt())
+                }
+                container.addView(row)
             }
-            container.addView(div)
+            val note = TextView(this).apply {
+                text = "The saved copy has no location, camera or date info."
+                textSize = 13f
+                setTextColor(getColor(R.color.hakunaa_text_secondary))
+                setPadding(0, (8 * density).toInt(), 0, 0)
+            }
+            container.addView(note)
         }
     }
 

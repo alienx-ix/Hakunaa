@@ -655,6 +655,22 @@ Image: JPEG 85% is visually lossless for photos. WebP is
 - **Video tools menu** agreed (user idea, 2026-11-15): Standard Compress (basic), Smart Compress (multiple results at once, user picks), Advanced (full manual control), Convert (13 formats), Rotate, Color (grading), Video to Audio, Video Cutter.
 - **Same quality, smaller size (visually lossless)** clarified (2026-11-15): quality looks the same to the eye, only the size reduces — this is what the CRF ladder already does (CRF 23-28, 40-60% smaller). Mathematical lossless (CRF 0) makes the file bigger — not wanted; true 0% loss with no size change is Quick Remux.
 
+## v0.1.117 — ALL 14 fixes in one build: JPG-only results + More Compress, X warning, no resolution step, perfect Quality cards, crop/DP previews, Collage redesign, Resize Custom first, Convert compatibility, Metadata Before/After, full Adjust panel, professional exit dialog (on v0.1.116)
+
+- **Compress results JPG only** — Smart results show JPG rows only (Best badge on the smallest JPG). A "More Compress" button below reveals the WebP results with a compatibility note: "WebP — smaller than JPG. Works on WhatsApp, Instagram and the web. NOT accepted in Govt forms/portals."
+- **Top X warns** — the X now steps back inside the tool or shows "Leave this tool?" (same as system Back / bottom Back).
+- **Resolution step GONE for Quality** — root cause: pressing Back from the results landed on step 2 (the resolution list). Back from results now returns to the Quality cards; step 2 for Quality is unreachable (renderStep fallback + next() safety net + backStep skip). Standalone Resize still uses the resolution list.
+- **Quality % boxes perfect** — every row EXACTLY 48dp tall, full-width, 16dp side padding, 8dp gaps, text vertically centred.
+- **Crop (Fit to social media) preview + adjustable frame** — tapping an aspect opens the crop screen with the aspect locked; drag the corners to resize (aspect kept) or drag the frame to pan and choose the portion. Aspect options are cards now.
+- **Resize: Custom FIRST** — Custom is first in the list and selected by default; tapping Next with Custom asks for the exact width x height (for exam forms). Resolution options are cards now.
+- **Convert: compatibility + cards** — JPG "Accepted everywhere, including Govt forms." / PNG "Lossless, best for graphics." / WebP "Smaller than JPG. Works on WhatsApp, Instagram, web. NOT accepted in Govt forms/portals." Format options are cards now.
+- **DP Edit preview + adjustable crop** — pick image → DP Edit screen → Circle / Square cards → tapping one opens the crop preview (circle frame for Circle, square for Square); drag to frame the portion, then Save.
+- **Collage FULL professional redesign** — pick photos in a strip at the top (long-press to drag and reorder), LIVE preview, style tabs (Minimal / Freestyle / Poster / Stitching), Borders slider + background colour swatches, ratio (1:1 / 4:5 / 9:16 / 3:4), layout template thumbnails, Save renders the chosen layout. Fully functional.
+- **Target Size (standalone) REMOVED** — Compress already has Target size; the separate menu card is gone (MODE_TARGET_SIZE code left untouched, just unreachable).
+- **Remove Metadata redesign** — pick image → tool screen shows ALL metadata (file, format, size, dimensions, date taken, camera, location, orientation, ISO) → Remove button → Before/After view listing what was removed ("✓ Location removed", …), saved copy has no location/camera/date info.
+- **Edit Image full professional Adjust panel** — tool chips (Auto, Exposure, Brightness, Contrast, Highlights, Shade, Saturation, Vibrance, Color temp, Tone, Sharpness, Fading, Vignette, Enhance, Dehaze) + one slider for the selected tool; every slider really changes the image (new adjustFull engine: LUT tone curve + per-pixel highlights/shade/vibrance/vignette + 3x3 sharpen); live preview; Rotate kept; Auto applies one-tap auto enhance and resets the sliders.
+- **Exit warning PROFESSIONAL** — "Leave this tool?" is now a polished rounded card: amber "!" icon, clear title + message, prominent teal "Leave" button and subtle "Cancel". Same behaviour (Leave → finish, Cancel → stay).
+
 ## v0.1.116 — Photo NOT remembered, Quality cards small one-line, resolution step removed, Target too-low warning (on v0.1.115)
 
 - **Photo NOT remembered** — the v0.1.114 remember-photo (Change row, persisted pick) is REMOVED. Back from a tool clears the photo; a NEW photo must be picked every time a tool is entered. Same after every direct action.

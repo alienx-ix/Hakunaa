@@ -27,10 +27,16 @@ class ImageCropActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_IMAGE_URI = "image_uri"
+        /** Locked aspect ratio for the frame (0 = free crop). */
+        const val EXTRA_ASPECT_W = "aspect_w"
+        const val EXTRA_ASPECT_H = "aspect_h"
+        /** Circle frame (DP Circle) — the frame is a circle. */
+        const val EXTRA_CIRCLE = "circle"
     }
 
     private var bitmap: Bitmap? = null
     private var inputFile: File? = null
+    private var circleMode = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,7 +64,23 @@ class ImageCropActivity : AppCompatActivity() {
                     }
                     inputFile = file
                     bitmap = bmp
-                    findViewById<CropView>(R.id.cropView).setBitmap(bmp)
+                    val aspectW = intent.getIntExtra(EXTRA_ASPECT_W, 0)
+                    val aspectH = intent.getIntExtra(EXTRA_ASPECT_H, 0)
+                    circleMode = intent.getBooleanExtra(EXTRA_CIRCLE, false)
+                    val cropView = findViewById<CropView>(R.id.cropView)
+                    if (circleMode) {
+                        cropView.circleMode = true
+                        cropView.setAspectRatio(1, 1)
+                        findViewById<TextView>(R.id.tvCropTitle).text = "DP Edit — Circle"
+                        findViewById<TextView>(R.id.tvStatus).text =
+                            "Drag the circle to frame your DP"
+                    } else if (aspectW > 0 && aspectH > 0) {
+                        cropView.setAspectRatio(aspectW, aspectH)
+                        findViewById<TextView>(R.id.tvCropTitle).text = "Fit to social media"
+                        findViewById<TextView>(R.id.tvStatus).text =
+                            "Drag the frame to choose the portion to keep"
+                    }
+                    cropView.setBitmap(bmp)
                 }
             } catch (_: Throwable) {
                 runOnUiThread {
@@ -96,8 +118,17 @@ class ImageCropActivity : AppCompatActivity() {
         status.text = "Cropping…"
         Thread {
             try {
-                val out = File(cacheDir, "hakunaa_cropped_${System.currentTimeMillis()}.jpg")
-                val ok = ImageCompressor.crop(inputFile!!, out, left, top, right, bottom)
+                val out = if (circleMode) {
+                    File(cacheDir, "hakunaa_dp_${System.currentTimeMillis()}.png")
+                } else {
+                    File(cacheDir, "hakunaa_cropped_${System.currentTimeMillis()}.jpg")
+                }
+                val ok = if (circleMode) {
+                    val size = minOf(right - left, bottom - top)
+                    ImageCompressor.circleCropRect(inputFile!!, out, left, top, size)
+                } else {
+                    ImageCompressor.crop(inputFile!!, out, left, top, right, bottom)
+                }
                 runOnUiThread {
                     if (ok) {
                         val saved = MediaStoreSaver.save(this, out, MediaStoreSaver.Kind.IMAGE, out.name)

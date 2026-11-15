@@ -12,7 +12,6 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.card.MaterialCardView
 import com.hakunaa.app.R
@@ -43,7 +42,7 @@ import java.io.File
  * - Image to PDF: one A4 page per photo.
  * - Collage Maker: combine 2–4 photos into one image.
  * - Remove Metadata: strip location / camera / date (EXIF).
- * - Target Size: resize to a target file size (KB / MB).
+ *   (Target Size lives inside Compress — no separate card.)
  *
  * Everything is on-device. A compress output is never bigger than
  * the original.
@@ -144,7 +143,7 @@ class ImageCompressActivity : AppCompatActivity() {
                 withImage { openEdit() }
             },
             ToolDef("DP Edit", "Circle & Square", R.drawable.ic_profile) {
-                withImage { dpEdit() }
+                withImage { openTool(ImageToolActivity.MODE_DP) }
             },
             ToolDef("Image to PDF", "Photo to PDF", R.drawable.ic_doc) {
                 withImage { imageToPdf() }
@@ -153,10 +152,7 @@ class ImageCompressActivity : AppCompatActivity() {
                 startActivity(Intent(this, CollageActivity::class.java))
             },
             ToolDef("Remove Metadata", "Strip location & metadata", R.drawable.ic_shield) {
-                withImage { removeMetadata() }
-            },
-            ToolDef("Target Size", "Resize to target file size", R.drawable.ic_tune, 0f, true) {
-                withImage { openTool(ImageToolActivity.MODE_TARGET_SIZE) }
+                withImage { openTool(ImageToolActivity.MODE_METADATA) }
             }
         )
 
@@ -267,82 +263,6 @@ class ImageCompressActivity : AppCompatActivity() {
                             this, out, MediaStoreSaver.Kind.IMAGE, out.name
                         )
                         status.text = if (saved != null) "Done — saved to Pictures/Hakunaa"
-                        else "Done, but couldn't save to Pictures — please try again"
-                        result.text = "${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(out.length())}"
-                    } else {
-                        status.text = "Failed — try another image"
-                    }
-                }
-            } catch (_: Throwable) {
-                runOnUiThread { status.text = "Failed — try another image" }
-            }
-        }.start()
-    }
-
-    /** DP Edit: pick Circle or Square, then crop and save. */
-    private fun dpEdit() {
-        if (!requireImage()) return
-        AlertDialog.Builder(this)
-            .setTitle("DP Edit")
-            .setItems(arrayOf("Circle", "Square")) { _, which ->
-                dpCrop(circle = which == 0)
-            }
-            .show()
-    }
-
-    private fun dpCrop(circle: Boolean) {
-        val uri = inputUri ?: return
-        val status = findViewById<TextView>(R.id.tvStatus)
-        val result = findViewById<TextView>(R.id.tvResult)
-        status.text = "Making DP…"
-        Thread {
-            try {
-                val input = FileUtils.copyUriToCache(this, uri, "input_image")
-                val ext = if (circle) "png" else "jpg"
-                val out = File(cacheDir, "hakunaa_dp_${System.currentTimeMillis()}.$ext")
-                val ok = if (circle) ImageCompressor.circleCrop(input, out)
-                else ImageCompressor.fitToAspect(input, out, 1, 1)
-                runOnUiThread {
-                    clearPickedPhoto()
-                    if (ok && out.exists()) {
-                        val saved = MediaStoreSaver.save(
-                            this, out, MediaStoreSaver.Kind.IMAGE, out.name
-                        )
-                        status.text = if (saved != null) "Done — saved to Pictures/Hakunaa"
-                        else "Done, but couldn't save to Pictures — please try again"
-                        result.text = "DP (${if (circle) "Circle" else "Square"}) — ${FileUtils.formatSize(out.length())}"
-                    } else {
-                        status.text = "Failed — try another image"
-                    }
-                }
-            } catch (_: Throwable) {
-                runOnUiThread { status.text = "Failed — try another image" }
-            }
-        }.start()
-    }
-
-    /** Remove Metadata: strip EXIF (location / camera / date), then save. */
-    private fun removeMetadata() {
-        val uri = inputUri ?: run {
-            Toast.makeText(this, getString(R.string.pick_first_image), Toast.LENGTH_SHORT).show()
-            return
-        }
-        val status = findViewById<TextView>(R.id.tvStatus)
-        val result = findViewById<TextView>(R.id.tvResult)
-        status.text = "Removing metadata…"
-        Thread {
-            try {
-                val input = FileUtils.copyUriToCache(this, uri, "input_image")
-                val ext = if (input.name.lowercase().endsWith(".png")) "png" else "jpg"
-                val out = File(cacheDir, "hakunaa_clean_${System.currentTimeMillis()}.$ext")
-                val ok = ImageCompressor.stripMetadata(input, out)
-                runOnUiThread {
-                    clearPickedPhoto()
-                    if (ok && out.exists()) {
-                        val saved = MediaStoreSaver.save(
-                            this, out, MediaStoreSaver.Kind.IMAGE, out.name
-                        )
-                        status.text = if (saved != null) "Done — saved to Pictures/Hakunaa (location & metadata removed)"
                         else "Done, but couldn't save to Pictures — please try again"
                         result.text = "${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(out.length())}"
                     } else {

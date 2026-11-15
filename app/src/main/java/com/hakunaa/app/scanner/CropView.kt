@@ -36,6 +36,15 @@ class CropView @JvmOverloads constructor(
     /** Corners in bitmap coordinates: TL, TR, BR, BL. */
     private val corners = FloatArray(8)
     private var hasCorners = false
+    /** Locked aspect ratio (width / height) — corners stay a
+     *  rectangle of this ratio (Fit to social media, DP). Null = free. */
+    var aspectRatio: Float? = null
+    /** Circle frame (DP Circle): the frame is a circle inscribed
+     *  in the (square) corner rect. Implies aspect 1:1. */
+    var circleMode: Boolean = false
+    /** Last touch point in bitmap coords, for panning the frame. */
+    private var lastPanX = 0f
+    private var lastPanY = 0f
 
     private val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#00BFA5")
@@ -66,8 +75,42 @@ class CropView @JvmOverloads constructor(
     private var activeHandle = -1
     private val touchRadius = 90f
 
+    /** Lock the frame to an aspect ratio (w:h) and re-frame. */
+    fun setAspectRatio(w: Int, h: Int) {
+        aspectRatio = if (w > 0 && h > 0) w.toFloat() / h else null
+        if (aspectRatio != null && bitmap != null) resetToAspect()
+    }
+
+    /** Frame = the largest centred rectangle of the locked aspect. */
+    fun resetToAspect() {
+        val bmp = bitmap ?: return
+        val ar = aspectRatio ?: return
+        val bw = bmp.width.toFloat()
+        val bh = bmp.height.toFloat()
+        var w = bw * 0.9f
+        var h = w / ar
+        if (h > bh * 0.9f) {
+            h = bh * 0.9f
+            w = h * ar
+        }
+        val left = (bw - w) / 2f
+        val top = (bh - h) / 2f
+        corners[0] = left; corners[1] = top
+        corners[2] = left + w; corners[3] = top
+        corners[4] = left + w; corners[5] = top + h
+        corners[6] = left; corners[7] = top + h
+        hasCorners = true
+        invalidate()
+    }
+
     fun setBitmap(bmp: Bitmap) {
         bitmap = bmp
+        if (aspectRatio != null) {
+            resetToAspect()
+            updateMatrix()
+            invalidate()
+            return
+        }
         // Default corners: the full frame, inset slightly.
         val w = bmp.width.toFloat()
         val h = bmp.height.toFloat()
@@ -137,6 +180,47 @@ class CropView @JvmOverloads constructor(
         }
     }
 
+    /** Re-constrain the frame to the locked aspect ratio, anchored
+     *  at the corner opposite the one being dragged. The rect always
+     *  stays inside the photo. */
+    private fun enforceAspect(dragged: Int) {
+        val ar = aspectRatio ?: return
+        val bmp = bitmap ?: return
+        val bw = bmp.width.toFloat()
+        val bh = bmp.height.toFloat()
+        val anchorX = when (dragged) {
+            0 -> maxOf(corners[2], corners[4])
+            1 -> minOf(corners[0], corners[6])
+            2 -> minOf(corners[0], corners[6])
+            else -> maxOf(corners[2], corners[4])
+        }
+        val anchorY = when (dragged) {
+            0 -> maxOf(corners[5], corners[7])
+            1 -> maxOf(corners[5], corners[7])
+            2 -> minOf(corners[1], corners[3])
+            else -> minOf(corners[1], corners[3])
+        }
+        val dragX = corners[dragged * 2].coerceIn(0f, bw)
+        var w = kotlin.math.abs(dragX - anchorX).coerceAtLeast(20f)
+        var h = w / ar
+        val roomY = if (dragged < 2) anchorY else bh - anchorY
+        if (h > roomY) {
+            h = roomY.coerceAtLeast(20f)
+            w = h * ar
+        }
+        val roomX = if (dragX < anchorX) anchorX else bw - anchorX
+        if (w > roomX) {
+            w = roomX.coerceAtLeast(20f)
+            h = w / ar
+        }
+        val left = if (dragX < anchorX) anchorX - w else anchorX
+        val top = if (dragged < 2) anchorY - h else anchorY
+        corners[0] = left; corners[1] = top
+        corners[2] = left + w; corners[3] = top
+        corners[4] = left + w; corners[5] = top + h
+        corners[6] = left; corners[7] = top + h
+    }
+
     private fun updateMatrix() {
         val bmp = bitmap ?: return
         if (width == 0 || height == 0) return
@@ -163,22 +247,41 @@ class CropView @JvmOverloads constructor(
         val pts = FloatArray(8)
         bitmapToView.mapPoints(pts, corners)
 
-        val path = Path()
-        path.moveTo(pts[0], pts[1])
-        path.lineTo(pts[2], pts[3])
-        path.lineTo(pts[4], pts[5])
-        path.lineTo(pts[6], pts[7])
-        path.close()
+        val left = minOf(pts[0], pts[6])
+        val top = minOf(pts[1], pts[3])
+        val right = maxOf(pts[2], pts[4])
+        val bottom = maxOf(pts[5], pts[7])
+        if (circleMode) {
+            // Circle frame: inscribed in the (square) corner rect.
+            val cx = (left + right) / 2f
+            val cy = (top + bottom) / 2f
+            val radius = minOf(right - left, bottom - top) / 2f
+            val circlePath = Path()
+            circlePath.addCircle(cx, cy, radius, Path.Direction.CW)
+            val dimPath = Path()
+            dimPath.addRect(0f, 0f, width.toFloat(), height.toFloat(), Path.Direction.CW)
+            dimPath.addPath(circlePath)
+            dimPath.fillType = Path.FillType.EVEN_ODD
+            canvas.drawPath(dimPath, dimPaint)
+            canvas.drawPath(circlePath, framePaint)
+        } else {
+            val path = Path()
+            path.moveTo(pts[0], pts[1])
+            path.lineTo(pts[2], pts[3])
+            path.lineTo(pts[4], pts[5])
+            path.lineTo(pts[6], pts[7])
+            path.close()
 
-        // Dim everything outside the quadrilateral.
-        val dimPath = Path()
-        dimPath.addRect(0f, 0f, width.toFloat(), height.toFloat(), Path.Direction.CW)
-        dimPath.addPath(path)
-        dimPath.fillType = Path.FillType.EVEN_ODD
-        canvas.drawPath(dimPath, dimPaint)
+            // Dim everything outside the quadrilateral.
+            val dimPath = Path()
+            dimPath.addRect(0f, 0f, width.toFloat(), height.toFloat(), Path.Direction.CW)
+            dimPath.addPath(path)
+            dimPath.fillType = Path.FillType.EVEN_ODD
+            canvas.drawPath(dimPath, dimPaint)
 
-        // Teal frame.
-        canvas.drawPath(path, framePaint)
+            // Teal frame.
+            canvas.drawPath(path, framePaint)
+        }
 
         // Corner handles: white circles with a teal ring.
         for (i in 0 until 4) {
@@ -187,12 +290,15 @@ class CropView @JvmOverloads constructor(
             canvas.drawCircle(x, y, 26f, handlePaint)
             canvas.drawCircle(x, y, 26f, handleRingPaint)
         }
-        // Edge pill handles (midpoint of each edge).
-        for (i in 0 until 4) {
-            val j = (i + 1) % 4
-            val mx = (pts[i * 2] + pts[j * 2]) / 2f
-            val my = (pts[i * 2 + 1] + pts[j * 2 + 1]) / 2f
-            canvas.drawRoundRect(mx - 28f, my - 12f, mx + 28f, my + 12f, 12f, 12f, edgeHandlePaint)
+        // Edge pill handles (midpoint of each edge) — free crop only.
+        // With a locked aspect the corners alone resize the frame.
+        if (aspectRatio == null && !circleMode) {
+            for (i in 0 until 4) {
+                val j = (i + 1) % 4
+                val mx = (pts[i * 2] + pts[j * 2]) / 2f
+                val my = (pts[i * 2 + 1] + pts[j * 2 + 1]) / 2f
+                canvas.drawRoundRect(mx - 28f, my - 12f, mx + 28f, my + 12f, 12f, 12f, edgeHandlePaint)
+            }
         }
     }
 
@@ -212,7 +318,9 @@ class CropView @JvmOverloads constructor(
                     }
                 }
                 // Edge handle: move the whole edge (both corners).
-                if (activeHandle == -1) {
+                // Free crop only — with a locked aspect the corners
+                // alone resize the frame.
+                if (activeHandle == -1 && aspectRatio == null && !circleMode) {
                     for (i in 0 until 4) {
                         val j = (i + 1) % 4
                         val mx = (pts[i * 2] + pts[j * 2]) / 2f
@@ -224,6 +332,21 @@ class CropView @JvmOverloads constructor(
                         }
                     }
                 }
+                // Inside the frame: drag the whole frame (pan) to
+                // choose which portion is kept.
+                if (activeHandle == -1) {
+                    val left = minOf(pts[0], pts[6])
+                    val top = minOf(pts[1], pts[3])
+                    val right = maxOf(pts[2], pts[4])
+                    val bottom = maxOf(pts[5], pts[7])
+                    if (event.x in left..right && event.y in top..bottom) {
+                        activeHandle = 20
+                        val bpt = floatArrayOf(event.x, event.y)
+                        viewToBitmap.mapPoints(bpt, bpt)
+                        lastPanX = bpt[0]
+                        lastPanY = bpt[1]
+                    }
+                }
                 return activeHandle != -1
             }
             MotionEvent.ACTION_MOVE -> {
@@ -233,9 +356,29 @@ class CropView @JvmOverloads constructor(
                 viewToBitmap.mapPoints(bpt, bpt)
                 val bx = bpt[0].coerceIn(0f, bmp.width.toFloat())
                 val by = bpt[1].coerceIn(0f, bmp.height.toFloat())
+                if (activeHandle == 20) {
+                    // Pan the whole frame, clamped inside the photo.
+                    var dx = bx - lastPanX
+                    var dy = by - lastPanY
+                    val left = minOf(corners[0], corners[6])
+                    val top = minOf(corners[1], corners[3])
+                    val right = maxOf(corners[2], corners[4])
+                    val bottom = maxOf(corners[5], corners[7])
+                    dx = dx.coerceIn(-left, bmp.width - right)
+                    dy = dy.coerceIn(-top, bmp.height - bottom)
+                    for (i in 0 until 4) {
+                        corners[i * 2] += dx
+                        corners[i * 2 + 1] += dy
+                    }
+                    lastPanX = bx
+                    lastPanY = by
+                    invalidate()
+                    return true
+                }
                 if (activeHandle < 4) {
                     corners[activeHandle * 2] = bx
                     corners[activeHandle * 2 + 1] = by
+                    if (aspectRatio != null) enforceAspect(activeHandle)
                 } else {
                     // Move the whole edge: shift both corners by the delta.
                     val i = activeHandle - 10
