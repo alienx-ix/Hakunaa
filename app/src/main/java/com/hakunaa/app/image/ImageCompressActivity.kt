@@ -6,7 +6,6 @@ import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
-import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -53,17 +52,33 @@ class ImageCompressActivity : AppCompatActivity() {
 
     private var inputUri: Uri? = null
     private var inputSize: Long = -1
-    private var inputName: String = ""
 
     private val pickImage =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
             inputUri = uri
             if (uri != null) {
                 inputSize = FileUtils.fileSize(contentResolver, uri)
-                inputName = FileUtils.fileName(contentResolver, uri)
-                updateFileLabel()
+                // The tool that was tapped waits for the pick — run it now.
+                val action = pendingAction
+                pendingAction = null
+                action?.invoke()
+            } else {
+                pendingAction = null
             }
         }
+
+    /** The tool tapped while no image was picked yet — runs after the pick. */
+    private var pendingAction: (() -> Unit)? = null
+
+    /** Run [action] with an image: now if one is picked, else ask first. */
+    private fun withImage(action: () -> Unit) {
+        if (inputUri != null) {
+            action()
+        } else {
+            pendingAction = action
+            pickImage.launch("image/*")
+        }
+    }
 
     private data class ToolDef(
         val title: String,
@@ -85,47 +100,45 @@ class ImageCompressActivity : AppCompatActivity() {
         findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar)
             .setNavigationOnClickListener { finish() }
 
-        findViewById<Button>(R.id.btnPickImage).setOnClickListener { pickImage.launch("image/*") }
-
         toolDefs = listOf(
             ToolDef("Compress", "Reduce file size", R.drawable.ic_arrow_right, 90f) {
-                openTool(ImageToolActivity.MODE_COMPRESS)
+                withImage { openTool(ImageToolActivity.MODE_COMPRESS) }
             },
             ToolDef("Quick Squish", "Just make image smaller", R.drawable.ic_bolt) {
-                quickSquish()
+                withImage { quickSquish() }
             },
             ToolDef("Photo Enhance", "One-tap auto enhance", R.drawable.ic_sparkle) {
-                photoEnhance()
+                withImage { photoEnhance() }
             },
             ToolDef("Crop", "Remove unwanted parts", R.drawable.ic_crop) {
-                openCrop()
+                withImage { openCrop() }
             },
             ToolDef("Resize", "Change photo resolution", R.drawable.ic_text_resize) {
-                openTool(ImageToolActivity.MODE_RESIZE)
+                withImage { openTool(ImageToolActivity.MODE_RESIZE) }
             },
             ToolDef("Social Media Crop", "1:1, 9:16, 4:5", R.drawable.ic_frame) {
-                openTool(ImageToolActivity.MODE_FIT_SOCIAL)
+                withImage { openTool(ImageToolActivity.MODE_FIT_SOCIAL) }
             },
             ToolDef("Convert", "PNG, JPG, WebP", R.drawable.ic_convert) {
-                openTool(ImageToolActivity.MODE_CONVERT)
+                withImage { openTool(ImageToolActivity.MODE_CONVERT) }
             },
             ToolDef("Edit Image", "Basic photo editing tools", R.drawable.ic_markup) {
-                openEdit()
+                withImage { openEdit() }
             },
             ToolDef("DP Edit", "Circle & Square", R.drawable.ic_profile) {
-                dpEdit()
+                withImage { dpEdit() }
             },
             ToolDef("Image to PDF", "Photo to PDF", R.drawable.ic_doc) {
-                imageToPdf()
+                withImage { imageToPdf() }
             },
             ToolDef("Collage", "Up to 4 photos", R.drawable.ic_collage) {
                 startActivity(Intent(this, CollageActivity::class.java))
             },
             ToolDef("Remove Metadata", "Strip location & metadata", R.drawable.ic_shield) {
-                removeMetadata()
+                withImage { removeMetadata() }
             },
             ToolDef("Target Size", "Resize to target file size", R.drawable.ic_tune, 0f, true) {
-                openTool(ImageToolActivity.MODE_TARGET_SIZE)
+                withImage { openTool(ImageToolActivity.MODE_TARGET_SIZE) }
             }
         )
 
@@ -180,11 +193,6 @@ class ImageCompressActivity : AppCompatActivity() {
         card.findViewById<TextView>(R.id.tvSubtitle).text = tool.subtitle
         card.setOnClickListener { tool.action() }
         return card
-    }
-
-    private fun updateFileLabel() {
-        findViewById<TextView>(R.id.tvFile).text =
-            "$inputName — ${FileUtils.formatSize(inputSize)}"
     }
 
     private fun requireImage(): Boolean {

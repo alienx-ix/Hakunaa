@@ -355,30 +355,27 @@ object ImageCompressor {
     )
 
     /**
-     * Smart Compress: try EVERY level (same 5 as compressBest) and
-     * return ALL results that are smaller than the original,
+     * Smart results for a CHOSEN quality: try that quality in JPEG
+     * and WebP and return the ones smaller than the original,
      * smallest first. The caller shows them with real sizes and
      * lets the user pick one to save. Nothing bigger than the
      * original is ever returned.
      */
-    fun compressAllLevels(
+    fun compressAtQuality(
         input: File,
         outputBase: File,
+        quality: Int,
         maxDimension: Int = 2048
     ): List<LevelResult> {
         val inputSize = input.length()
-        val attempts = listOf(
-            Triple(85, Format.JPEG, "JPEG 85%"),
-            Triple(85, Format.WEBP, "WebP 85%"),
-            Triple(70, Format.JPEG, "JPEG 70%"),
-            Triple(70, Format.WEBP, "WebP 70%"),
-            Triple(60, Format.JPEG, "JPEG 60%")
-        )
         val results = mutableListOf<LevelResult>()
-        for ((quality, format, label) in attempts) {
+        for ((format, label) in listOf(
+            Format.JPEG to "JPEG $quality%",
+            Format.WEBP to "WebP $quality%"
+        )) {
             val candidate = File(
                 outputBase.parent,
-                "${outputBase.nameWithoutExtension}_try${quality}_${format.extension}.${format.extension}"
+                "${outputBase.nameWithoutExtension}_q${quality}_${format.extension}.${format.extension}"
             )
             val ok = compress(input, candidate, quality, format, maxDimension)
             if (!ok || !candidate.exists()) {

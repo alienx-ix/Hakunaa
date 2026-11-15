@@ -29,21 +29,6 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnPickImage"
-                android:layout_width="match_parent"
-                android:layout_height="56dp"
-                android:text="@string/pick_image" />
-
-            <TextView
-                android:id="@+id/tvFile"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="@string/ready"
-                android:textColor="@color/hakunaa_text_secondary"
-                android:textSize="13sp" />
-
             <EditText
                 android:id="@+id/etSearch"
                 android:layout_width="match_parent"

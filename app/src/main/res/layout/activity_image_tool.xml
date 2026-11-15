@@ -109,6 +109,49 @@
                 android:layout_marginTop="8dp"
                 android:orientation="vertical"
                 android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/targetSizeContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <EditText
+                    android:id="@+id/etTargetSize"
+                    android:layout_width="match_parent"
+                    android:layout_height="56dp"
+                    android:background="@drawable/bg_search"
+                    android:hint="Enter size (e.g. 500)"
+                    android:inputType="numberDecimal"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:textSize="16sp" />
+
+                <RadioGroup
+                    android:id="@+id/rgTargetUnit"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="horizontal">
+
+                    <RadioButton
+                        android:id="@+id/rbTargetKb"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:checked="true"
+                        android:text="KB" />
+
+                    <RadioButton
+                        android:id="@+id/rbTargetMb"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="MB" />
+                </RadioGroup>
+            </LinearLayout>
         </LinearLayout>
     </ScrollView>
 

@@ -94,8 +94,8 @@ class ImageToolActivity : AppCompatActivity() {
         }.start()
 
         findViewById<TextView>(R.id.btnBack).setOnClickListener {
-            if (mode == MODE_COMPRESS && step == 1) {
-                step = 0
+            if (mode == MODE_COMPRESS && step > 0) {
+                step--
                 renderStep()
             } else {
                 finish()
@@ -121,18 +121,63 @@ class ImageToolActivity : AppCompatActivity() {
         group.removeAllViews()
         group.visibility = View.VISIBLE
         findViewById<LinearLayout>(R.id.resultsContainer).visibility = View.GONE
+        findViewById<LinearLayout>(R.id.targetSizeContainer).visibility = View.GONE
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnNext).text =
-            if (mode == MODE_COMPRESS && step == 1) "Done" else "Next"
+            if (mode == MODE_COMPRESS && isCompressDoneStep()) "Done" else "Next"
         val subtitle = findViewById<TextView>(R.id.tvSubtitle)
         when (mode) {
             MODE_COMPRESS -> {
-                if (step == 0) {
-                    subtitle.text = "Change photo resolution"
-                    addResolutionOptions(group)
-                } else {
-                    subtitle.text = "Tap a result to save it — Best is the smallest"
-                    group.visibility = View.GONE
-                    findViewById<LinearLayout>(R.id.resultsContainer).visibility = View.VISIBLE
+                when (step) {
+                    0 -> {
+                        subtitle.text = "Choose how to compress"
+                        addOptions(group, listOf(
+                            "quality" to "Quality — Choose a quality %",
+                            "target" to "Target size — Enter MB or KB",
+                            "hd" to "HD Compress — Only size reduces, 0% quality loss"
+                        ), 0)
+                    }
+                    1 -> when (compressMode) {
+                        1 -> {
+                            subtitle.text = "Reduce file size, choose quality"
+                            addOptions(group, listOf(
+                                "95" to "Maximum quality",
+                                "90" to "High quality",
+                                "80" to "Good quality",
+                                "70" to "Balanced quality",
+                                "60" to "Medium quality",
+                                "50" to "Enough quality",
+                                "85" to "Custom quality: 85"
+                            ), 0)
+                        }
+                        2 -> {
+                            subtitle.text = "Enter the target size"
+                            group.visibility = View.GONE
+                            findViewById<LinearLayout>(R.id.targetSizeContainer).visibility = View.VISIBLE
+                        }
+                        3 -> {
+                            subtitle.text = "Choose a size — quality stays 100%"
+                            addOptions(group, listOf(
+                                "50" to "Half size (50%)",
+                                "1920" to "HD — 1920px longest side",
+                                "25" to "Quarter size (25%)"
+                            ), 0)
+                        }
+                    }
+                    2 -> when (compressMode) {
+                        1 -> {
+                            subtitle.text = "Change photo resolution"
+                            addResolutionOptions(group)
+                        }
+                        else -> {
+                            subtitle.text = "Compressed — see the result below"
+                            group.visibility = View.GONE
+                        }
+                    }
+                    else -> {
+                        subtitle.text = "Tap a result to save it — Best is the smallest"
+                        group.visibility = View.GONE
+                        findViewById<LinearLayout>(R.id.resultsContainer).visibility = View.VISIBLE
+                    }
                 }
             }
             MODE_RESIZE -> {
@@ -240,38 +285,129 @@ class ImageToolActivity : AppCompatActivity() {
     private fun next() {
         val input = inputFile ?: return
         val status = findViewById<TextView>(R.id.tvStatus)
-        // Compress: pick a resolution, then see every level's real
-        // size and tap one to save it (Smart results).
+        // Compress: 3 buttons — Quality %, Target size (MB/KB),
+        // HD Compress (size only, 0% quality loss).
         if (mode == MODE_COMPRESS && step == 0) {
-            val maxDim = resolutionMaxDimension()
-            status.text = "Working…"
-            val nextBtn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnNext)
-            nextBtn.isEnabled = false
-            Thread {
-                try {
-                    val base = File(cacheDir, "hakunaa_smart_${System.currentTimeMillis()}")
-                    val results = ImageCompressor.compressAllLevels(input, base, maxDim)
-                    runOnUiThread {
-                        nextBtn.isEnabled = true
-                        if (results.isEmpty()) {
-                            status.text = "Already optimized — even the strongest settings couldn't shrink this image."
-                        } else {
-                            smartResults = results
-                            step = 1
-                            renderStep()
-                            showSmartResults(results)
-                        }
-                    }
-                } catch (_: Throwable) {
-                    runOnUiThread {
-                        nextBtn.isEnabled = true
-                        status.text = "Failed — try another image"
-                    }
-                }
-            }.start()
+            compressMode = when (selectedTag()) {
+                "target" -> 2
+                "hd" -> 3
+                else -> 1
+            }
+            step = 1
+            renderStep()
             return
         }
         if (mode == MODE_COMPRESS && step == 1) {
+            when (compressMode) {
+                1 -> {
+                    qualityChoice = selectedTag()?.toIntOrNull() ?: 85
+                    step = 2
+                    renderStep()
+                }
+                2 -> {
+                    val targetBytes = targetSizeBytes()
+                    if (targetBytes == null || targetBytes <= 0) {
+                        status.text = "Enter a size first (e.g. 500 KB or 2 MB)"
+                        return
+                    }
+                    status.text = "Working…"
+                    val nextBtn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnNext)
+                    nextBtn.isEnabled = false
+                    Thread {
+                        try {
+                            val outFile = File(cacheDir, "hakunaa_target_${System.currentTimeMillis()}.jpg")
+                            val result = ImageCompressor.compressToTargetSize(input, outFile, targetBytes)
+                            runOnUiThread {
+                                nextBtn.isEnabled = true
+                                if (result != null && result.exists() && result.length() <= targetBytes) {
+                                    step = 2
+                                    renderStep()
+                                    saveSingleResult(result)
+                                } else {
+                                    try { outFile.delete() } catch (_: Throwable) { }
+                                    status.text = "Could not reach that size — try a bigger target"
+                                }
+                            }
+                        } catch (_: Throwable) {
+                            runOnUiThread {
+                                nextBtn.isEnabled = true
+                                status.text = "Failed — try another image"
+                            }
+                        }
+                    }.start()
+                }
+                3 -> {
+                    val scale = selectedTag() ?: "50"
+                    val longest = imageLongestSide()
+                    val maxDim = when (scale) {
+                        "1920" -> 1920
+                        "25" -> (longest * 0.25).toInt().coerceAtLeast(240)
+                        else -> (longest * 0.5).toInt().coerceAtLeast(240)
+                    }
+                    status.text = "Working…"
+                    val nextBtn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnNext)
+                    nextBtn.isEnabled = false
+                    Thread {
+                        try {
+                            val outFile = File(cacheDir, "hakunaa_hd_${System.currentTimeMillis()}.jpg")
+                            val ok = ImageCompressor.compress(input, outFile, 95, ImageCompressor.Format.JPEG, maxDim)
+                            runOnUiThread {
+                                nextBtn.isEnabled = true
+                                if (ok && outFile.exists() && outFile.length() < input.length()) {
+                                    step = 2
+                                    renderStep()
+                                    saveSingleResult(outFile)
+                                } else {
+                                    try { outFile.delete() } catch (_: Throwable) { }
+                                    status.text = "Already optimized — this photo is already small"
+                                }
+                            }
+                        } catch (_: Throwable) {
+                            runOnUiThread {
+                                nextBtn.isEnabled = true
+                                status.text = "Failed — try another image"
+                            }
+                        }
+                    }.start()
+                }
+            }
+            return
+        }
+        if (mode == MODE_COMPRESS && step == 2) {
+            if (compressMode == 1) {
+                val maxDim = resolutionMaxDimension()
+                val quality = qualityChoice
+                status.text = "Working…"
+                val nextBtn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnNext)
+                nextBtn.isEnabled = false
+                Thread {
+                    try {
+                        val base = File(cacheDir, "hakunaa_smart_${System.currentTimeMillis()}")
+                        val results = ImageCompressor.compressAtQuality(input, base, quality, maxDim)
+                        runOnUiThread {
+                            nextBtn.isEnabled = true
+                            if (results.isEmpty()) {
+                                status.text = "Already optimized — even the strongest settings couldn't shrink this image."
+                            } else {
+                                smartResults = results
+                                step = 3
+                                renderStep()
+                                showSmartResults(results)
+                            }
+                        }
+                    } catch (_: Throwable) {
+                        runOnUiThread {
+                            nextBtn.isEnabled = true
+                            status.text = "Failed — try another image"
+                        }
+                    }
+                }.start()
+                return
+            }
+            finish()
+            return
+        }
+        if (mode == MODE_COMPRESS && step == 3) {
             finish()
             return
         }
@@ -351,6 +487,43 @@ class ImageToolActivity : AppCompatActivity() {
     }
 
     private var smartResults: List<ImageCompressor.LevelResult> = emptyList()
+    private var qualityChoice = 85
+    /** Compress sub-mode: 0=none, 1=Quality, 2=Target size, 3=HD Compress. */
+    private var compressMode = 0
+
+    /** True when the Compress flow is on its final step (Next = Done). */
+    private fun isCompressDoneStep(): Boolean = when (compressMode) {
+        1 -> step == 3
+        2, 3 -> step == 2
+        else -> false
+    }
+
+    /** Target size in bytes from the custom input (number + KB/MB). */
+    private fun targetSizeBytes(): Long? {
+        val text = findViewById<android.widget.EditText>(R.id.etTargetSize).text.toString().trim()
+        val value = text.toDoubleOrNull() ?: return null
+        val isMb = findViewById<android.widget.RadioButton>(R.id.rbTargetMb).isChecked
+        return (value * if (isMb) 1024 * 1024 else 1024).toLong()
+    }
+
+    /** Longest side of the input image in pixels (for HD scaling). */
+    private fun imageLongestSide(): Int {
+        val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeFile(inputFile?.absolutePath, opts)
+        return maxOf(opts.outWidth, opts.outHeight).coerceAtLeast(240)
+    }
+
+    /** Save one finished file to Pictures/Hakunaa and show its sizes. */
+    private fun saveSingleResult(outFile: java.io.File) {
+        val status = findViewById<TextView>(R.id.tvStatus)
+        val after = outFile.length()
+        val saved = MediaStoreSaver.save(this, outFile, MediaStoreSaver.Kind.IMAGE, outFile.name)
+        status.text = if (saved != null) "Done — saved to Pictures/Hakunaa"
+        else "Done, but couldn't save to Pictures — please try again"
+        findViewById<TextView>(R.id.tvResult).text =
+            "${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(after)} " +
+                "(${FileUtils.savedPercent(inputSize, after)})"
+    }
 
     /** Smart results rows: label + Best badge + real size + saving. Tap = save. */
     private fun showSmartResults(results: List<ImageCompressor.LevelResult>) {
@@ -360,7 +533,14 @@ class ImageToolActivity : AppCompatActivity() {
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(16, 20, 16, 20)
-                setBackgroundResource(android.R.attr.selectableItemBackground)
+                // selectableItemBackground is an ATTRIBUTE, not a drawable —
+                // pass it straight to setBackgroundResource and it crashes
+                // (Resources$NotFoundException #0x101030e). Resolve it first.
+                val typedValue = android.util.TypedValue()
+                theme.resolveAttribute(
+                    android.R.attr.selectableItemBackground, typedValue, true
+                )
+                setBackgroundResource(typedValue.resourceId)
                 isClickable = true
                 isFocusable = true
             }
