@@ -45,6 +45,7 @@ class ImageToolActivity : AppCompatActivity() {
         const val MODE_FIT = "fit"
         const val MODE_FIT_SOCIAL = "fit_social"
         const val MODE_CONVERT = "convert"
+        const val MODE_SMART = "smart"
     }
 
     private var mode = MODE_COMPRESS
@@ -84,6 +85,7 @@ class ImageToolActivity : AppCompatActivity() {
                     val bitmap = BitmapFactory.decodeFile(file.absolutePath)
                     findViewById<ImageView>(R.id.ivThumb).setImageBitmap(bitmap)
                     renderStep()
+                    if (mode == MODE_SMART) runSmartCompress()
                 }
             } catch (_: Throwable) {
                 runOnUiThread {
@@ -101,6 +103,15 @@ class ImageToolActivity : AppCompatActivity() {
                 finish()
             }
         }
+
+        findViewById<TextView>(R.id.tvUnitKb).setOnClickListener {
+            targetUnitIsMb = false
+            updateUnitToggle()
+        }
+        findViewById<TextView>(R.id.tvUnitMb).setOnClickListener {
+            targetUnitIsMb = true
+            updateUnitToggle()
+        }
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnNext)
             .setOnClickListener { next() }
         findViewById<ImageView>(R.id.btnClose).setOnClickListener { finish() }
@@ -112,6 +123,7 @@ class ImageToolActivity : AppCompatActivity() {
         MODE_FIT -> "Fit"
         MODE_FIT_SOCIAL -> "Fit to social media"
         MODE_CONVERT -> "Convert"
+        MODE_SMART -> "Smart Compress"
         else -> "Compress"
     }
 
@@ -123,10 +135,14 @@ class ImageToolActivity : AppCompatActivity() {
         findViewById<LinearLayout>(R.id.resultsContainer).visibility = View.GONE
         findViewById<LinearLayout>(R.id.targetSizeContainer).visibility = View.GONE
         findViewById<LinearLayout>(R.id.modeContainer).visibility = View.GONE
+        findViewById<LinearLayout>(R.id.qualityContainer).visibility = View.GONE
         val nextBtn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnNext)
-        // Step 0 is the 3 buttons — tapping one IS the action, so no Next button.
-        nextBtn.visibility = if (mode == MODE_COMPRESS && step == 0) View.GONE else View.VISIBLE
-        nextBtn.text = if (mode == MODE_COMPRESS && isCompressDoneStep()) "Done" else "Next"
+        // Step 0 (3 buttons) and the Quality cards: tapping IS the action, so no Next.
+        // Smart Compress: step 0 is working (no Next), step 1 shows results (Done).
+        nextBtn.visibility = if ((mode == MODE_COMPRESS && (step == 0 || (step == 1 && compressMode == 1))) ||
+            (mode == MODE_SMART && step == 0)) View.GONE else View.VISIBLE
+        nextBtn.text = if ((mode == MODE_COMPRESS && isCompressDoneStep()) ||
+            (mode == MODE_SMART && step == 1)) "Done" else "Next"
         val subtitle = findViewById<TextView>(R.id.tvSubtitle)
         when (mode) {
             MODE_COMPRESS -> {
@@ -140,15 +156,9 @@ class ImageToolActivity : AppCompatActivity() {
                     1 -> when (compressMode) {
                         1 -> {
                             subtitle.text = "Reduce file size, choose quality"
-                            addOptions(group, listOf(
-                                "95" to "Maximum quality",
-                                "90" to "High quality",
-                                "80" to "Good quality",
-                                "70" to "Balanced quality",
-                                "60" to "Medium quality",
-                                "50" to "Enough quality",
-                                "85" to "Custom quality: 85"
-                            ), 0)
+                            group.visibility = View.GONE
+                            findViewById<LinearLayout>(R.id.qualityContainer).visibility = View.VISIBLE
+                            buildQualityCards()
                         }
                         2 -> {
                             subtitle.text = "Enter the target size"
@@ -179,6 +189,16 @@ class ImageToolActivity : AppCompatActivity() {
                         group.visibility = View.GONE
                         findViewById<LinearLayout>(R.id.resultsContainer).visibility = View.VISIBLE
                     }
+                }
+            }
+            MODE_SMART -> {
+                if (step == 0) {
+                    subtitle.text = "Trying all levels…"
+                    group.visibility = View.GONE
+                } else {
+                    subtitle.text = "Tap a result to save it — Best is the smallest"
+                    group.visibility = View.GONE
+                    findViewById<LinearLayout>(R.id.resultsContainer).visibility = View.VISIBLE
                 }
             }
             MODE_RESIZE -> {
@@ -283,20 +303,45 @@ class ImageToolActivity : AppCompatActivity() {
         return checked.tag as? String
     }
 
+    /** Smart Compress: try all levels, show every result, user picks one. */
+    private fun runSmartCompress() {
+        val input = inputFile ?: return
+        val status = findViewById<TextView>(R.id.tvStatus)
+        status.text = "Working…"
+        Thread {
+            try {
+                val base = File(cacheDir, "hakunaa_smart_${System.currentTimeMillis()}")
+                val results = ImageCompressor.compressAllLevels(input, base)
+                runOnUiThread {
+                    if (results.isEmpty()) {
+                        status.text = "Already optimized — even the strongest settings couldn't shrink this image."
+                    } else {
+                        smartResults = results
+                        step = 1
+                        renderStep()
+                        showSmartResults(results)
+                    }
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Failed — try another image" }
+            }
+        }.start()
+    }
+
     private fun next() {
         val input = inputFile ?: return
         val status = findViewById<TextView>(R.id.tvStatus)
+        if (mode == MODE_SMART) {
+            if (step == 1) finish()
+            return
+        }
         // Compress: 3 buttons — Quality %, Target size (MB/KB),
         // HD Compress (size only, 0% quality loss). Step 0 is the
         // buttons (Next is hidden there), so nothing to do here.
         if (mode == MODE_COMPRESS && step == 0) return
         if (mode == MODE_COMPRESS && step == 1) {
             when (compressMode) {
-                1 -> {
-                    qualityChoice = selectedTag()?.toIntOrNull() ?: 85
-                    step = 2
-                    renderStep()
-                }
+                1 -> { /* Quality is picked by tapping a card (Next is hidden there). */ }
                 2 -> {
                     val targetBytes = targetSizeBytes()
                     if (targetBytes == null || targetBytes <= 0) {
@@ -494,7 +539,9 @@ class ImageToolActivity : AppCompatActivity() {
         }
     }
 
-    /** HD Compress: one tap, no options — Full Quality (JPEG 95), half the size. */
+    /** HD Compress: one tap, no options — SAME photo, SAME size, 100% quality,
+     *  just a smaller file. Best of JPEG 95 / WebP 95 at FULL resolution —
+     *  no downscale, no blur. */
     private fun runHdCompress() {
         val input = inputFile ?: return
         val status = findViewById<TextView>(R.id.tvStatus)
@@ -503,18 +550,15 @@ class ImageToolActivity : AppCompatActivity() {
         nextBtn.isEnabled = false
         Thread {
             try {
-                val longest = imageLongestSide()
-                val maxDim = (longest * 0.5).toInt().coerceAtLeast(240)
-                val outFile = File(cacheDir, "hakunaa_hd_${System.currentTimeMillis()}.jpg")
-                val ok = ImageCompressor.compress(input, outFile, 95, ImageCompressor.Format.JPEG, maxDim)
+                val base = File(cacheDir, "hakunaa_hd_${System.currentTimeMillis()}")
+                val results = ImageCompressor.compressAtQuality(input, base, 95, 10000)
                 runOnUiThread {
                     nextBtn.isEnabled = true
-                    if (ok && outFile.exists() && outFile.length() < input.length()) {
+                    if (results.isNotEmpty()) {
                         step = 2
                         renderStep()
-                        saveSingleResult(outFile)
+                        saveSingleResult(results[0].file)
                     } else {
-                        try { outFile.delete() } catch (_: Throwable) { }
                         status.text = "Already optimized — this photo is already small"
                     }
                 }
@@ -527,19 +571,66 @@ class ImageToolActivity : AppCompatActivity() {
         }.start()
     }
 
-    /** Target size in bytes from the custom input (number + KB/MB). */
+    /** Target size in bytes from the custom input (number + KB/MB toggle). */
     private fun targetSizeBytes(): Long? {
         val text = findViewById<android.widget.EditText>(R.id.etTargetSize).text.toString().trim()
         val value = text.toDoubleOrNull() ?: return null
-        val isMb = findViewById<android.widget.RadioButton>(R.id.rbTargetMb).isChecked
-        return (value * if (isMb) 1024 * 1024 else 1024).toLong()
+        return (value * if (targetUnitIsMb) 1024 * 1024 else 1024).toLong()
     }
 
-    /** Longest side of the input image in pixels (for HD scaling). */
-    private fun imageLongestSide(): Int {
-        val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        android.graphics.BitmapFactory.decodeFile(inputFile?.absolutePath, opts)
-        return maxOf(opts.outWidth, opts.outHeight).coerceAtLeast(240)
+    /** KB/MB segmented toggle state (KB by default). */
+    private var targetUnitIsMb = false
+
+    /** Paint the KB/MB toggle: selected half teal + white, other half grey. */
+    private fun updateUnitToggle() {
+        val kb = findViewById<TextView>(R.id.tvUnitKb)
+        val mb = findViewById<TextView>(R.id.tvUnitMb)
+        if (targetUnitIsMb) {
+            mb.setBackgroundResource(R.drawable.bg_teal_button)
+            mb.setTextColor(getColor(android.R.color.white))
+            kb.background = null
+            kb.setTextColor(getColor(R.color.hakunaa_text_secondary))
+        } else {
+            kb.setBackgroundResource(R.drawable.bg_teal_button)
+            kb.setTextColor(getColor(android.R.color.white))
+            mb.background = null
+            mb.setTextColor(getColor(R.color.hakunaa_text_secondary))
+        }
+    }
+
+    /** Quality % as professional tappable cards (not a radio list). */
+    private fun buildQualityCards() {
+        val container = findViewById<LinearLayout>(R.id.qualityContainer)
+        container.removeAllViews()
+        val inflater = android.view.LayoutInflater.from(this)
+        val gapPx = (12 * resources.displayMetrics.density).toInt()
+        val qualities = listOf(
+            95 to "Maximum quality",
+            90 to "High quality",
+            80 to "Good quality",
+            70 to "Balanced quality",
+            60 to "Medium quality",
+            50 to "Enough quality",
+            85 to "Custom quality: 85"
+        )
+        for ((index, entry) in qualities.withIndex()) {
+            val (quality, label) = entry
+            val card = inflater.inflate(R.layout.item_image_tool, container, false)
+            card.findViewById<android.widget.ImageView>(R.id.ivIcon).setImageResource(R.drawable.ic_tune)
+            card.findViewById<TextView>(R.id.tvTitle).text = "$quality%"
+            card.findViewById<TextView>(R.id.tvSubtitle).text = label
+            if (index > 0) {
+                val params = card.layoutParams as? LinearLayout.LayoutParams
+                params?.topMargin = gapPx
+                card.layoutParams = params
+            }
+            card.setOnClickListener {
+                qualityChoice = quality
+                step = 2
+                renderStep()
+            }
+            container.addView(card)
+        }
     }
 
     /** Save one finished file to Pictures/Hakunaa and show its sizes. */

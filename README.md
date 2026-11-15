@@ -655,6 +655,15 @@ Image: JPEG 85% is visually lossless for photos. WebP is
 - **Video tools menu** agreed (user idea, 2026-11-15): Standard Compress (basic), Smart Compress (multiple results at once, user picks), Advanced (full manual control), Convert (13 formats), Rotate, Color (grading), Video to Audio, Video Cutter.
 - **Same quality, smaller size (visually lossless)** clarified (2026-11-15): quality looks the same to the eye, only the size reduces — this is what the CRF ladder already does (CRF 23-28, 40-60% smaller). Mathematical lossless (CRF 0) makes the file bigger — not wanted; true 0% loss with no size change is Quick Remux.
 
+## v0.1.114 — Quality % + Target screens professional, HD is true 0% loss, photo remembered, Quick Squish is Smart Compress (on v0.1.113)
+
+- **Quality % is professional cards now** — 95/90/80/70/60/50/Custom 85 as tappable menu-style cards (no radio list); tap goes straight to the resolution step.
+- **Target size KB/MB is a segmented teal toggle** (KB selected by default) instead of radio buttons.
+- **HD Compress corrected (user, 2026-11-15): NO downscale, NO blur** — same photo, same size, 100% quality, just a smaller file. Best of JPEG 95 / WebP 95 at FULL resolution (`compressAtQuality(95, 10000)`); the 50% downscale is gone.
+- **Picked photo is remembered (user, 2026-11-15 — major fix):** the photo is copied to a fixed cache file + path saved in prefs, restored when the menu opens, so going back and re-entering a tool never asks again. A small current-photo row (thumbnail + name + Change) lets the user pick a different photo.
+- **Quick Squish is Smart Compress now (user, 2026-11-15):** renamed card + new MODE_SMART — one tap tries all levels in the ORIGINAL format and shows ALL results with real sizes; the user picks the size they need and taps to save.
+- **Quick Squish / compressBest keeps the original format (user, 2026-11-15):** a JPG stays a JPG, a WebP stays a WebP — no surprise format change. New `formatOf()` detects the format from magic bytes. (WebP is accepted by WhatsApp/Instagram/web, but most Govt portals accept only JPG/JPEG — so JPG stays JPG for Govt forms.)
+
 ## v0.1.113 — Compress is 3 professional buttons, HD has no options (on v0.1.112)
 
 - **Compress mode picker is 3 buttons now** (menu-style cards, teal-tint icons) — no radio list: **Quality** (choose a quality %), **Target size** (enter MB or KB), **HD Compress** (only size reduces, 0% quality loss). Tapping a button goes straight in — no Next press.

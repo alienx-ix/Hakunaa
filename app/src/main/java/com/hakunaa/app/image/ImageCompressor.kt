@@ -129,15 +129,47 @@ object ImageCompressor {
      * [outputBase] is the file path without extension; the real
      * extension (.jpg/.webp) depends on which format won.
      */
+    /** Detect a file's image format from its magic bytes (most reliable). */
+    fun formatOf(file: File): Format {
+        return try {
+            val bytes = ByteArray(12)
+            java.io.FileInputStream(file).use { it.read(bytes) }
+            when {
+                bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() -> Format.JPEG
+                bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() &&
+                    bytes[2] == 0x4E.toByte() && bytes[3] == 0x47.toByte() -> Format.PNG
+                bytes[0] == 0x52.toByte() && bytes[1] == 0x49.toByte() &&
+                    bytes[2] == 0x46.toByte() && bytes[3] == 0x46.toByte() &&
+                    bytes[8] == 0x57.toByte() && bytes[9] == 0x45.toByte() &&
+                    bytes[10] == 0x42.toByte() && bytes[11] == 0x50.toByte() -> Format.WEBP
+                else -> Format.JPEG
+            }
+        } catch (_: Throwable) {
+            Format.JPEG
+        }
+    }
+
     fun compressBest(input: File, outputBase: File): Triple<File, Format, String>? {
         val inputSize = input.length()
-        val attempts = listOf(
-            Triple(85, Format.JPEG, ""),
-            Triple(85, Format.WEBP, " (used WebP)"),
-            Triple(70, Format.JPEG, " (used JPEG 70%)"),
-            Triple(70, Format.WEBP, " (used WebP 70%)"),
-            Triple(60, Format.JPEG, " (used JPEG 60%)")
-        )
+        // Keep the ORIGINAL format — a JPG stays a JPG, a WebP stays a
+        // WebP (no surprise format change). PNG photos shrink via JPEG.
+        val attempts = when (formatOf(input)) {
+            Format.JPEG -> listOf(
+                Triple(85, Format.JPEG, ""),
+                Triple(70, Format.JPEG, " (used JPEG 70%)"),
+                Triple(60, Format.JPEG, " (used JPEG 60%)")
+            )
+            Format.WEBP -> listOf(
+                Triple(85, Format.WEBP, ""),
+                Triple(70, Format.WEBP, " (used WebP 70%)"),
+                Triple(60, Format.WEBP, " (used WebP 60%)")
+            )
+            Format.PNG -> listOf(
+                Triple(100, Format.PNG, ""),
+                Triple(85, Format.JPEG, " (used JPEG 85%)"),
+                Triple(70, Format.JPEG, " (used JPEG 70%)")
+            )
+        }
         var bestFile: File? = null
         var bestFormat = Format.JPEG
         var bestNote = ""
@@ -378,6 +410,53 @@ object ImageCompressor {
                 "${outputBase.nameWithoutExtension}_q${quality}_${format.extension}.${format.extension}"
             )
             val ok = compress(input, candidate, quality, format, maxDimension)
+            if (!ok || !candidate.exists()) {
+                try { candidate.delete() } catch (_: Throwable) { }
+                continue
+            }
+            val size = candidate.length()
+            if (size < inputSize) {
+                val saving = ((inputSize - size) * 100 / inputSize).toInt()
+                results.add(LevelResult(label, format, quality, candidate, size, saving))
+            } else {
+                try { candidate.delete() } catch (_: Throwable) { }
+            }
+        }
+        return results.sortedBy { it.size }
+    }
+
+    /**
+     * Smart Compress: try every level in the ORIGINAL format and
+     * return ALL results smaller than the original, smallest first.
+     * The caller shows them with real sizes and lets the user pick
+     * one to save. Nothing bigger than the original is returned.
+     */
+    fun compressAllLevels(input: File, outputBase: File): List<LevelResult> {
+        val inputSize = input.length()
+        val attempts = when (formatOf(input)) {
+            Format.JPEG -> listOf(
+                Triple(85, Format.JPEG, "JPEG 85%"),
+                Triple(70, Format.JPEG, "JPEG 70%"),
+                Triple(60, Format.JPEG, "JPEG 60%")
+            )
+            Format.WEBP -> listOf(
+                Triple(85, Format.WEBP, "WebP 85%"),
+                Triple(70, Format.WEBP, "WebP 70%"),
+                Triple(60, Format.WEBP, "WebP 60%")
+            )
+            Format.PNG -> listOf(
+                Triple(100, Format.PNG, "PNG"),
+                Triple(85, Format.JPEG, "JPEG 85%"),
+                Triple(70, Format.JPEG, "JPEG 70%")
+            )
+        }
+        val results = mutableListOf<LevelResult>()
+        for ((quality, format, label) in attempts) {
+            val candidate = File(
+                outputBase.parent,
+                "${outputBase.nameWithoutExtension}_${label.replace(" ", "_").replace("%", "")}.${format.extension}"
+            )
+            val ok = compress(input, candidate, quality, format)
             if (!ok || !candidate.exists()) {
                 try { candidate.delete() } catch (_: Throwable) { }
                 continue

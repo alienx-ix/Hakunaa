@@ -52,12 +52,17 @@ class ImageCompressActivity : AppCompatActivity() {
 
     private var inputUri: Uri? = null
     private var inputSize: Long = -1
+    private var inputName: String = ""
 
     private val pickImage =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
             inputUri = uri
             if (uri != null) {
                 inputSize = FileUtils.fileSize(contentResolver, uri)
+                inputName = FileUtils.fileName(contentResolver, uri)
+                // Remember this photo so the next visit doesn't ask again.
+                Thread { persistLastPick(uri) }.start()
+                updateCurrentPhotoRow()
                 // The tool that was tapped waits for the pick — run it now.
                 val action = pendingAction
                 pendingAction = null
@@ -66,6 +71,68 @@ class ImageCompressActivity : AppCompatActivity() {
                 pendingAction = null
             }
         }
+
+    /** The picked photo, remembered across visits (fixed cache file + prefs). */
+    private fun persistLastPick(uri: Uri) {
+        try {
+            val name = FileUtils.fileName(contentResolver, uri)
+            val ext = if (name.lowercase().endsWith(".png")) "png" else "jpg"
+            val dest = File(cacheDir, "hakunaa_last_pick.$ext")
+            val other = File(cacheDir, if (ext == "png") "hakunaa_last_pick.jpg" else "hakunaa_last_pick.png")
+            try { other.delete() } catch (_: Throwable) { }
+            val tmp = FileUtils.copyUriToCache(this, uri, "last_pick_tmp")
+            tmp.copyTo(dest, overwrite = true)
+            try { tmp.delete() } catch (_: Throwable) { }
+            getSharedPreferences("hakunaa_prefs", MODE_PRIVATE).edit()
+                .putString("last_pick_path", dest.absolutePath)
+                .putString("last_pick_name", name)
+                .apply()
+        } catch (_: Throwable) {
+            // Remembering is a convenience — a failure just means re-pick next time.
+        }
+    }
+
+    /** Restore the remembered photo when the menu opens (if it still exists). */
+    private fun restoreLastPick() {
+        val prefs = getSharedPreferences("hakunaa_prefs", MODE_PRIVATE)
+        val path = prefs.getString("last_pick_path", null) ?: return
+        val file = File(path)
+        if (!file.exists()) {
+            prefs.edit().remove("last_pick_path").remove("last_pick_name").apply()
+            return
+        }
+        inputUri = Uri.fromFile(file)
+        inputSize = file.length()
+        inputName = prefs.getString("last_pick_name", file.name) ?: file.name
+        updateCurrentPhotoRow()
+    }
+
+    /** Show the remembered photo (thumbnail + name) or hide the row. */
+    private fun updateCurrentPhotoRow() {
+        val row = findViewById<LinearLayout>(R.id.currentPhotoRow)
+        val uri = inputUri
+        if (uri == null) {
+            row.visibility = View.GONE
+            return
+        }
+        row.visibility = View.VISIBLE
+        findViewById<TextView>(R.id.tvCurrentPhotoName).text = inputName
+        val thumb = findViewById<ImageView>(R.id.ivCurrentPhoto)
+        Thread {
+            try {
+                val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                contentResolver.openInputStream(uri)?.use {
+                    android.graphics.BitmapFactory.decodeStream(it, null, opts)
+                }
+                val sample = maxOf(1, minOf(opts.outWidth, opts.outHeight) / 96)
+                val bmpOpts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+                val bmp = contentResolver.openInputStream(uri)?.use {
+                    android.graphics.BitmapFactory.decodeStream(it, null, bmpOpts)
+                }
+                runOnUiThread { if (bmp != null) thumb.setImageBitmap(bmp) }
+            } catch (_: Throwable) { }
+        }.start()
+    }
 
     /** The tool tapped while no image was picked yet — runs after the pick. */
     private var pendingAction: (() -> Unit)? = null
@@ -104,8 +171,8 @@ class ImageCompressActivity : AppCompatActivity() {
             ToolDef("Compress", "Reduce file size", R.drawable.ic_arrow_right, 90f) {
                 withImage { openTool(ImageToolActivity.MODE_COMPRESS) }
             },
-            ToolDef("Quick Squish", "Just make image smaller", R.drawable.ic_bolt) {
-                withImage { quickSquish() }
+            ToolDef("Smart Compress", "Try all levels, pick the best", R.drawable.ic_bolt) {
+                withImage { openTool(ImageToolActivity.MODE_SMART) }
             },
             ToolDef("Photo Enhance", "One-tap auto enhance", R.drawable.ic_sparkle) {
                 withImage { photoEnhance() }
@@ -141,6 +208,11 @@ class ImageCompressActivity : AppCompatActivity() {
                 withImage { openTool(ImageToolActivity.MODE_TARGET_SIZE) }
             }
         )
+
+        restoreLastPick()
+        findViewById<LinearLayout>(R.id.currentPhotoRow).setOnClickListener {
+            pickImage.launch("image/*")
+        }
 
         buildToolGrid("")
         findViewById<EditText>(R.id.etSearch).addTextChangedListener(object : TextWatcher {
@@ -223,43 +295,6 @@ class ImageCompressActivity : AppCompatActivity() {
         val intent = Intent(this, ImageCropActivity::class.java)
         intent.putExtra(ImageCropActivity.EXTRA_IMAGE_URI, inputUri.toString())
         startActivity(intent)
-    }
-
-    /** Quick squish: one tap, best compression — tries every level
-     *  and keeps the smallest file. Never bigger than original. */
-    private fun quickSquish() {
-        val uri = inputUri ?: run {
-            Toast.makeText(this, getString(R.string.pick_first_image), Toast.LENGTH_SHORT).show()
-            return
-        }
-        val status = findViewById<TextView>(R.id.tvStatus)
-        val result = findViewById<TextView>(R.id.tvResult)
-        status.text = "Squishing…"
-        Thread {
-            try {
-                val input = FileUtils.copyUriToCache(this, uri, "input_image")
-                val outBase = File(cacheDir, "hakunaa_${System.currentTimeMillis()}")
-                val best = ImageCompressor.compressBest(input, outBase)
-                runOnUiThread {
-                    if (best != null) {
-                        val (out, _, note) = best
-                        val after = out.length()
-                        val saved = MediaStoreSaver.save(
-                            this, out, MediaStoreSaver.Kind.IMAGE, out.name
-                        )
-                        status.text = if (saved != null) "Done — saved to Pictures/Hakunaa$note"
-                        else "Done, but couldn't save to Pictures — please try again"
-                        result.text = "${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(after)} " +
-                            "(${FileUtils.savedPercent(inputSize, after)})"
-                    } else {
-                        status.text = "Already optimized — even the strongest settings couldn't shrink this image."
-                        result.text = ""
-                    }
-                }
-            } catch (_: Throwable) {
-                runOnUiThread { status.text = "Failed — try another image" }
-            }
-        }.start()
     }
 
     /** Photo Enhance: one tap — auto-levels + saturation, then save. */
