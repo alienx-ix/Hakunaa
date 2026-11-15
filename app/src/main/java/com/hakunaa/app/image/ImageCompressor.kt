@@ -7,6 +7,8 @@ import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Path
+import com.hakunaa.app.core.FileUtils
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -336,6 +338,175 @@ object ImageCompressor {
             }
             bitmap.recycle()
             rotated.recycle()
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /** One compression level's real result (Smart Compress). */
+    data class LevelResult(
+        val label: String,
+        val format: Format,
+        val quality: Int,
+        val file: File,
+        val size: Long,
+        val savingPercent: Int
+    )
+
+    /**
+     * Smart Compress: try EVERY level (same 5 as compressBest) and
+     * return ALL results that are smaller than the original,
+     * smallest first. The caller shows them with real sizes and
+     * lets the user pick one to save. Nothing bigger than the
+     * original is ever returned.
+     */
+    fun compressAllLevels(
+        input: File,
+        outputBase: File,
+        maxDimension: Int = 2048
+    ): List<LevelResult> {
+        val inputSize = input.length()
+        val attempts = listOf(
+            Triple(85, Format.JPEG, "JPEG 85%"),
+            Triple(85, Format.WEBP, "WebP 85%"),
+            Triple(70, Format.JPEG, "JPEG 70%"),
+            Triple(70, Format.WEBP, "WebP 70%"),
+            Triple(60, Format.JPEG, "JPEG 60%")
+        )
+        val results = mutableListOf<LevelResult>()
+        for ((quality, format, label) in attempts) {
+            val candidate = File(
+                outputBase.parent,
+                "${outputBase.nameWithoutExtension}_try${quality}_${format.extension}.${format.extension}"
+            )
+            val ok = compress(input, candidate, quality, format, maxDimension)
+            if (!ok || !candidate.exists()) {
+                try { candidate.delete() } catch (_: Throwable) { }
+                continue
+            }
+            val size = candidate.length()
+            if (size < inputSize) {
+                val saving = ((inputSize - size) * 100 / inputSize).toInt()
+                results.add(LevelResult(label, format, quality, candidate, size, saving))
+            } else {
+                try { candidate.delete() } catch (_: Throwable) { }
+            }
+        }
+        return results.sortedBy { it.size }
+    }
+
+    /**
+     * Auto Enhance (one tap): stretch the photo's own brightness
+     * range (1st..99th percentile, outliers ignored) to full black
+     * .. white and lift saturation a little. Reuses the same
+     * ColorMatrix path as adjust(). No new library, no new file
+     * format — output is JPEG 92%.
+     */
+    fun autoEnhance(input: File, output: File): Boolean {
+        return try {
+            val bitmap = FileUtils.decodeBitmapWithExif(input.absolutePath) ?: return false
+            // Histogram on a small copy (levels don't need full res).
+            val sample = maxOf(1, maxOf(bitmap.width, bitmap.height) / 512)
+            val small = Bitmap.createScaledBitmap(
+                bitmap, (bitmap.width / sample).coerceAtLeast(1),
+                (bitmap.height / sample).coerceAtLeast(1), true
+            )
+            val pixels = IntArray(small.width * small.height)
+            small.getPixels(pixels, 0, small.width, 0, 0, small.width, small.height)
+            small.recycle()
+            val hist = IntArray(256)
+            for (p in pixels) {
+                val r = (p shr 16) and 0xFF
+                val g = (p shr 8) and 0xFF
+                val b = p and 0xFF
+                hist[(r * 30 + g * 59 + b * 11) / 100]++
+            }
+            val total = pixels.size.toLong()
+            val edge = (total / 100).coerceAtLeast(1)
+            var lo = 0
+            var acc = 0L
+            while (lo < 255 && acc < edge) { acc += hist[lo]; lo++ }
+            var hi = 255
+            acc = 0L
+            while (hi > 0 && acc < edge) { acc += hist[hi]; hi-- }
+            if (hi - lo < 16) {
+                // Already well spread — just a light touch.
+                bitmap.recycle()
+                return adjust(input, output, 0f, 1f, 1.1f)
+            }
+            val contrast = (255f / (hi - lo).toFloat()).coerceIn(1f, 2f)
+            val brightness = (-lo.toFloat() * contrast).coerceIn(-100f, 100f)
+            val result = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(result)
+            val paint = Paint()
+            val matrix = ColorMatrix()
+            matrix.setSaturation(1.1f)
+            matrix.postConcat(ColorMatrix(floatArrayOf(
+                contrast, 0f, 0f, 0f, brightness,
+                0f, contrast, 0f, 0f, brightness,
+                0f, 0f, contrast, 0f, brightness,
+                0f, 0f, 0f, 1f, 0f
+            )))
+            paint.colorFilter = ColorMatrixColorFilter(matrix)
+            canvas.drawBitmap(bitmap, 0f, 0f, paint)
+            FileOutputStream(output).use { out ->
+                result.compress(Bitmap.CompressFormat.JPEG, 92, out)
+            }
+            bitmap.recycle()
+            result.recycle()
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * DP Edit — Circle: centre-square the photo, mask it to a
+     * circle, save as PNG (transparent outside the circle).
+     * The square DP is just fitToAspect(1, 1).
+     */
+    fun circleCrop(input: File, output: File): Boolean {
+        return try {
+            val bitmap = FileUtils.decodeBitmapWithExif(input.absolutePath) ?: return false
+            val size = minOf(bitmap.width, bitmap.height)
+            val x = (bitmap.width - size) / 2
+            val y = (bitmap.height - size) / 2
+            val square = Bitmap.createBitmap(bitmap, x, y, size, size)
+            val result = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(result)
+            val path = Path()
+            path.addCircle(size / 2f, size / 2f, size / 2f, Path.Direction.CW)
+            canvas.clipPath(path)
+            canvas.drawBitmap(square, 0f, 0f, Paint(Paint.ANTI_ALIAS_FLAG))
+            FileOutputStream(output).use { out ->
+                result.compress(Bitmap.CompressFormat.PNG, 100, out)
+            }
+            bitmap.recycle()
+            square.recycle()
+            result.recycle()
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * Remove Metadata: decode (which applies EXIF orientation, so
+     * the pixels come out the right way up) and re-encode without
+     * any EXIF — location, camera and date are gone. JPEG 95%
+     * (PNG stays PNG). The re-encode at 95% is visually lossless.
+     */
+    fun stripMetadata(input: File, output: File): Boolean {
+        return try {
+            val bitmap = FileUtils.decodeBitmapWithExif(input.absolutePath) ?: return false
+            val isPng = input.name.lowercase().endsWith(".png")
+            val format = if (isPng) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
+            val quality = if (isPng) 100 else 95
+            FileOutputStream(output).use { out ->
+                bitmap.compress(format, quality, out)
+            }
+            bitmap.recycle()
             true
         } catch (_: Throwable) {
             false

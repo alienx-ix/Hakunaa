@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Image to PDF (menu icon): page outline + text lines. White so the
+     menu card's teal tint applies cleanly. The existing ic_pdf.xml
+     (blue, used by PDF tools) is left untouched. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M6,2 L14,2 L18,6 L18,22 L6,22 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineJoin="round" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M9,9 L15,9 L15,10.5 L9,10.5 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M9,13 L15,13 L15,14.5 L9,14.5 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M9,17 L13,17 L13,18.5 L9,18.5 Z" />
+</vector>

@@ -630,6 +630,42 @@ Image: JPEG 85% is visually lossless for photos. WebP is
   capture. The analysis only starts and stops the ring — it
   never drives a frame. CountdownBarView is deleted.
 - **v0.1.63 Professional HD resolution bottom sheet + traffic-light Level.**
+## Planned next (agreed 2026-11-14, not built yet)
+
+- **Video Convert — 13 formats:** MP4, 3GP, MOV, FLV, MKV, AVI, MTS, TS, M4V, WEBM, GIF, WMV, MPG (MPEG-2). (Reference-app list + GIF + WMV + MPEG-2. MPEG-3 does not exist as a video format; MTS and TS are the same container.)
+- **Audio tools — a lot to add:** Audio Cutter FULL (waveform + drag handles + preview), Audio Format Change (MP3/M4A/WAV/OGG/FLAC), Video to Audio expanded (M4A/WAV/OGG/FLAC beyond MP3), Ringtone Maker (30s clip → system ringtone).
+- Size impact of all of it: +~0.5 MB only (app 56 → ~56.5 MB) — no new libraries, everything reuses the FFmpeg already in the app.
+- **Video Cutter** also agreed (2026-11-14). Video Rotate already exists (no work). Merge (video/audio) SKIPPED — user: nobody uses it.
+- **Screen Recorder** agreed (2026-11-15): JUST record + auto-optimize output (CRF + existing video compressor, ~15–30 MB/min 1080p, no watermark); NO touch indicator; NO overlay (notification controls only); internal audio (Android 10+).
+- **Drafts section** agreed (user idea, 2026-11-15): unfinished work auto-saved (scanner pages etc.), auto-delete after N days, days configurable in Settings (1/3/7/30/Never); drafts in app storage (not gallery).
+- **Tool Search Bar** agreed (2026-11-15): search bar at the top of Home to search tools by name (needed as the tool list grows).
+- **Theme section** agreed (2026-11-15): Dark/Light/System + accent color choices (Teal default + Blue/Purple/Orange/Pink), in Settings; Dark mode must-have, colors nice-to-have.
+- **Favorite tools (pin)** agreed (2026-11-15): star/pin favorite tools to the top of Home.
+- **App Shortcuts** agreed (2026-11-15): long-press icon → Scan / Compress Video / Convert Video / PDF Tools; XML only, easy, no library.
+- **In-app Help/FAQ** agreed (2026-11-15): help section explaining how to use each tool.
+- **Request a Tool** agreed (2026-11-15): user can request a new tool from Settings (feedback).
+- **Preview after convert** agreed (2026-11-15): in-app preview for image/video/audio (built-in player); PDF opens in the phone's default PDF viewer.
+- **Remove Metadata/Location — video** (photos built in v0.1.111; video still to come).
+- **More image formats** agreed (2026-11-15): convert to TIFF, BMP, AVIF (AVIF to be verified — needs libaom in FFmpegKit).
+- **Simple/Advanced toggle** agreed (user idea, 2026-11-15): toggle at the top of Home; Simple shows basic tools only, Advanced shows all; choice persisted; Search Bar searches all tools in either mode.
+- **Custom Video Thumbnail/Cover** agreed (2026-11-15): set a custom cover image for a video.
+- **Resize PDF Pages (A4/Letter)** agreed (2026-11-15): resize PDF pages to A4/Letter (print/forms).
+- **Quick Rotate (no re-encode)** MUST (2026-11-15): rotate a video in seconds via rotation metadata, no re-encode, no quality loss.
+- **Video Color Grading** agreed (2026-11-15): manual color adjust for video (Brightness, Contrast, Saturation, Hue, Sharpness, Temperature) via FFmpeg eq/hue filters; sliders + one-frame preview.
+- **Video tools menu** agreed (user idea, 2026-11-15): Standard Compress (basic), Smart Compress (multiple results at once, user picks), Advanced (full manual control), Convert (13 formats), Rotate, Color (grading), Video to Audio, Video Cutter.
+- **Same quality, smaller size (visually lossless)** clarified (2026-11-15): quality looks the same to the eye, only the size reduces — this is what the CRF ladder already does (CRF 23-28, 40-60% smaller). Mathematical lossless (CRF 0) makes the file bigger — not wanted; true 0% loss with no size change is Quick Remux.
+
+## v0.1.111 — Image Tools menu (box UI) + Compress Smart results (on v0.1.110)
+
+- **Image Tools menu, box-by-box:** the old list UI is replaced by a professional 2-column grid of 13 tool boxes in importance order (Compress, Quick Squish, Photo Enhance, Crop, Resize, Social Media Crop, Convert, Edit Image, DP Edit, Image to PDF, Collage, Remove Metadata, Target Size full-width) — teal-tint icon circles, bold titles, grey subtitles, like the approved mockup. A search bar filters the cards by name. Pick an image first, then tap a tool.
+- **Compress, Smart results:** pick a resolution, then see EVERY level's real size (JPEG 85%, WebP 85%, JPEG 70%, WebP 70%, JPEG 60%) with the saving % — tap one to save it. The smallest carries a "Best" badge. Nothing bigger than the original is ever shown. (The old pick-a-quality step is gone — Smart shows all qualities, so the user picks by real size.)
+- **Photo Enhance (one tap):** auto-levels (the photo's own 1st–99th percentile brightness stretched to full black–white) + a saturation lift. Reuses the existing ColorMatrix adjust path; ~0 MB, no new library.
+- **Social Media Crop:** 1:1, 9:16, 4:5 (Instagram / TikTok / FB) via the existing Fit-to-social flow.
+- **DP Edit:** Circle (centre-square masked to a circle, saved as transparent PNG) or Square (1:1) — picked from a dialog.
+- **Remove Metadata (photos):** decode + re-encode without EXIF — location, camera and date are gone. JPEG 95% (PNG stays PNG). Video metadata removal still to come.
+- **Image to PDF:** one A4 page per photo, saved to Documents/Hakunaa.
+- **Target Size kept:** the existing "Resize to KB, MB" is still in the menu (full-width last box) — nothing was removed.
+
 ## v0.1.110 — HD button removed, torch level with the X (on v0.1.109)
 
 - **HD button REMOVED:** the circle under the Torch is gone, and the whole Book quality-tier feature goes with it (picker, tier code, shared-pref wiring) — Book captures at full sensor again, like before v0.1.109. The big X and the bolt torch stay (the user's picks).

@@ -3,38 +3,54 @@ package com.hakunaa.app.image
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
+import android.view.View
 import android.widget.Button
+import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import com.google.android.material.card.MaterialCardView
 import com.hakunaa.app.R
 import com.hakunaa.app.core.FileUtils
 import com.hakunaa.app.core.MediaStoreSaver
-import java.io.File
 import com.hakunaa.app.core.StatusBar
+import com.hakunaa.app.pdf.PdfTools
+import java.io.File
 
 /**
- * Image tools hub — Puma Photo Resize & Compress style.
+ * Image tools hub (v0.1.111) — box-by-box menu, importance order,
+ * professional look like the approved mockup.
  *
- * Pick a photo, then choose a tool:
+ * Pick a photo, then tap a tool. Search filters the cards by name.
+ *
+ * - Compress: reduce file size — pick a resolution, see every
+ *   level's real size, tap one to save (Smart results).
  * - Quick squish: one tap, just make the image smaller (best
  *   compression — tries every level, keeps the smallest).
+ * - Photo Enhance: one-tap auto enhance (auto-levels + saturation).
+ * - Crop: remove unwanted parts of the photo.
  * - Resize: change photo resolution.
- * - Compress: reduce file size, choose quality and resolution.
- * - Fit: adjust to social media, square, any size.
+ * - Social Media Crop: 1:1, 9:16, 4:5 (Instagram / TikTok / FB).
+ * - Convert: change format to PNG, JPG, WebP.
  * - Edit image: basic photo editing (brightness, contrast,
  *   saturation, rotate).
- * - Crop: remove unwanted parts of the photo.
- * - Convert: change format to PNG, JPG, WebP.
- * - Fit to social media: Instagram, FB, TikTok and more.
- * - Resize to KB, MB: resize to a target file size.
+ * - DP Edit: Circle or Square profile photo.
+ * - Image to PDF: one A4 page per photo.
+ * - Collage Maker: combine 2–4 photos into one image.
+ * - Remove Metadata: strip location / camera / date (EXIF).
+ * - Target Size: resize to a target file size (KB / MB).
  *
- * Everything is on-device. The output is never bigger than the
- * original (for compress / quick squish).
+ * Everything is on-device. A compress output is never bigger than
+ * the original.
  */
 class ImageCompressActivity : AppCompatActivity() {
+
     private var inputUri: Uri? = null
     private var inputSize: Long = -1
     private var inputName: String = ""
@@ -49,6 +65,17 @@ class ImageCompressActivity : AppCompatActivity() {
             }
         }
 
+    private data class ToolDef(
+        val title: String,
+        val subtitle: String,
+        val iconRes: Int,
+        val iconRotation: Float = 0f,
+        val fullWidth: Boolean = false,
+        val action: () -> Unit
+    )
+
+    private lateinit var toolDefs: List<ToolDef>
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_image_compress)
@@ -60,35 +87,99 @@ class ImageCompressActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.btnPickImage).setOnClickListener { pickImage.launch("image/*") }
 
-        // Quick squish — one tap, just make it smaller.
-        // NOTE: toolQuickSquish is a MaterialCardView in the layout,
-        // not a LinearLayout — casting it to LinearLayout crashed
-        // the whole screen (v0.1.33, ClassCastException).
-        findViewById<com.google.android.material.card.MaterialCardView>(R.id.toolQuickSquish)
-            .setOnClickListener { quickSquish() }
-        findViewById<LinearLayout>(R.id.toolResize).setOnClickListener {
-            openTool(ImageToolActivity.MODE_RESIZE)
+        toolDefs = listOf(
+            ToolDef("Compress", "Reduce file size", R.drawable.ic_arrow_right, 90f) {
+                openTool(ImageToolActivity.MODE_COMPRESS)
+            },
+            ToolDef("Quick Squish", "Just make image smaller", R.drawable.ic_bolt) {
+                quickSquish()
+            },
+            ToolDef("Photo Enhance", "One-tap auto enhance", R.drawable.ic_sparkle) {
+                photoEnhance()
+            },
+            ToolDef("Crop", "Remove unwanted parts", R.drawable.ic_crop) {
+                openCrop()
+            },
+            ToolDef("Resize", "Change photo resolution", R.drawable.ic_text_resize) {
+                openTool(ImageToolActivity.MODE_RESIZE)
+            },
+            ToolDef("Social Media Crop", "1:1, 9:16, 4:5", R.drawable.ic_frame) {
+                openTool(ImageToolActivity.MODE_FIT_SOCIAL)
+            },
+            ToolDef("Convert", "PNG, JPG, WebP", R.drawable.ic_convert) {
+                openTool(ImageToolActivity.MODE_CONVERT)
+            },
+            ToolDef("Edit Image", "Basic photo editing tools", R.drawable.ic_markup) {
+                openEdit()
+            },
+            ToolDef("DP Edit", "Circle & Square", R.drawable.ic_profile) {
+                dpEdit()
+            },
+            ToolDef("Image to PDF", "Photo to PDF", R.drawable.ic_doc) {
+                imageToPdf()
+            },
+            ToolDef("Collage", "Up to 4 photos", R.drawable.ic_collage) {
+                startActivity(Intent(this, CollageActivity::class.java))
+            },
+            ToolDef("Remove Metadata", "Strip location & metadata", R.drawable.ic_shield) {
+                removeMetadata()
+            },
+            ToolDef("Target Size", "Resize to target file size", R.drawable.ic_tune, 0f, true) {
+                openTool(ImageToolActivity.MODE_TARGET_SIZE)
+            }
+        )
+
+        buildToolGrid("")
+        findViewById<EditText>(R.id.etSearch).addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                buildToolGrid(s?.toString() ?: "")
+            }
+        })
+    }
+
+    /** Build the box grid (2 per row; a full-width card gets its own row). */
+    private fun buildToolGrid(filter: String) {
+        val container = findViewById<LinearLayout>(R.id.toolsContainer)
+        container.removeAllViews()
+        val q = filter.trim().lowercase()
+        val tools = toolDefs.filter { q.isEmpty() || it.title.lowercase().contains(q) }
+        var i = 0
+        while (i < tools.size) {
+            val tool = tools[i]
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                .apply { setMargins(6, 6, 6, 6) }
+            row.addView(makeToolCard(tool), lp)
+            if (!tool.fullWidth && i + 1 < tools.size && !tools[i + 1].fullWidth) {
+                row.addView(makeToolCard(tools[i + 1]), lp)
+                i += 2
+            } else {
+                i++
+            }
+            container.addView(row)
         }
-        findViewById<LinearLayout>(R.id.toolCompress).setOnClickListener {
-            openTool(ImageToolActivity.MODE_COMPRESS)
+        if (tools.isEmpty()) {
+            val hint = TextView(this).apply {
+                text = "No tools match \"$filter\""
+                setTextColor(getColor(R.color.hakunaa_text_secondary))
+                textSize = 14f
+                setPadding(8, 16, 8, 16)
+            }
+            container.addView(hint)
         }
-        findViewById<LinearLayout>(R.id.toolFit).setOnClickListener {
-            openTool(ImageToolActivity.MODE_FIT)
-        }
-        findViewById<LinearLayout>(R.id.toolEdit).setOnClickListener { openEdit() }
-        findViewById<LinearLayout>(R.id.toolCrop).setOnClickListener { openCrop() }
-        findViewById<LinearLayout>(R.id.toolConvert).setOnClickListener {
-            openTool(ImageToolActivity.MODE_CONVERT)
-        }
-        findViewById<LinearLayout>(R.id.toolFitSocial).setOnClickListener {
-            openTool(ImageToolActivity.MODE_FIT_SOCIAL)
-        }
-        findViewById<LinearLayout>(R.id.toolTargetSize).setOnClickListener {
-            openTool(ImageToolActivity.MODE_TARGET_SIZE)
-        }
-        findViewById<LinearLayout>(R.id.toolCollage).setOnClickListener {
-            startActivity(Intent(this, CollageActivity::class.java))
-        }
+    }
+
+    private fun makeToolCard(tool: ToolDef): View {
+        val card = layoutInflater.inflate(R.layout.item_image_tool, null) as MaterialCardView
+        val icon = card.findViewById<ImageView>(R.id.ivIcon)
+        icon.setImageResource(tool.iconRes)
+        icon.rotation = tool.iconRotation
+        card.findViewById<TextView>(R.id.tvTitle).text = tool.title
+        card.findViewById<TextView>(R.id.tvSubtitle).text = tool.subtitle
+        card.setOnClickListener { tool.action() }
+        return card
     }
 
     private fun updateFileLabel() {
@@ -155,6 +246,144 @@ class ImageCompressActivity : AppCompatActivity() {
                     } else {
                         status.text = "Already optimized — even the strongest settings couldn't shrink this image."
                         result.text = ""
+                    }
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Failed — try another image" }
+            }
+        }.start()
+    }
+
+    /** Photo Enhance: one tap — auto-levels + saturation, then save. */
+    private fun photoEnhance() {
+        val uri = inputUri ?: run {
+            Toast.makeText(this, getString(R.string.pick_first_image), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val status = findViewById<TextView>(R.id.tvStatus)
+        val result = findViewById<TextView>(R.id.tvResult)
+        status.text = "Enhancing…"
+        Thread {
+            try {
+                val input = FileUtils.copyUriToCache(this, uri, "input_image")
+                val out = File(cacheDir, "hakunaa_enhanced_${System.currentTimeMillis()}.jpg")
+                val ok = ImageCompressor.autoEnhance(input, out)
+                runOnUiThread {
+                    if (ok && out.exists()) {
+                        val saved = MediaStoreSaver.save(
+                            this, out, MediaStoreSaver.Kind.IMAGE, out.name
+                        )
+                        status.text = if (saved != null) "Done — saved to Pictures/Hakunaa"
+                        else "Done, but couldn't save to Pictures — please try again"
+                        result.text = "${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(out.length())}"
+                    } else {
+                        status.text = "Failed — try another image"
+                    }
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Failed — try another image" }
+            }
+        }.start()
+    }
+
+    /** DP Edit: pick Circle or Square, then crop and save. */
+    private fun dpEdit() {
+        if (!requireImage()) return
+        AlertDialog.Builder(this)
+            .setTitle("DP Edit")
+            .setItems(arrayOf("Circle", "Square")) { _, which ->
+                dpCrop(circle = which == 0)
+            }
+            .show()
+    }
+
+    private fun dpCrop(circle: Boolean) {
+        val uri = inputUri ?: return
+        val status = findViewById<TextView>(R.id.tvStatus)
+        val result = findViewById<TextView>(R.id.tvResult)
+        status.text = "Making DP…"
+        Thread {
+            try {
+                val input = FileUtils.copyUriToCache(this, uri, "input_image")
+                val ext = if (circle) "png" else "jpg"
+                val out = File(cacheDir, "hakunaa_dp_${System.currentTimeMillis()}.$ext")
+                val ok = if (circle) ImageCompressor.circleCrop(input, out)
+                else ImageCompressor.fitToAspect(input, out, 1, 1)
+                runOnUiThread {
+                    if (ok && out.exists()) {
+                        val saved = MediaStoreSaver.save(
+                            this, out, MediaStoreSaver.Kind.IMAGE, out.name
+                        )
+                        status.text = if (saved != null) "Done — saved to Pictures/Hakunaa"
+                        else "Done, but couldn't save to Pictures — please try again"
+                        result.text = "DP (${if (circle) "Circle" else "Square"}) — ${FileUtils.formatSize(out.length())}"
+                    } else {
+                        status.text = "Failed — try another image"
+                    }
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Failed — try another image" }
+            }
+        }.start()
+    }
+
+    /** Remove Metadata: strip EXIF (location / camera / date), then save. */
+    private fun removeMetadata() {
+        val uri = inputUri ?: run {
+            Toast.makeText(this, getString(R.string.pick_first_image), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val status = findViewById<TextView>(R.id.tvStatus)
+        val result = findViewById<TextView>(R.id.tvResult)
+        status.text = "Removing metadata…"
+        Thread {
+            try {
+                val input = FileUtils.copyUriToCache(this, uri, "input_image")
+                val ext = if (input.name.lowercase().endsWith(".png")) "png" else "jpg"
+                val out = File(cacheDir, "hakunaa_clean_${System.currentTimeMillis()}.$ext")
+                val ok = ImageCompressor.stripMetadata(input, out)
+                runOnUiThread {
+                    if (ok && out.exists()) {
+                        val saved = MediaStoreSaver.save(
+                            this, out, MediaStoreSaver.Kind.IMAGE, out.name
+                        )
+                        status.text = if (saved != null) "Done — saved to Pictures/Hakunaa (location & metadata removed)"
+                        else "Done, but couldn't save to Pictures — please try again"
+                        result.text = "${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(out.length())}"
+                    } else {
+                        status.text = "Failed — try another image"
+                    }
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Failed — try another image" }
+            }
+        }.start()
+    }
+
+    /** Image to PDF: one A4 page per photo, saved to Documents/Hakunaa. */
+    private fun imageToPdf() {
+        val uri = inputUri ?: run {
+            Toast.makeText(this, getString(R.string.pick_first_image), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val status = findViewById<TextView>(R.id.tvStatus)
+        val result = findViewById<TextView>(R.id.tvResult)
+        status.text = "Making PDF…"
+        Thread {
+            try {
+                val input = FileUtils.copyUriToCache(this, uri, "input_image")
+                val out = File(cacheDir, "hakunaa_image_${System.currentTimeMillis()}.pdf")
+                val ok = PdfTools.imageToPdf(input, out)
+                runOnUiThread {
+                    if (ok && out.exists()) {
+                        val saved = MediaStoreSaver.save(
+                            this, out, MediaStoreSaver.Kind.DOCUMENT, out.name
+                        )
+                        status.text = if (saved != null) "Done — saved to Documents/Hakunaa"
+                        else "Done, but couldn't save — please try again"
+                        result.text = "PDF — ${FileUtils.formatSize(out.length())}"
+                    } else {
+                        status.text = "Failed — try another image"
                     }
                 }
             } catch (_: Throwable) {
