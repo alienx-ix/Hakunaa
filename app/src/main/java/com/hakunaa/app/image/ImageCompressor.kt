@@ -8,23 +8,31 @@ import android.graphics.ColorMatrixColorFilter
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
+import com.arthenica.ffmpegkit.FFmpegKit
+import com.arthenica.ffmpegkit.ReturnCode
 import com.hakunaa.app.core.FileUtils
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.io.OutputStream
 
 /**
  * Image compression — Android Bitmap, on-device.
  * Photos: JPEG quality 85% is visually lossless and much smaller
  * than the camera original. WebP is ~25–35% smaller than JPEG.
  * AVIF is ~50% smaller than JPEG but slow on older phones, so it
- * is an option for later, not the default.
+ * is an option for later, not the default. AVIF encode goes through
+ * FFmpegKit (libaom-av1, verified present in ffmpeg-kit-full-gpl
+ * 8.1.9); TIFF/BMP use pure-Kotlin writers, no new library.
  */
 object ImageCompressor {
     enum class Format(val extension: String) {
         JPEG("jpg"),
         WEBP("webp"),
-        PNG("png")
+        PNG("png"),
+        TIFF("tif"),
+        BMP("bmp"),
+        AVIF("avif")
     }
 
     fun compress(
@@ -43,11 +51,31 @@ object ImageCompressor {
             val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sample }
             val bitmap = BitmapFactory.decodeFile(input.absolutePath, decodeOptions)
                 ?: return false
+            // TIFF/BMP have no Bitmap.CompressFormat — pure-Kotlin
+            // writers below. AVIF goes through FFmpegKit (libaom-av1).
+            when (format) {
+                Format.TIFF -> {
+                    val ok = writeTiff(bitmap, output)
+                    bitmap.recycle()
+                    return ok
+                }
+                Format.BMP -> {
+                    val ok = writeBmp(bitmap, output)
+                    bitmap.recycle()
+                    return ok
+                }
+                Format.AVIF -> {
+                    bitmap.recycle()
+                    return convertToAvif(input, output, quality)
+                }
+                else -> { /* fall through to Bitmap.compress below */ }
+            }
             // WEBP_LOSSY needs API 30+; WEBP works on all supported APIs here.
             val compressFormat = when (format) {
                 Format.JPEG -> Bitmap.CompressFormat.JPEG
                 Format.WEBP -> Bitmap.CompressFormat.WEBP
                 Format.PNG -> Bitmap.CompressFormat.PNG
+                else -> Bitmap.CompressFormat.JPEG
             }
             FileOutputStream(output).use { out ->
                 bitmap.compress(compressFormat, quality, out)
@@ -93,24 +121,219 @@ object ImageCompressor {
 
     /**
      * Convert image format: re-encode the image as [format]
-     * (JPEG / PNG / WEBP) at [quality]. Returns true on success.
+     * (JPEG / PNG / WEBP / TIFF / BMP / AVIF) at [quality].
+     * TIFF and BMP use pure-Kotlin writers (no new library);
+     * AVIF encodes via FFmpegKit (libaom-av1). Returns true
+     * on success.
      */
     fun convertFormat(input: File, output: File, format: Format, quality: Int = 90): Boolean {
         return try {
-            val bitmap = BitmapFactory.decodeFile(input.absolutePath)
-                ?: return false
-            val compressFormat = when (format) {
-                Format.JPEG -> Bitmap.CompressFormat.JPEG
-                Format.WEBP -> Bitmap.CompressFormat.WEBP
-                Format.PNG -> Bitmap.CompressFormat.PNG
+            when (format) {
+                Format.TIFF -> {
+                    val bitmap = BitmapFactory.decodeFile(input.absolutePath)
+                        ?: return false
+                    val ok = writeTiff(bitmap, output)
+                    bitmap.recycle()
+                    ok
+                }
+                Format.BMP -> {
+                    val bitmap = BitmapFactory.decodeFile(input.absolutePath)
+                        ?: return false
+                    val ok = writeBmp(bitmap, output)
+                    bitmap.recycle()
+                    ok
+                }
+                Format.AVIF -> convertToAvif(input, output, quality)
+                else -> {
+                    val bitmap = BitmapFactory.decodeFile(input.absolutePath)
+                        ?: return false
+                    val compressFormat = when (format) {
+                        Format.JPEG -> Bitmap.CompressFormat.JPEG
+                        Format.WEBP -> Bitmap.CompressFormat.WEBP
+                        Format.PNG -> Bitmap.CompressFormat.PNG
+                        else -> Bitmap.CompressFormat.JPEG
+                    }
+                    FileOutputStream(output).use { out ->
+                        bitmap.compress(compressFormat, quality, out)
+                    }
+                    bitmap.recycle()
+                    true
+                }
             }
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /** Little-endian writers for the BMP/TIFF helpers below. */
+    private fun writeShortLE(out: OutputStream, v: Int) {
+        out.write(v and 0xFF)
+        out.write((v shr 8) and 0xFF)
+    }
+
+    private fun writeIntLE(out: OutputStream, v: Int) {
+        out.write(v and 0xFF)
+        out.write((v shr 8) and 0xFF)
+        out.write((v shr 16) and 0xFF)
+        out.write((v shr 24) and 0xFF)
+    }
+
+    /**
+     * Standard 24-bit uncompressed BMP writer (BITMAPFILEHEADER +
+     * BITMAPINFOHEADER, bottom-up BGR rows padded to 4 bytes).
+     * Produces a valid .bmp any normal viewer can open.
+     */
+    private fun writeBmp(bitmap: Bitmap, output: File): Boolean {
+        return try {
+            val w = bitmap.width
+            val h = bitmap.height
+            val rowSize = ((w * 3 + 3) / 4) * 4
+            val imageSize = rowSize * h
+            val pixels = IntArray(w * h)
+            bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
             FileOutputStream(output).use { out ->
-                bitmap.compress(compressFormat, quality, out)
+                out.write(byteArrayOf(0x42, 0x4D)) // "BM"
+                writeIntLE(out, 54 + imageSize)
+                writeIntLE(out, 0)
+                writeIntLE(out, 54)
+                writeIntLE(out, 40) // BITMAPINFOHEADER size
+                writeIntLE(out, w)
+                writeIntLE(out, h) // positive = bottom-up
+                writeShortLE(out, 1) // planes
+                writeShortLE(out, 24) // bits per pixel
+                writeIntLE(out, 0) // BI_RGB, uncompressed
+                writeIntLE(out, imageSize)
+                writeIntLE(out, 2835) // ~72 dpi horizontal
+                writeIntLE(out, 2835) // ~72 dpi vertical
+                writeIntLE(out, 0)
+                writeIntLE(out, 0)
+                val pad = rowSize - w * 3
+                val padBytes = ByteArray(pad)
+                val row = ByteArray(w * 3)
+                for (y in h - 1 downTo 0) {
+                    for (x in 0 until w) {
+                        val p = pixels[y * w + x]
+                        row[x * 3] = (p and 0xFF).toByte() // B
+                        row[x * 3 + 1] = ((p shr 8) and 0xFF).toByte() // G
+                        row[x * 3 + 2] = ((p shr 16) and 0xFF).toByte() // R
+                    }
+                    out.write(row)
+                    if (pad > 0) out.write(padBytes)
+                }
             }
-            bitmap.recycle()
             true
         } catch (_: Throwable) {
             false
+        }
+    }
+
+    /**
+     * Minimal uncompressed TIFF writer (little-endian, one strip,
+     * 8 bits per sample, RGB). Layout: 8-byte header, IFD at 8
+     * (2 + 10 entries x 12 + 4 = 126 bytes, ends at 134),
+     * BitsPerSample array (6 bytes) at 134, pixel data at 140.
+     * Produces a valid .tif any normal viewer can open.
+     */
+    private fun writeTiff(bitmap: Bitmap, output: File): Boolean {
+        return try {
+            val w = bitmap.width
+            val h = bitmap.height
+            val pixelBytes = w * h * 3
+            val bitsOffset = 134
+            val dataOffset = 140
+            val pixels = IntArray(w * h)
+            bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
+            FileOutputStream(output).use { out ->
+                out.write(byteArrayOf(0x49, 0x49)) // "II", little-endian
+                writeShortLE(out, 42)
+                writeIntLE(out, 8) // first IFD offset
+                writeShortLE(out, 10) // entry count
+                fun entry(tag: Int, type: Int, count: Int, value: Int) {
+                    writeShortLE(out, tag)
+                    writeShortLE(out, type)
+                    writeIntLE(out, count)
+                    writeIntLE(out, value)
+                }
+                entry(256, 4, 1, w) // ImageWidth, LONG
+                entry(257, 4, 1, h) // ImageLength, LONG
+                entry(258, 3, 3, bitsOffset) // BitsPerSample, SHORT x3
+                entry(259, 3, 1, 1) // Compression = none
+                entry(262, 3, 1, 2) // PhotometricInterpretation = RGB
+                entry(273, 4, 1, dataOffset) // StripOffsets
+                entry(277, 3, 1, 3) // SamplesPerPixel
+                entry(278, 4, 1, h) // RowsPerStrip
+                entry(279, 4, 1, pixelBytes) // StripByteCounts
+                entry(284, 3, 1, 1) // PlanarConfiguration = chunky
+                writeIntLE(out, 0) // no next IFD
+                writeShortLE(out, 8)
+                writeShortLE(out, 8)
+                writeShortLE(out, 8)
+                val row = ByteArray(w * 3)
+                for (y in 0 until h) {
+                    for (x in 0 until w) {
+                        val p = pixels[y * w + x]
+                        row[x * 3] = ((p shr 16) and 0xFF).toByte() // R
+                        row[x * 3 + 1] = ((p shr 8) and 0xFF).toByte() // G
+                        row[x * 3 + 2] = (p and 0xFF).toByte() // B
+                    }
+                    out.write(row)
+                }
+            }
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * AVIF encode via FFmpegKit (libaom-av1 + avif muxer, both
+     * verified present in ffmpeg-kit-full-gpl 8.1.9). Blocking
+     * call. Quality 0..100 maps to libaom CRF 63..0 (lower CRF =
+     * better quality). JPEG/PNG inputs go straight to FFmpeg;
+     * anything else is decoded to a temp PNG first (FFmpeg reads
+     * the temp, which is deleted afterwards).
+     */
+    private fun convertToAvif(input: File, output: File, quality: Int): Boolean {
+        var temp: File? = null
+        return try {
+            var srcFile = input
+            val srcFormat = formatOf(input)
+            if (srcFormat != Format.JPEG && srcFormat != Format.PNG) {
+                val bitmap = BitmapFactory.decodeFile(input.absolutePath)
+                    ?: return false
+                temp = File(
+                    input.parent,
+                    "hakunaa_avif_${System.currentTimeMillis()}.png"
+                )
+                FileOutputStream(temp).use { out ->
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                }
+                bitmap.recycle()
+                srcFile = temp
+            }
+            // -still-picture 1: single-frame AVIF still image.
+            // -cpu-used 6: fast encode, still visually lossless
+            // at these CRF values.
+            val crf = ((100 - quality.coerceIn(0, 100)) * 63 / 100)
+                .coerceIn(0, 63)
+            val argv = arrayOf(
+                "-y", "-i", srcFile.absolutePath,
+                "-c:v", "libaom-av1", "-pix_fmt", "yuv420p",
+                "-crf", crf.toString(), "-cpu-used", "6",
+                "-still-picture", "1", output.absolutePath
+            )
+            val session = FFmpegKit.executeWithArguments(argv)
+            val ok = ReturnCode.isSuccess(session.returnCode) &&
+                output.exists() && output.length() > 0
+            if (!ok) {
+                try { output.delete() } catch (_: Throwable) { }
+            }
+            ok
+        } catch (_: Throwable) {
+            try { output.delete() } catch (_: Throwable) { }
+            false
+        } finally {
+            try { temp?.delete() } catch (_: Throwable) { }
         }
     }
 
@@ -132,7 +355,7 @@ object ImageCompressor {
     /** Detect a file's image format from its magic bytes (most reliable). */
     fun formatOf(file: File): Format {
         return try {
-            val bytes = ByteArray(12)
+            val bytes = ByteArray(16)
             java.io.FileInputStream(file).use { it.read(bytes) }
             when {
                 bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() -> Format.JPEG
@@ -142,6 +365,17 @@ object ImageCompressor {
                     bytes[2] == 0x46.toByte() && bytes[3] == 0x46.toByte() &&
                     bytes[8] == 0x57.toByte() && bytes[9] == 0x45.toByte() &&
                     bytes[10] == 0x42.toByte() && bytes[11] == 0x50.toByte() -> Format.WEBP
+                bytes[0] == 0x42.toByte() && bytes[1] == 0x4D.toByte() -> Format.BMP
+                bytes[0] == 0x49.toByte() && bytes[1] == 0x49.toByte() &&
+                    bytes[2] == 0x2A.toByte() && bytes[3] == 0x00.toByte() -> Format.TIFF
+                bytes[0] == 0x4D.toByte() && bytes[1] == 0x4D.toByte() &&
+                    bytes[2] == 0x00.toByte() && bytes[3] == 0x2A.toByte() -> Format.TIFF
+                bytes[0] == 0x52.toByte() && bytes[1] == 0x49.toByte() &&
+                    bytes[2] == 0x46.toByte() && bytes[3] == 0x46.toByte() &&
+                    bytes[8] == 0x66.toByte() && bytes[9] == 0x74.toByte() &&
+                    bytes[10] == 0x79.toByte() && bytes[11] == 0x70.toByte() &&
+                    bytes[12] == 0x61.toByte() && bytes[13] == 0x76.toByte() &&
+                    bytes[14] == 0x69.toByte() && bytes[15] == 0x66.toByte() -> Format.AVIF
                 else -> Format.JPEG
             }
         } catch (_: Throwable) {
@@ -164,7 +398,7 @@ object ImageCompressor {
                 Triple(70, Format.WEBP, " (used WebP 70%)"),
                 Triple(60, Format.WEBP, " (used WebP 60%)")
             )
-            Format.PNG -> listOf(
+            Format.PNG, Format.TIFF, Format.BMP, Format.AVIF -> listOf(
                 Triple(100, Format.PNG, ""),
                 Triple(85, Format.JPEG, " (used JPEG 85%)"),
                 Triple(70, Format.JPEG, " (used JPEG 70%)")
@@ -552,11 +786,12 @@ object ImageCompressor {
     )
 
     /**
-     * Smart results for a CHOSEN quality: try that quality in JPEG
-     * and WebP and return the ones smaller than the original,
-     * smallest first. The caller shows them with real sizes and
-     * lets the user pick one to save. Nothing bigger than the
-     * original is ever returned.
+     * Smart results for a CHOSEN quality: try that quality in the
+     * ORIGINAL format only — a JPG stays a JPG, a WebP stays a
+     * WebP (never auto-converted). PNG/TIFF/BMP/AVIF inputs shrink
+     * via JPEG. Returns the result only if it is smaller than the
+     * original, smallest first. Nothing bigger than the original
+     * is ever returned.
      */
     fun compressAtQuality(
         input: File,
@@ -565,29 +800,64 @@ object ImageCompressor {
         maxDimension: Int = 2048
     ): List<LevelResult> {
         val inputSize = input.length()
-        val results = mutableListOf<LevelResult>()
-        for ((format, label) in listOf(
-            Format.JPEG to "JPEG $quality%",
-            Format.WEBP to "WebP $quality%"
-        )) {
-            val candidate = File(
-                outputBase.parent,
-                "${outputBase.nameWithoutExtension}_q${quality}_${format.extension}.${format.extension}"
-            )
-            val ok = compress(input, candidate, quality, format, maxDimension)
-            if (!ok || !candidate.exists()) {
-                try { candidate.delete() } catch (_: Throwable) { }
-                continue
-            }
-            val size = candidate.length()
-            if (size < inputSize) {
-                val saving = ((inputSize - size) * 100 / inputSize).toInt()
-                results.add(LevelResult(label, format, quality, candidate, size, saving))
-            } else {
-                try { candidate.delete() } catch (_: Throwable) { }
-            }
+        // FORMAT-AWARE: same rule as compressAllLevels.
+        val format = when (formatOf(input)) {
+            Format.JPEG -> Format.JPEG
+            Format.WEBP -> Format.WEBP
+            Format.PNG, Format.TIFF, Format.BMP, Format.AVIF -> Format.JPEG
         }
-        return results.sortedBy { it.size }
+        val label = if (format == Format.WEBP) "WebP $quality%" else "JPEG $quality%"
+        val candidate = File(
+            outputBase.parent,
+            "${outputBase.nameWithoutExtension}_q${quality}_${format.extension}.${format.extension}"
+        )
+        val ok = compress(input, candidate, quality, format, maxDimension)
+        if (!ok || !candidate.exists()) {
+            try { candidate.delete() } catch (_: Throwable) { }
+            return emptyList()
+        }
+        val size = candidate.length()
+        if (size >= inputSize) {
+            try { candidate.delete() } catch (_: Throwable) { }
+            return emptyList()
+        }
+        val saving = ((inputSize - size) * 100 / inputSize).toInt()
+        return listOf(LevelResult(label, format, quality, candidate, size, saving))
+    }
+
+    /**
+     * "More Compress" results for a CHOSEN quality: WebP ONLY at
+     * that quality (the explicit extra-compression choice — the
+     * user asked for WebP, so the format change is theirs, not
+     * automatic). Returns the result only if it is smaller than
+     * the original, smallest first. Nothing bigger than the
+     * original is ever returned.
+     */
+    fun compressAtQualityWebp(
+        input: File,
+        outputBase: File,
+        quality: Int,
+        maxDimension: Int = 10000
+    ): List<LevelResult> {
+        val inputSize = input.length()
+        val format = Format.WEBP
+        val label = "WebP $quality%"
+        val candidate = File(
+            outputBase.parent,
+            "${outputBase.nameWithoutExtension}_q${quality}_${format.extension}.${format.extension}"
+        )
+        val ok = compress(input, candidate, quality, format, maxDimension)
+        if (!ok || !candidate.exists()) {
+            try { candidate.delete() } catch (_: Throwable) { }
+            return emptyList()
+        }
+        val size = candidate.length()
+        if (size >= inputSize) {
+            try { candidate.delete() } catch (_: Throwable) { }
+            return emptyList()
+        }
+        val saving = ((inputSize - size) * 100 / inputSize).toInt()
+        return listOf(LevelResult(label, format, quality, candidate, size, saving))
     }
 
     /** Smallest this photo can be (JPEG quality 10, full resolution). */
@@ -622,7 +892,7 @@ object ImageCompressor {
                 Triple(70, Format.WEBP, "WebP 70%"),
                 Triple(60, Format.WEBP, "WebP 60%")
             )
-            Format.PNG -> listOf(
+            Format.PNG, Format.TIFF, Format.BMP, Format.AVIF -> listOf(
                 Triple(100, Format.PNG, "PNG"),
                 Triple(85, Format.JPEG, "JPEG 85%"),
                 Triple(70, Format.JPEG, "JPEG 70%")

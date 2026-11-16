@@ -5,16 +5,20 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
 import android.net.Uri
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.DragEvent
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -31,18 +35,24 @@ import java.io.FileOutputStream
 import com.hakunaa.app.core.StatusBar
 
 /**
- * Collage Maker — professional redesign (v0.1.117).
+ * Collage Maker — full redesign (v0.1.118).
  *
  * Pick photos at the top (long-press a photo to drag and reorder
- * it), a LIVE preview of the collage, style tabs (Minimal /
- * Freestyle / Poster / Stitching), a Borders slider + background
- * colour, ratio, and layout template thumbnails. Fully functional:
- * Save renders the chosen layout / border / colour / ratio and
- * writes it to Pictures/Hakunaa.
+ * it, or drag it onto the preview to put it in a cell), an
+ * INTERACTIVE live preview ([CollagePreviewView]: tap a cell to
+ * select it, drag inside it to pan the photo, drag a cell edge in
+ * Freestyle to resize it), real style engines (Minimal /
+ * Freestyle / Poster with caption / Stitching with dashed sewn
+ * borders), a Borders slider + background colour, ratio, and
+ * layout template thumbnails. Save renders the exact preview
+ * model at 1080px and writes it to Pictures/Hakunaa.
  *
- * Layouts are lists of cell rectangles (fractions of the canvas);
- * each photo is centre-cropped to fill its cell. Pure Bitmap
- * work — no library, fully offline.
+ * The preview and Save share one model: [cells] — a list of
+ * [CollageCell] (rect fractions + photo index + pan offset) that
+ * the activity owns and the preview mutates in place. Save
+ * replays that model at full resolution (same gap rule, same
+ * poster caption band, same stitch dashes, same pan), so the
+ * saved file matches what the preview showed.
  */
 class CollageActivity : AppCompatActivity() {
 
@@ -95,6 +105,10 @@ class CollageActivity : AppCompatActivity() {
     )
 
     private val pickedUris = mutableListOf<Uri>()
+    /** Shared preview/Save model — the preview mutates this in place. */
+    private val cells = mutableListOf<CollageCell>()
+    /** Preview-size decoded bitmaps, parallel to pickedUris. */
+    private var previewBitmaps: List<Bitmap?> = emptyList()
     private var templateIndex = 0
     private var styleIndex = 0
     private var gapDp = 8
@@ -104,15 +118,17 @@ class CollageActivity : AppCompatActivity() {
     private var ratioH = 1
     private var bgColorIndex = 0
     private var ratioIndex = 0
-    /** Renders are async — only the latest generation may paint. */
-    private var renderGen = 0
+    private var posterCaption = ""
+    /** Preview decodes are async — only the latest generation may paint. */
+    private var decodeGen = 0
 
     private val pickPhotos =
         registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
             if (uris.isNotEmpty()) {
                 pickedUris.addAll(uris.take(6 - pickedUris.size))
+                rebuildCells()
                 rebuildStrip()
-                renderPreview()
+                loadPreviewBitmaps()
             }
         }
 
@@ -123,6 +139,37 @@ class CollageActivity : AppCompatActivity() {
         StatusBar.setup(this, true)
         findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar)
             .setNavigationOnClickListener { finish() }
+
+        rebuildCells()
+        val preview = findViewById<CollagePreviewView>(R.id.previewView)
+        preview.onPhotoDropped = { fromPhoto, cellIndex ->
+            // Assign that photo to the cell; if it already lives in
+            // another cell, swap the two cells' photos.
+            val other = cells.indexOfFirst { it.photoIndex == fromPhoto }
+            if (other != -1 && other != cellIndex) {
+                val tmp = cells[cellIndex].photoIndex
+                cells[cellIndex].photoIndex = fromPhoto
+                cells[other].photoIndex = tmp
+            } else {
+                cells[cellIndex].photoIndex = fromPhoto
+            }
+            cells[cellIndex].panX = 0f
+            cells[cellIndex].panY = 0f
+            updatePreview()
+        }
+        preview.onModelChanged = {
+            // Model already mutated in place; nothing to re-render.
+        }
+        findViewById<EditText>(R.id.etPosterCaption).addTextChangedListener(
+            object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: Editable?) {
+                    posterCaption = s?.toString().orEmpty()
+                    updatePreview()
+                }
+            }
+        )
 
         buildStyleTabs()
         buildRatioChips()
@@ -137,7 +184,7 @@ class CollageActivity : AppCompatActivity() {
                     if (fromUser) {
                         gapDp = p
                         findViewById<TextView>(R.id.tvBorderValue).text = "${p}dp"
-                        renderPreview()
+                        updatePreview()
                     }
                 }
 
@@ -148,7 +195,78 @@ class CollageActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.tvBorderValue).text = "${gapDp}dp"
         findViewById<com.google.android.material.button.MaterialButton>(R.id.btnMakeCollage)
             .setOnClickListener { makeCollage() }
-        renderPreview()
+        updatePreview()
+    }
+
+    private val currentStyle: CollageStyle
+        get() = CollageStyle.entries[styleIndex]
+
+    /** Rebuild [cells] from the current template, keeping each
+     *  cell's photo + pan when the cell count is unchanged. */
+    private fun rebuildCells() {
+        val rects = templates[templateIndex].cells
+        val old = cells.toList()
+        cells.clear()
+        for ((i, rect) in rects.withIndex()) {
+            val r = RectF(rect)
+            // Freestyle starts slightly inset so cells read as freeform.
+            if (currentStyle == CollageStyle.FREESTYLE) {
+                r.inset(0.015f, 0.015f)
+            }
+            val cell = CollageCell(r, i)
+            if (i < old.size) {
+                cell.photoIndex = old[i].photoIndex.coerceIn(0, maxOf(0, pickedUris.size - 1))
+                cell.panX = old[i].panX
+                cell.panY = old[i].panY
+            }
+            cells.add(cell)
+        }
+    }
+
+    /** Push the current model into the interactive preview. */
+    private fun updatePreview() {
+        val preview = findViewById<CollagePreviewView>(R.id.previewView)
+        preview.setModel(
+            previewBitmaps, cells, currentStyle, gapDp, bgColor,
+            rounded, ratioW, ratioH, posterCaption
+        )
+        val status = findViewById<TextView>(R.id.tvStatus)
+        status.text = if (pickedUris.size < cells.size) {
+            "Pick ${cells.size} photo(s) for the ${templates[templateIndex].name} layout"
+        } else {
+            getString(R.string.ready)
+        }
+    }
+
+    /** Decode preview-size bitmaps off the UI thread, then hand them
+     *  to the preview (which draws them directly — no render pass). */
+    private fun loadPreviewBitmaps() {
+        val gen = ++decodeGen
+        val uris = pickedUris.toList()
+        Thread {
+            try {
+                val decoded = uris.mapIndexed { index, uri ->
+                    try {
+                        val file = FileUtils.copyUriToCache(this, uri, "collage_thumb_$index")
+                        val bmp = decodeForCollage(file, 720)
+                        try { file.delete() } catch (_: Throwable) { }
+                        bmp
+                    } catch (_: Throwable) {
+                        null
+                    }
+                }
+                runOnUiThread {
+                    if (gen != decodeGen) {
+                        decoded.forEach { it?.recycle() }
+                        return@runOnUiThread
+                    }
+                    previewBitmaps.forEach { it?.recycle() }
+                    previewBitmaps = decoded
+                    updatePreview()
+                }
+            } catch (_: Throwable) {
+            }
+        }.start()
     }
 
     // ---------- style tabs ----------
@@ -171,24 +289,28 @@ class CollageActivity : AppCompatActivity() {
         }
     }
 
-    /** Style presets: Minimal = thin white borders; Freestyle = wide
-     *  gaps + rounded corners; Poster = the poster layout; Stitching
-     *  = no gaps, photos edge to edge. */
+    /** Real style engines (not presets): Minimal = clean grid, thin
+     *  gaps, square corners; Freestyle = freeform draggable /
+     *  resizable cells with rounded corners; Poster = poster layout
+     *  + caption band; Stitching = dashed sewn borders. */
     private fun applyStyle(index: Int) {
         styleIndex = index
         when (index) {
             0 -> { gapDp = 8; bgColor = Color.WHITE; rounded = false }
-            1 -> { gapDp = 24; bgColor = Color.WHITE; rounded = true }
+            1 -> { gapDp = 16; bgColor = Color.WHITE; rounded = true }
             2 -> { gapDp = 12; bgColor = Color.WHITE; rounded = false; templateIndex = 5 }
-            3 -> { gapDp = 0; bgColor = Color.WHITE; rounded = false }
+            3 -> { gapDp = 12; bgColor = Color.WHITE; rounded = false }
         }
         bgColorIndex = bgColors.indexOfFirst { it.first == bgColor }.coerceAtLeast(0)
         findViewById<SeekBar>(R.id.sbBorder).progress = gapDp
         findViewById<TextView>(R.id.tvBorderValue).text = "${gapDp}dp"
+        findViewById<EditText>(R.id.etPosterCaption).visibility =
+            if (index == 2) View.VISIBLE else View.GONE
+        rebuildCells()
         buildStyleTabs()
         buildColorSwatches()
         buildTemplateRow()
-        renderPreview()
+        updatePreview()
     }
 
     // ---------- ratio chips ----------
@@ -224,7 +346,7 @@ class CollageActivity : AppCompatActivity() {
                 ratioW = r.first
                 ratioH = r.second
                 buildRatioChips()
-                renderPreview()
+                updatePreview()
             }
             row.addView(chip)
         }
@@ -255,7 +377,7 @@ class CollageActivity : AppCompatActivity() {
                 bgColorIndex = i
                 bgColor = c.first
                 buildColorSwatches()
-                renderPreview()
+                updatePreview()
             }
             row.addView(swatch)
         }
@@ -295,8 +417,9 @@ class CollageActivity : AppCompatActivity() {
             }
             thumb.setOnClickListener {
                 templateIndex = i
+                rebuildCells()
                 buildTemplateRow()
-                renderPreview()
+                updatePreview()
             }
             holder.addView(thumb)
             holder.addView(label)
@@ -321,7 +444,7 @@ class CollageActivity : AppCompatActivity() {
         return bmp
     }
 
-    // ---------- photo strip (top): thumbnails + Add tile, drag to reorder ----------
+    // ---------- photo strip (top): thumbnails + Add tile, drag to reorder / to preview ----------
     private fun rebuildStrip() {
         val strip = findViewById<LinearLayout>(R.id.photoStrip)
         strip.removeAllViews()
@@ -341,6 +464,8 @@ class CollageActivity : AppCompatActivity() {
                 )
                 scaleType = ImageView.ScaleType.CENTER_CROP
             }
+            // Reuse the preview bitmap if already decoded.
+            previewBitmaps.getOrNull(i)?.let { if (!it.isRecycled) iv.setImageBitmap(it) }
             val remove = TextView(this).apply {
                 text = "×"
                 textSize = 14f
@@ -357,12 +482,14 @@ class CollageActivity : AppCompatActivity() {
             }
             remove.setOnClickListener {
                 pickedUris.removeAt(i)
+                rebuildCells()
                 rebuildStrip()
-                renderPreview()
+                loadPreviewBitmaps()
             }
             frame.addView(iv)
             frame.addView(remove)
-            // Long-press to drag and reorder; drop on another tile.
+            // Long-press to drag: drop on another tile to reorder,
+            // drop on the preview to assign this photo to that cell.
             frame.setOnLongClickListener { v ->
                 v.startDragAndDrop(
                     ClipData.newPlainText("collage_index", i.toString()),
@@ -379,8 +506,9 @@ class CollageActivity : AppCompatActivity() {
                         if (from != null && from != to && from in pickedUris.indices) {
                             val uri = pickedUris.removeAt(from)
                             pickedUris.add(to.coerceIn(0, pickedUris.size), uri)
+                            rebuildCells()
                             rebuildStrip()
-                            renderPreview()
+                            loadPreviewBitmaps()
                         }
                         true
                     }
@@ -388,11 +516,15 @@ class CollageActivity : AppCompatActivity() {
                 }
             }
             strip.addView(frame)
+            // Fill the tile from the preview bitmap once decoded.
             Thread {
                 try {
-                    val file = FileUtils.copyUriToCache(this, uri, "collage_thumb_$i")
-                    val bmp = BitmapFactory.decodeFile(file.absolutePath)
-                    runOnUiThread { if (bmp != null) iv.setImageBitmap(bmp) }
+                    val bmp = previewBitmaps.getOrNull(i)
+                    if (bmp == null || bmp.isRecycled) {
+                        val file = FileUtils.copyUriToCache(this, uri, "collage_thumb_$i")
+                        val decoded = BitmapFactory.decodeFile(file.absolutePath)
+                        runOnUiThread { if (decoded != null) iv.setImageBitmap(decoded) }
+                    }
                 } catch (_: Throwable) {
                 }
             }.start()
@@ -411,72 +543,106 @@ class CollageActivity : AppCompatActivity() {
         strip.addView(add)
         findViewById<TextView>(R.id.tvPhotos).text =
             if (pickedUris.isEmpty()) "Pick at least 2 photos"
-            else "${pickedUris.size} photo(s) picked — long-press to drag and reorder"
+            else "${pickedUris.size} photo(s) picked — long-press to reorder, drag onto the preview to place, tap a photo in the preview to pan it"
     }
 
-    // ---------- live preview + render engine ----------
-    private fun renderPreview() {
-        val gen = ++renderGen
-        val template = templates[templateIndex]
-        if (pickedUris.size < template.cells.size) {
-            findViewById<ImageView>(R.id.ivPreview).setImageBitmap(null)
-            findViewById<TextView>(R.id.tvStatus).text =
-                "Pick ${template.cells.size} photo(s) for the ${template.name} layout"
-            return
-        }
-        findViewById<TextView>(R.id.tvStatus).text = getString(R.string.ready)
-        Thread {
-            try {
-                val bmp = renderCollage(720)
-                runOnUiThread {
-                    if (gen == renderGen && bmp != null) {
-                        findViewById<ImageView>(R.id.ivPreview).setImageBitmap(bmp)
-                    }
-                }
-            } catch (_: Throwable) {
-            }
-        }.start()
-    }
-
-    /** Render the collage at [canvasWidth] px wide (aspect = ratio). */
+    // ---------- render engine (Save path — replays the preview model) ----------
+    /** Render the collage at [canvasWidth] px wide (aspect = ratio),
+     *  replaying [cells] exactly as the preview shows them. */
     private fun renderCollage(canvasWidth: Int): Bitmap? {
-        val template = templates[templateIndex]
-        val cells = template.cells
         if (pickedUris.size < cells.size) return null
-        val density = resources.displayMetrics.density
-        val gapPx = (gapDp * canvasWidth / 360f * density).toFloat()
         val width = canvasWidth
         val height = (canvasWidth * ratioH / ratioW).coerceAtLeast(1)
         val collage = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(collage)
         canvas.drawColor(bgColor)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        for ((index, cell) in cells.withIndex()) {
-            val uri = pickedUris[index]
-            val file = FileUtils.copyUriToCache(this, uri, "collage_cell_$index")
+        val gapPx = gapDp * width / 360f
+        val scaleY = CollagePreviewView.posterScaleY(currentStyle, posterCaption)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isFilterBitmap = true }
+        val density = resources.displayMetrics.density
+        val cornerRadius = when {
+            currentStyle == CollageStyle.FREESTYLE -> 14f * density * canvasWidth / 720f
+            rounded -> 12f * density * canvasWidth / 720f
+            else -> 0f
+        }
+        for (cell in cells) {
+            val uri = pickedUris.getOrNull(cell.photoIndex) ?: continue
+            val file = FileUtils.copyUriToCache(this, uri, "collage_cell_${cell.photoIndex}")
             val bitmap = decodeForCollage(file, 1200) ?: continue
             val half = gapPx / 2f
             val dst = Rect(
-                (cell.left * width + half).toInt(),
-                (cell.top * height + half).toInt(),
-                (cell.right * width - half).toInt(),
-                (cell.bottom * height - half).toInt()
+                (cell.rect.left * width + half).toInt(),
+                (cell.rect.top * height * scaleY + half).toInt(),
+                (cell.rect.right * width - half).toInt(),
+                (cell.rect.bottom * height * scaleY - half).toInt()
             )
-            if (rounded) {
-                val radius = 24f * canvasWidth / 720f
+            if (cornerRadius > 0f) {
                 val path = Path()
-                path.addRoundRect(
-                    RectF(dst), radius, radius, Path.Direction.CW
-                )
+                path.addRoundRect(RectF(dst), cornerRadius, cornerRadius, Path.Direction.CW)
                 canvas.save()
                 canvas.clipPath(path)
-                drawCell(canvas, bitmap, dst, paint)
+                drawCell(canvas, bitmap, dst, paint, cell.panX, cell.panY)
                 canvas.restore()
             } else {
-                drawCell(canvas, bitmap, dst, paint)
+                drawCell(canvas, bitmap, dst, paint, cell.panX, cell.panY)
+            }
+            if (currentStyle == CollageStyle.FREESTYLE) {
+                val border = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.WHITE
+                    style = Paint.Style.STROKE
+                    strokeWidth = 6f * canvasWidth / 720f
+                }
+                if (cornerRadius > 0f) {
+                    canvas.drawRoundRect(RectF(dst), cornerRadius, cornerRadius, border)
+                } else {
+                    canvas.drawRect(RectF(dst), border)
+                }
+            }
+            if (currentStyle == CollageStyle.STITCHING) {
+                val inset = gapPx / 2f + 5f * density * canvasWidth / 720f
+                val stitch = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.parseColor("#5A6472")
+                    style = Paint.Style.STROKE
+                    strokeWidth = 2.5f * density * canvasWidth / 720f
+                    pathEffect = DashPathEffect(
+                        floatArrayOf(9f * density * canvasWidth / 720f, 6f * density * canvasWidth / 720f), 0f
+                    )
+                }
+                canvas.drawRect(
+                    dst.left + inset, dst.top + inset,
+                    dst.right - inset, dst.bottom - inset, stitch
+                )
             }
             bitmap.recycle()
             try { file.delete() } catch (_: Throwable) { }
+        }
+        // Poster caption, centred in the reserved bottom band.
+        if (currentStyle == CollageStyle.POSTER && posterCaption.isNotBlank()) {
+            val bandTop = height * (1f - CollagePreviewView.POSTER_CAPTION_FRACTION)
+            val bandH = height * CollagePreviewView.POSTER_CAPTION_FRACTION
+            val darkBg = run {
+                val r = Color.red(bgColor) / 255f
+                val g = Color.green(bgColor) / 255f
+                val b = Color.blue(bgColor) / 255f
+                0.2126f * r + 0.7152f * g + 0.0722f * b < 0.5f
+            }
+            val captionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = if (darkBg) Color.WHITE else Color.parseColor("#1A1A1A")
+                textAlign = Paint.Align.CENTER
+                isFakeBoldText = true
+            }
+            var textSize = bandH * 0.42f
+            captionPaint.textSize = textSize
+            while (textSize > bandH * 0.18f &&
+                captionPaint.measureText(posterCaption) > width * 0.92f
+            ) {
+                textSize *= 0.9f
+                captionPaint.textSize = textSize
+            }
+            canvas.drawText(
+                posterCaption, width / 2f,
+                bandTop + bandH / 2f + textSize * 0.35f, captionPaint
+            )
         }
         return collage
     }
@@ -496,25 +662,28 @@ class CollageActivity : AppCompatActivity() {
         }
     }
 
-    /** Draw a bitmap centre-cropped to fill [dst]. */
-    private fun drawCell(canvas: Canvas, bitmap: Bitmap, dst: Rect, paint: Paint) {
+    /** Draw a bitmap centre-cropped to fill [dst], shifted by the
+     *  cell's pan offset (fractions of the cell size). */
+    private fun drawCell(canvas: Canvas, bitmap: Bitmap, dst: Rect, paint: Paint, panX: Float, panY: Float) {
         val scale = maxOf(dst.width().toFloat() / bitmap.width, dst.height().toFloat() / bitmap.height)
-        val scaledW = (bitmap.width * scale).toInt()
-        val scaledH = (bitmap.height * scale).toInt()
-        val scaled = Bitmap.createScaledBitmap(bitmap, scaledW, scaledH, true)
-        val srcX = (scaledW - dst.width()) / 2
-        val srcY = (scaledH - dst.height()) / 2
-        val src = Rect(srcX, srcY, srcX + dst.width(), srcY + dst.height())
-        canvas.drawBitmap(scaled, src, dst, paint)
-        scaled.recycle()
+        val srcW = (dst.width() / scale).toInt().coerceAtLeast(1)
+        val srcH = (dst.height() / scale).toInt().coerceAtLeast(1)
+        val cx = (bitmap.width / 2f + panX * dst.width() / scale).toInt()
+        val cy = (bitmap.height / 2f + panY * dst.height() / scale).toInt()
+        val src = Rect(
+            (cx - srcW / 2).coerceIn(0, bitmap.width - srcW),
+            (cy - srcH / 2).coerceIn(0, bitmap.height - srcH),
+            (cx + srcW / 2).coerceIn(srcW, bitmap.width),
+            (cy + srcH / 2).coerceIn(srcH, bitmap.height)
+        )
+        canvas.drawBitmap(bitmap, src, dst, paint)
     }
 
     private fun makeCollage() {
-        val template = templates[templateIndex]
-        if (pickedUris.size < template.cells.size) {
+        if (pickedUris.size < cells.size) {
             Toast.makeText(
                 this,
-                "This layout needs ${template.cells.size} photos — pick ${template.cells.size - pickedUris.size} more",
+                "This layout needs ${cells.size} photos — pick ${cells.size - pickedUris.size} more",
                 Toast.LENGTH_SHORT
             ).show()
             return
@@ -538,5 +707,10 @@ class CollageActivity : AppCompatActivity() {
                 runOnUiThread { status.text = "Failed — try other photos" }
             }
         }.start()
+    }
+
+    override fun onDestroy() {
+        previewBitmaps.forEach { it?.recycle() }
+        super.onDestroy()
     }
 }

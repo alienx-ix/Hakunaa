@@ -48,13 +48,28 @@
                 android:textColor="@color/hakunaa_text_secondary"
                 android:textSize="13sp" />
 
-            <ImageView
-                android:id="@+id/ivPreview"
+            <com.hakunaa.app.image.CollagePreviewView
+                android:id="@+id/previewView"
                 android:layout_width="match_parent"
                 android:layout_height="300dp"
                 android:layout_marginTop="12dp"
                 android:background="#EDEFF2"
-                android:scaleType="fitCenter" />
+                android:contentDescription="Collage preview — tap a photo to select it, drag inside it to move the photo, drag a cell edge in Freestyle to resize" />
+
+            <EditText
+                android:id="@+id/etPosterCaption"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/bg_search"
+                android:hint="Poster caption…"
+                android:inputType="textCapSentences"
+                android:maxLines="1"
+                android:padding="12dp"
+                android:textColor="@color/hakunaa_text"
+                android:textColorHint="@color/hakunaa_text_secondary"
+                android:textSize="15sp"
+                android:visibility="gone" />
 
             <TextView
                 android:layout_width="wrap_content"

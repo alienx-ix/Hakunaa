@@ -2,26 +2,37 @@ package com.hakunaa.app.image
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Matrix
+import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
+import android.view.View
 import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.hakunaa.app.R
 import com.hakunaa.app.core.FileUtils
 import com.hakunaa.app.core.MediaStoreSaver
-import com.hakunaa.app.scanner.CropView
-import java.io.File
 import com.hakunaa.app.core.StatusBar
+import java.io.File
+import java.io.FileOutputStream
 
 /**
- * Crop — remove unwanted parts of the photo.
- * Reuses the scanner's CropView: drag the corners to frame the
- * part to keep, then save. Rotate Left / Right if the photo is
- * sideways.
+ * Crop — professional rectangular crop (Google Photos style).
+ *
+ * Uses [ProCropView]: a rectangle-only frame (never a tilted quad),
+ * corner handles to resize, drag-inside to pan, a rotation slider
+ * (-45..+45°) and aspect-ratio chips. Launched 3 ways:
+ *  - plain Crop tool: no aspect extras -> Freestyle
+ *  - Fit to social media: EXTRA_ASPECT_W/H set -> that aspect, pre-selected
+ *  - DP Edit: EXTRA_CIRCLE true -> circle frame, square, aspect row hidden
+ *
+ * Save: the rotated bitmap is written to a cache file (only when the
+ * rotation is non-zero; otherwise the original input file is used),
+ * then cropped with ImageCompressor.crop / circleCropRect using the
+ * crop rect in rotated-bitmap pixels, and saved via MediaStoreSaver.
  */
 class ImageCropActivity : AppCompatActivity() {
 
@@ -37,6 +48,18 @@ class ImageCropActivity : AppCompatActivity() {
     private var bitmap: Bitmap? = null
     private var inputFile: File? = null
     private var circleMode = false
+    private var saving = false
+
+    private lateinit var cropView: ProCropView
+    private lateinit var tvDimensions: TextView
+    private lateinit var tvAngle: TextView
+    private lateinit var sbRotation: SeekBar
+    private lateinit var tvStatus: TextView
+
+    /** Currently selected aspect chip: null = Freestyle, "original", or "w:h". */
+    private var selectedAspect: String? = null
+    private val aspectChips = mutableListOf<TextView>()
+    private val aspectChipKeys = mutableListOf<String?>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,6 +68,28 @@ class ImageCropActivity : AppCompatActivity() {
         // Status bar (v0.1.97): keep it visible, no overlap.
         StatusBar.setup(this, false)
         findViewById<ImageButton>(R.id.btnBack).setOnClickListener { finish() }
+
+        cropView = findViewById(R.id.cropView)
+        tvDimensions = findViewById(R.id.tvDimensions)
+        tvAngle = findViewById(R.id.tvAngle)
+        sbRotation = findViewById(R.id.sbRotation)
+        tvStatus = findViewById(R.id.tvStatus)
+
+        cropView.onFrameChanged = { w, h -> tvDimensions.text = "$w × $h" }
+
+        sbRotation.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                val degrees = (progress - 45).toFloat()
+                tvAngle.text = "${degrees.toInt()}°"
+                cropView.setCropRotation(degrees)
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+        findViewById<TextView>(R.id.btnRotateReset).setOnClickListener { resetRotation() }
+        findViewById<TextView>(R.id.btnRestore).setOnClickListener { restore() }
+        findViewById<ImageButton>(R.id.btnSave).setOnClickListener { save() }
 
         val uriString = intent.getStringExtra(EXTRA_IMAGE_URI)
         if (uriString == null) {
@@ -67,20 +112,23 @@ class ImageCropActivity : AppCompatActivity() {
                     val aspectW = intent.getIntExtra(EXTRA_ASPECT_W, 0)
                     val aspectH = intent.getIntExtra(EXTRA_ASPECT_H, 0)
                     circleMode = intent.getBooleanExtra(EXTRA_CIRCLE, false)
-                    val cropView = findViewById<CropView>(R.id.cropView)
+                    cropView.setBitmap(bmp)
                     if (circleMode) {
-                        cropView.circleMode = true
-                        cropView.setAspectRatio(1, 1)
+                        cropView.setCircleMode(true)
                         findViewById<TextView>(R.id.tvCropTitle).text = "DP Edit — Circle"
-                        findViewById<TextView>(R.id.tvStatus).text =
-                            "Drag the circle to frame your DP"
+                        tvStatus.text = "Drag the circle to frame your DP"
+                        findViewById<View>(R.id.aspectScroll).visibility = View.GONE
                     } else if (aspectW > 0 && aspectH > 0) {
                         cropView.setAspectRatio(aspectW, aspectH)
                         findViewById<TextView>(R.id.tvCropTitle).text = "Fit to social media"
-                        findViewById<TextView>(R.id.tvStatus).text =
-                            "Drag the frame to choose the portion to keep"
+                        tvStatus.text = "Drag the frame to choose the portion to keep"
+                        selectedAspect = "$aspectW:$aspectH"
+                        buildAspectChips(extraKey = selectedAspect)
+                    } else {
+                        selectedAspect = null
+                        buildAspectChips()
                     }
-                    cropView.setBitmap(bmp)
+                    updateChipSelection()
                 }
             } catch (_: Throwable) {
                 runOnUiThread {
@@ -89,63 +137,138 @@ class ImageCropActivity : AppCompatActivity() {
                 }
             }
         }.start()
-
-        findViewById<LinearLayout>(R.id.btnRotateLeft).setOnClickListener { rotate(-90f) }
-        findViewById<LinearLayout>(R.id.btnRotateRight).setOnClickListener { rotate(90f) }
-        findViewById<TextView>(R.id.btnSave).setOnClickListener { save() }
     }
 
-    private fun rotate(degrees: Float) {
-        val bmp = bitmap ?: return
-        val matrix = Matrix()
-        matrix.postRotate(degrees)
-        val rotated = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
-        bitmap = rotated
-        findViewById<CropView>(R.id.cropView).setBitmap(rotated)
+    // ------------------------------------------------------------------ aspects
+
+    private fun buildAspectChips(extraKey: String? = null) {
+        val row = findViewById<LinearLayout>(R.id.aspectRow)
+        row.removeAllViews()
+        aspectChips.clear()
+        aspectChipKeys.clear()
+        // label -> (w, h); null = Freestyle, "original" handled separately.
+        // Fit-to-social can pass an aspect outside the standard row
+        // (9:16, 4:5, 3:2) — include it as a chip so it can be pre-selected.
+        val chips = mutableListOf<Pair<String, String?>>(
+            "Freestyle" to null,
+            "Original" to "original",
+            "1:1" to "1:1",
+            "4:3" to "4:3",
+            "3:4" to "3:4",
+            "16:9" to "16:9"
+        )
+        if (extraKey != null && chips.none { it.second == extraKey }) {
+            chips.add(2, extraKey to extraKey)
+        }
+        for ((label, key) in chips) {
+            val chip = TextView(this).apply {
+                text = label
+                textSize = 15f
+                setTextColor(Color.parseColor("#B0B0B0"))
+                setPadding(28, 16, 28, 16)
+                setOnClickListener { selectAspect(key) }
+            }
+            row.addView(chip)
+            aspectChips.add(chip)
+            aspectChipKeys.add(key)
+        }
     }
+
+    private fun selectAspect(key: String?) {
+        selectedAspect = key
+        when (key) {
+            null -> cropView.setAspectRatio(null as Float?)
+            "original" -> cropView.setAspectOriginal()
+            else -> {
+                val parts = key.split(":")
+                cropView.setAspectRatio(parts[0].toInt(), parts[1].toInt())
+            }
+        }
+        updateChipSelection()
+    }
+
+    private fun updateChipSelection() {
+        for (i in aspectChips.indices) {
+            val selected = aspectChipKeys[i] == selectedAspect
+            aspectChips[i].setTextColor(
+                if (selected) Color.parseColor("#00BFA5") else Color.parseColor("#B0B0B0")
+            )
+            aspectChips[i].setTypeface(null, if (selected) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+        }
+    }
+
+    // ------------------------------------------------------------------ rotation / restore
+
+    private fun resetRotation() {
+        sbRotation.progress = 45 // listener applies 0° to the view
+    }
+
+    private fun restore() {
+        resetRotation()
+        cropView.restore()
+        tvStatus.text = if (circleMode) "Drag the circle to frame your DP"
+        else "Drag the corners to frame the part to keep"
+    }
+
+    // ------------------------------------------------------------------ save
 
     private fun save() {
-        val bmp = bitmap ?: return
-        val corners = findViewById<CropView>(R.id.cropView).getCorners()
-        // The crop is a rectangle: use the bounding box of the
-        // four corners (the CropView frame is a quad; for a photo
-        // crop the user frames a rectangle).
-        val left = minOf(corners[0], corners[6]).toInt()
-        val top = minOf(corners[1], corners[3]).toInt()
-        val right = maxOf(corners[2], corners[4]).toInt()
-        val bottom = maxOf(corners[5], corners[7]).toInt()
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Cropping…"
+        if (saving) return
+        val rect = cropView.getCropRectPx()
+        if (rect.width() <= 0 || rect.height() <= 0 || inputFile == null) return
+        saving = true
+        tvStatus.text = "Cropping…"
         Thread {
             try {
+                // Source for the crop: the rotated bitmap, written to a
+                // cache file only when a rotation was applied; otherwise
+                // the original input file (no extra JPEG re-encode).
+                val rotation = cropView.getCropRotation()
+                val sourceFile: File = if (rotation == 0f) {
+                    inputFile!!
+                } else {
+                    val rotatedBmp = cropView.getRotatedBitmap()
+                    if (rotatedBmp == null) {
+                        runOnUiThread { tvStatus.text = "Crop failed — try again"; saving = false }
+                        return@Thread
+                    }
+                    val tmp = File(cacheDir, "hakunaa_rotated_${System.currentTimeMillis()}.jpg")
+                    FileOutputStream(tmp).use { out ->
+                        rotatedBmp.compress(Bitmap.CompressFormat.JPEG, 95, out)
+                    }
+                    tmp
+                }
                 val out = if (circleMode) {
                     File(cacheDir, "hakunaa_dp_${System.currentTimeMillis()}.png")
                 } else {
                     File(cacheDir, "hakunaa_cropped_${System.currentTimeMillis()}.jpg")
                 }
                 val ok = if (circleMode) {
-                    val size = minOf(right - left, bottom - top)
-                    ImageCompressor.circleCropRect(inputFile!!, out, left, top, size)
+                    val size = minOf(rect.width(), rect.height())
+                    ImageCompressor.circleCropRect(sourceFile, out, rect.left, rect.top, size)
                 } else {
-                    ImageCompressor.crop(inputFile!!, out, left, top, right, bottom)
+                    ImageCompressor.crop(sourceFile, out, rect.left, rect.top, rect.right, rect.bottom)
                 }
                 runOnUiThread {
+                    saving = false
                     if (ok) {
                         val saved = MediaStoreSaver.save(this, out, MediaStoreSaver.Kind.IMAGE, out.name)
-                        status.text = if (saved != null) "Done — cropped image saved to Pictures/Hakunaa"
+                        tvStatus.text = if (saved != null) "Done — cropped image saved to Pictures/Hakunaa"
                         else "Done, but couldn't save to Pictures — please try again"
                     } else {
-                        status.text = "Crop failed — try again"
+                        tvStatus.text = "Crop failed — try again"
                     }
                 }
             } catch (_: Throwable) {
-                runOnUiThread { status.text = "Crop failed — try again" }
+                runOnUiThread { saving = false; tvStatus.text = "Crop failed — try again" }
             }
         }.start()
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        cropView.release()
         bitmap?.recycle()
+        bitmap = null
     }
 }
