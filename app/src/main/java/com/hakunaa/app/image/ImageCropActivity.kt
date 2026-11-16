@@ -3,6 +3,8 @@ package com.hakunaa.app.image
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
@@ -81,6 +83,11 @@ class ImageCropActivity : AppCompatActivity() {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 val degrees = (progress - 45).toFloat()
                 tvAngle.text = "${degrees.toInt()}°"
+                // Angle stands out (teal) whenever a rotation is applied.
+                tvAngle.setTextColor(
+                    if (degrees == 0f) Color.parseColor("#FFFFFF")
+                    else Color.parseColor("#00BFA5")
+                )
                 cropView.setCropRotation(degrees)
             }
 
@@ -163,15 +170,46 @@ class ImageCropActivity : AppCompatActivity() {
         for ((label, key) in chips) {
             val chip = TextView(this).apply {
                 text = label
-                textSize = 15f
-                setTextColor(Color.parseColor("#B0B0B0"))
-                setPadding(28, 16, 28, 16)
+                textSize = 14f
+                // Pill padding (dp) + an 8dp gap to the next chip.
+                val d = resources.displayMetrics.density
+                setPadding((18 * d).toInt(), (9 * d).toInt(), (18 * d).toInt(), (9 * d).toInt())
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginEnd = (8 * d).toInt() }
                 setOnClickListener { selectAspect(key) }
             }
+            styleChip(chip, selected = false)
             row.addView(chip)
             aspectChips.add(chip)
             aspectChipKeys.add(key)
         }
+    }
+
+    /**
+     * Professional pill button for an aspect chip.
+     * Selected: teal fill + white bold text. Unselected: dark surface
+     * with a clear grey border + light text. Same size/shape either way,
+     * so selecting never shifts the row.
+     */
+    private fun styleChip(chip: TextView, selected: Boolean) {
+        val d = resources.displayMetrics.density
+        chip.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 20f * d
+            if (selected) {
+                setColor(Color.parseColor("#00BFA5"))
+            } else {
+                setColor(Color.parseColor("#1E1E1E"))
+                setStroke((1 * d).toInt(), Color.parseColor("#4D4D4D"))
+            }
+        }
+        chip.setTextColor(
+            if (selected) Color.parseColor("#FFFFFF")
+            else Color.parseColor("#E0E0E0")
+        )
+        chip.setTypeface(null, if (selected) Typeface.BOLD else Typeface.NORMAL)
     }
 
     private fun selectAspect(key: String?) {
@@ -189,11 +227,7 @@ class ImageCropActivity : AppCompatActivity() {
 
     private fun updateChipSelection() {
         for (i in aspectChips.indices) {
-            val selected = aspectChipKeys[i] == selectedAspect
-            aspectChips[i].setTextColor(
-                if (selected) Color.parseColor("#00BFA5") else Color.parseColor("#B0B0B0")
-            )
-            aspectChips[i].setTypeface(null, if (selected) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+            styleChip(aspectChips[i], aspectChipKeys[i] == selectedAspect)
         }
     }
 

@@ -76,6 +76,14 @@ class ImageToolActivity : AppCompatActivity() {
     private var webpLazyResults: List<ImageCompressor.LevelResult>? = null
     /** Before/After compare view in the Smart results. */
     private var compareView: CompareView? = null
+    /** Preview wrapper + its toggle button in the Smart results.
+     *  The CompareView is hidden until the user taps Preview
+     *  (or taps a result row) — never shown automatically. */
+    private var previewWrap: LinearLayout? = null
+    private var previewToggleBtn: com.google.android.material.button.MaterialButton? = null
+    /** True once the CompareView has been populated (first Preview tap). */
+    private var previewInitialised = false
+    private var previewVisible = false
     /** Metadata before removal (for the Before/After view). */
     private var metadataBefore: List<Pair<String, String>> = emptyList()
     private var metadataRemovedList: List<String> = emptyList()
@@ -154,10 +162,14 @@ class ImageToolActivity : AppCompatActivity() {
 
     /** One Back press: step back inside the tool, or ask before leaving.
      *  Quality mode never lands on the resolution step (step 2) — going
-     *  back from the results (step 3) returns to the Quality cards (1). */
+     *  back from the results (step 3) returns to the Quality cards (1).
+     *  HD Compress never lands on the (removed) size step either —
+     *  back from the HD result (step 2) returns to the mode cards (0). */
     private fun backStep() {
         if (mode == MODE_COMPRESS && step > 0) {
-            step = if (compressMode == 1 && step == 3) 1 else step - 1
+            step = if (compressMode == 1 && step == 3) 1
+                else if (compressMode == 3) 0
+                else step - 1
             renderStep()
         } else {
             attemptLeave()
@@ -198,6 +210,10 @@ class ImageToolActivity : AppCompatActivity() {
         nextBtn.text = if ((mode == MODE_COMPRESS && isCompressDoneStep()) ||
             (mode == MODE_SMART && step == 1) ||
             (mode == MODE_METADATA && step == 1)) "Done" else "Next"
+        // HD Compress NEVER has a size step: one tap, no options. If
+        // anything lands here with compressMode 3 (e.g. a stale step),
+        // go back to the mode cards instead of showing size options.
+        if (mode == MODE_COMPRESS && compressMode == 3 && step == 1) step = 0
         val subtitle = findViewById<TextView>(R.id.tvSubtitle)
         when (mode) {
             MODE_COMPRESS -> {
@@ -220,14 +236,10 @@ class ImageToolActivity : AppCompatActivity() {
                             group.visibility = View.GONE
                             findViewById<LinearLayout>(R.id.targetSizeContainer).visibility = View.VISIBLE
                         }
-                        3 -> {
-                            subtitle.text = "Choose a size — quality stays 100%"
-                            addOptions(group, listOf(
-                                "50" to "Half size (50%)",
-                                "1920" to "HD — 1920px longest side",
-                                "25" to "Quarter size (25%)"
-                            ), 0)
-                        }
+                        // No branch 3: HD Compress has NO size step
+                        // (removed — HD is one tap, JPEG 95, full
+                        // resolution). The guard above also forces
+                        // step 1 + compressMode 3 back to step 0.
                     }
                     2 -> when (compressMode) {
                         1 -> {
@@ -315,12 +327,18 @@ class ImageToolActivity : AppCompatActivity() {
      *  highlighted teal. Used by Resize / Fit / Convert / DP.
      *  When [ratioIndicator] is given (aspect cards), a small
      *  bordered rectangle drawn in the card's proportions sits at
-     *  the left of the title. */
+     *  the left of the title. When [badgeProvider] is given (Fit to
+     *  social media), a small coloured platform badge (initial or
+     *  simple shape, drawn in code) sits next to the ratio
+     *  indicator. When [centerText] is true the title/subtitle are
+     *  and the title is larger + bold. */
     private fun buildOptionCards(
         options: List<Triple<String, String, String>>,
         selected: String?,
         onSelect: (String) -> Unit,
-        ratioIndicator: ((String) -> Pair<Float, Float>?)? = null
+        ratioIndicator: ((String) -> Pair<Float, Float>?)? = null,
+        centerText: Boolean = false,
+        badgeProvider: ((String) -> Pair<String, Int>?)? = null
     ) {
         val container = findViewById<LinearLayout>(R.id.cardsContainer)
         container.removeAllViews()
@@ -366,6 +384,29 @@ class ImageToolActivity : AppCompatActivity() {
                 }
                 inner.addView(indicator)
             }
+            val badge = badgeProvider?.invoke(tag)
+            if (badge != null) {
+                // Platform mark: small coloured circle with the
+                // platform initial / simple shape, drawn in code
+                // (no trademarked assets).
+                val badgeView = TextView(this).apply {
+                    text = badge.first
+                    textSize = 13f
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    setTextColor(getColor(android.R.color.white))
+                    gravity = Gravity.CENTER
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
+                        setColor(badge.second)
+                    }
+                    layoutParams = LinearLayout.LayoutParams(
+                        (40 * density).toInt(), (40 * density).toInt()
+                    ).apply {
+                        marginEnd = (12 * density).toInt()
+                    }
+                }
+                inner.addView(badgeView)
+            }
             val textCol = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(
@@ -374,9 +415,16 @@ class ImageToolActivity : AppCompatActivity() {
             }
             val tvTitle = TextView(this).apply {
                 text = title
-                textSize = 15f
+                textSize = if (centerText) 17f else 15f
                 setTypeface(null, android.graphics.Typeface.BOLD)
                 setTextColor(getColor(R.color.hakunaa_text))
+                if (centerText) {
+                    gravity = Gravity.CENTER
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    )
+                }
             }
             textCol.addView(tvTitle)
             if (subtitle.isNotEmpty()) {
@@ -384,6 +432,13 @@ class ImageToolActivity : AppCompatActivity() {
                     text = subtitle
                     textSize = 13f
                     setTextColor(getColor(R.color.hakunaa_text_secondary))
+                    if (centerText) {
+                        gravity = Gravity.CENTER
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT
+                        )
+                    }
                 }
                 textCol.addView(tvSub)
             }
@@ -400,9 +455,11 @@ class ImageToolActivity : AppCompatActivity() {
         }
     }
 
-    /** Resize: Custom FIRST (exam photos need exact sizes), selected
-     *  by default, then the presets. ("Keep resolution" was removed:
-     *  Resize means changing the size.) */
+    /** Resize: Custom FIRST (exam photos need exact sizes), then
+     *  the presets. NOTHING is pre-selected — the user picks a
+     *  size. ("Keep resolution" was removed: Resize means changing
+     *  the size.) Tapping Custom selects it AND opens the
+     *  value-entry dialog at once. */
     private fun buildResolutionCards() {
         val options = mutableListOf<Triple<String, String, String>>()
         options.add(
@@ -417,10 +474,11 @@ class ImageToolActivity : AppCompatActivity() {
             "1024x2276", "1200x2668", "1280x2844", "1152x2560",
             "1440x3200", "3072x6828"
         )) options.add(Triple(p, p, ""))
-        if (selectedCardTag == null) selectedCardTag = "Custom: ${inputW}x${inputH}"
         buildOptionCards(options, selectedCardTag, onSelect = { tag ->
             selectedCardTag = tag
             renderStep()
+            // Tapping Custom selects it AND opens the WxH dialog.
+            if (tag.startsWith("Custom")) showCustomSizeDialog()
         })
     }
 
@@ -429,12 +487,14 @@ class ImageToolActivity : AppCompatActivity() {
      *  it just selects, and Next applies it. FIT_SOCIAL tags are
      *  unique per platform ("1:1:ig_post" vs "1:1:fb_profile") so
      *  only the tapped card highlights, and nothing is pre-selected
-     *  there. Each card shows a small ratio-shape indicator. */
+     *  there. Each card shows a small ratio-shape indicator plus a
+     *  coloured platform badge (drawn in code), with centre-aligned
+     *  bold ratio text. */
     private fun buildAspectCards() {
         val options = if (mode == MODE_FIT_SOCIAL) listOf(
             Triple("1:1:ig_post", "1:1", "Instagram post (square)"),
             Triple("4:5:ig_feed", "4:5", "Instagram feed (portrait)"),
-            Triple("9:16:story", "9:16", "Instagram / TikTok story"),
+            Triple("9:16:story", "9:16", "Instagram / TikTok / WhatsApp story"),
             Triple("16:9:cover", "16:9", "Facebook / YouTube cover"),
             Triple("1:1:fb_profile", "1:1", "Facebook profile")
         ) else listOf(
@@ -467,7 +527,20 @@ class ImageToolActivity : AppCompatActivity() {
                 val w = parts.getOrNull(0)?.toFloatOrNull()
                 val h = parts.getOrNull(1)?.toFloatOrNull()
                 if (w != null && h != null && w > 0 && h > 0) w to h else null
-            }
+            },
+            // Fit to social media only: centre-aligned bold ratio
+            // text + a platform badge per card (initial / shape,
+            // drawn in code — no trademarked assets).
+            centerText = mode == MODE_FIT_SOCIAL,
+            badgeProvider = if (mode == MODE_FIT_SOCIAL) { tag ->
+                when (tag) {
+                    "1:1:ig_post", "4:5:ig_feed" -> "Ig" to 0xFFE1306C.toInt()
+                    "9:16:story" -> "▶" to 0xFF000000.toInt()
+                    "16:9:cover" -> "▶" to 0xFFFF0000.toInt()
+                    "1:1:fb_profile" -> "f" to 0xFF1877F2.toInt()
+                    else -> null
+                }
+            } else null
         )
     }
 
@@ -913,6 +986,8 @@ class ImageToolActivity : AppCompatActivity() {
             card.setOnClickListener {
                 compressMode = mode
                 if (mode == 3) {
+                    // HD: straight to the one-tap compress — no size
+                    // step, no options (fix 3).
                     runHdCompress()
                 } else {
                     step = 1
@@ -925,7 +1000,9 @@ class ImageToolActivity : AppCompatActivity() {
 
     /** HD Compress: one tap, no options — SAME photo, SAME size, 100% quality,
      *  just a smaller file. Best of JPEG 95 / WebP 95 at FULL resolution —
-     *  no downscale, no blur. */
+     *  no downscale, no blur. After compressing it shows a result
+     *  screen (Preview + size info + Save) like the other compress
+     *  menus — it NEVER saves silently. */
     private fun runHdCompress() {
         val input = inputFile ?: return
         val status = findViewById<TextView>(R.id.tvStatus)
@@ -939,9 +1016,16 @@ class ImageToolActivity : AppCompatActivity() {
                 runOnUiThread {
                     nextBtn.isEnabled = true
                     if (results.isNotEmpty()) {
+                        webpLazyResults = null
+                        smartResults = results
                         step = 2
                         renderStep()
-                        saveSingleResult(results[0].file)
+                        status.text = "HD done — preview below, then Save"
+                        // Result screen (not a silent save): Preview
+                        // button + "Original → New • saved %" header +
+                        // Save selected. allowWebp = true because a
+                        // WebP input stays WebP at quality 95.
+                        showSmartResults(results, allowWebp = true)
                     } else {
                         status.text = "Already optimized — this photo is already small"
                     }
@@ -1310,9 +1394,9 @@ class ImageToolActivity : AppCompatActivity() {
     }
 
     /** One Smart result as a professional card: label + Best badge +
-     *  "size • saved N%" + a small SAVE affordance. Tapping the card
-     *  SELECTS it (highlight + preview in the CompareView); tapping
-     *  SAVE saves that row straight away. */
+     *  "size • saved N%" + a strong teal SAVE button. Tapping the card
+     *  SELECTS it (highlight + opens the Before/After preview);
+     *  tapping SAVE saves that row straight away. */
     private fun buildSmartResultCard(r: ImageCompressor.LevelResult, showBest: Boolean): View {
         val density = resources.displayMetrics.density
         val isSelected = r == selectedSmartResult
@@ -1359,19 +1443,32 @@ class ImageToolActivity : AppCompatActivity() {
             lp.marginStart = (12 * density).toInt()
             line1.addView(best, lp)
         }
-        // Small SAVE affordance at the right end.
-        val saveHint = TextView(this).apply {
-            text = "SAVE"
-            textSize = 13f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(getColor(R.color.hakunaa_teal))
-            setPadding((12 * density).toInt(), (4 * density).toInt(), 0, (4 * density).toInt())
+        // Strong SAVE button at the right end — a real teal button,
+        //  not plain text, so it is clearly tappable.
+        val spacer = View(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
             )
-            gravity = Gravity.END
         }
-        line1.addView(saveHint)
+        line1.addView(spacer)
+        val saveBtn = com.google.android.material.button.MaterialButton(this).apply {
+            text = "SAVE"
+            textSize = 13f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(android.R.color.white))
+            backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+            cornerRadius = (8 * density).toInt()
+            minimumHeight = 0
+            minimumWidth = 0
+            insetTop = 0
+            insetBottom = 0
+            setPadding((14 * density).toInt(), 0, (14 * density).toInt(), 0)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                (36 * density).toInt()
+            )
+        }
+        line1.addView(saveBtn)
         val line2 = TextView(this).apply {
             text = "${FileUtils.formatSize(r.size)}  •  saved ${r.savingPercent}%"
             textSize = 14f
@@ -1381,7 +1478,7 @@ class ImageToolActivity : AppCompatActivity() {
         inner.addView(line2)
         card.addView(inner)
         card.setOnClickListener { selectSmartResult(r) }
-        saveHint.setOnClickListener { saveSmartResult(r) }
+        saveBtn.setOnClickListener { saveSmartResult(r) }
         val params = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
@@ -1410,12 +1507,36 @@ class ImageToolActivity : AppCompatActivity() {
         }
     }
 
-    /** Select a Smart result: highlight its card and preview it in
-     *  the CompareView (no save until "Save selected"). */
+    /** Select a Smart result: highlight its card and open the
+     *  Before/After preview for it (no save until "Save selected"
+     *  or the row's SAVE button). */
     private fun selectSmartResult(r: ImageCompressor.LevelResult) {
         selectedSmartResult = r
-        compareView?.setCompressedFile(r.file)
+        if (previewInitialised) compareView?.setCompressedFile(r.file)
         refreshSmartRows()
+        // Tapping ANY result row opens the preview for that result.
+        if (previewWrap != null) setPreviewVisible(true)
+    }
+
+    /** Show/hide the Before/After preview. The CompareView is only
+     *  populated the first time it is shown — never automatically.
+     *  If the selection changed while it was hidden, it is synced
+     *  to the current selection when shown again. */
+    private fun setPreviewVisible(visible: Boolean) {
+        val wrap = previewWrap ?: return
+        previewVisible = visible
+        if (visible) {
+            val input = inputFile
+            val selected = selectedSmartResult
+            if (!previewInitialised && input != null && selected != null) {
+                compareView?.setImages(input, selected.file)
+                previewInitialised = true
+            } else if (previewInitialised && selected != null) {
+                compareView?.setCompressedFile(selected.file)
+            }
+        }
+        wrap.visibility = if (visible) View.VISIBLE else View.GONE
+        previewToggleBtn?.text = if (visible) "Hide preview" else "Preview — Before / After"
     }
 
     /** "More Compress": compute the WebP results LAZILY on a
@@ -1447,10 +1568,17 @@ class ImageToolActivity : AppCompatActivity() {
                         })
                     } else {
                         moreSection?.addView(TextView(this).apply {
-                            text = "WebP — smaller than JPG. Works on WhatsApp, Instagram and the web. NOT accepted in Govt forms/portals."
+                            text = "WebP — smaller than JPG"
+                            textSize = 14f
+                            setTypeface(null, android.graphics.Typeface.BOLD)
+                            setTextColor(getColor(R.color.hakunaa_text))
+                            setPadding(16, 16, 16, 4)
+                        })
+                        moreSection?.addView(TextView(this).apply {
+                            text = "✓ Works: WhatsApp, Instagram, web\n✗ NOT accepted: Govt forms / portals"
                             textSize = 13f
                             setTextColor(getColor(R.color.hakunaa_text_secondary))
-                            setPadding(16, 16, 16, 8)
+                            setPadding(16, 0, 16, 8)
                         })
                         smartDisplayed.addAll(results)
                         refreshSmartRows()
@@ -1464,18 +1592,34 @@ class ImageToolActivity : AppCompatActivity() {
 
     /** Smart results: JPG ONLY by default — WebP is never shown
      *  unless the user asks for it via "More Compress" (Quality
-     *  flow). Professional layout: a summary header, a Before/After
-     *  CompareView (original vs the best result), selectable result
-     *  cards, and a full-width teal "Save selected" button. */
-    private fun showSmartResults(results: List<ImageCompressor.LevelResult>) {
+     *  flow) or "More Compress with WebP" (Smart flow). Professional
+     *  layout: a summary header, a Preview button (the Before/After
+     *  CompareView appears ONLY on tap — never automatically),
+     *  selectable result cards, and a full-width teal
+     *  "Save selected" button. [allowWebp] is true only for the HD
+     *  result screen, whose single result may be WebP (a WebP input
+     *  stays WebP at quality 95). */
+    private fun showSmartResults(
+        results: List<ImageCompressor.LevelResult>,
+        allowWebp: Boolean = false
+    ) {
         val container = findViewById<LinearLayout>(R.id.resultsContainer)
         container.removeAllViews()
         webpShown = false
+        previewWrap = null
+        previewToggleBtn = null
+        compareView = null
+        previewInitialised = false
+        previewVisible = false
         val density = resources.displayMetrics.density
         // JPG only — the old `else results` fallback (which showed
-        // WebP rows by default) is gone on purpose.
+        // WebP rows by default) is gone on purpose. (HD passes
+        // allowWebp = true for its single result.)
         smartDisplayed = results
-            .filter { it.format == ImageCompressor.Format.JPEG }
+            .filter {
+                it.format == ImageCompressor.Format.JPEG ||
+                    (allowWebp && it.format == ImageCompressor.Format.WEBP)
+            }
             .sortedBy { it.size }
             .toMutableList()
         selectedSmartResult = smartDisplayed.minByOrNull { it.size }
@@ -1510,22 +1654,60 @@ class ImageToolActivity : AppCompatActivity() {
             headerCard.addView(headerText)
             container.addView(headerCard)
 
-            // Before/After compare (original vs best), fills the space.
-            val input = inputFile
-            if (input != null) {
-                val cv = CompareView(this).apply {
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        (260 * density).toInt()
-                    ).apply {
-                        topMargin = (12 * density).toInt()
-                    }
-                }
-                container.addView(cv)
-                compareView = cv
-                cv.setImages(input, best.file)
+            // Before/After preview — NOT shown automatically. A
+            // teal outline "Preview" button reveals the CompareView
+            // (populated on first tap); tapping again hides it.
+            // Tapping a result row opens it too (selectSmartResult).
+            val previewBtn = com.google.android.material.button.MaterialButton(this).apply {
+                text = "Preview — Before / After"
+                setTextColor(getColor(R.color.hakunaa_teal))
+                backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_surface))
+                strokeColor = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+                strokeWidth = (2 * density).toInt()
+                cornerRadius = (12 * density).toInt()
+                setIconResource(android.R.drawable.ic_menu_view)
+                iconTint = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                lp.topMargin = (12 * density).toInt()
+                layoutParams = lp
             }
+            container.addView(previewBtn)
+            previewToggleBtn = previewBtn
+            val previewContainer = LinearLayout(this).apply {
+                tag = "smart_preview_wrap"
+                orientation = LinearLayout.VERTICAL
+                visibility = View.GONE
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = (12 * density).toInt()
+                }
+            }
+            val cv = CompareView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    (260 * density).toInt()
+                )
+            }
+            previewContainer.addView(cv)
+            container.addView(previewContainer)
+            compareView = cv
+            previewWrap = previewContainer
+            previewBtn.setOnClickListener { setPreviewVisible(!previewVisible) }
 
+            // "Results" section heading, then the selectable cards.
+            val rowsLabel = TextView(this).apply {
+                text = "Results"
+                textSize = 14f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(getColor(R.color.hakunaa_text))
+                setPadding(0, (16 * density).toInt(), 0, (4 * density).toInt())
+            }
+            container.addView(rowsLabel)
             // Selectable result cards.
             val rowsContainer = LinearLayout(this).apply {
                 tag = "smart_rows"
@@ -1535,15 +1717,17 @@ class ImageToolActivity : AppCompatActivity() {
             refreshSmartRows()
         }
 
-        // "More Compress" — Quality flow only. WebP is computed
-        // lazily on tap, never up front.
-        if (mode == MODE_COMPRESS && compressMode == 1) {
+        // "More Compress" — Quality flow ("More Compress") and Smart
+        // flow ("More Compress with WebP"). WebP is computed lazily
+        // on tap, never up front, via loadMoreCompressWebp().
+        val showMore = (mode == MODE_COMPRESS && compressMode == 1) || mode == MODE_SMART
+        if (showMore) {
             val moreSection = LinearLayout(this).apply {
                 tag = "smart_more"
                 orientation = LinearLayout.VERTICAL
             }
             val moreBtn = com.google.android.material.button.MaterialButton(this).apply {
-                text = "More Compress"
+                text = if (mode == MODE_SMART) "More Compress with WebP" else "More Compress"
                 setTextColor(getColor(R.color.hakunaa_teal))
                 backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_surface))
                 strokeColor = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
@@ -1566,9 +1750,13 @@ class ImageToolActivity : AppCompatActivity() {
         }
 
         // Prominent teal "Save selected" — saves the selected result.
+        // Bold 16sp text on the full-width 56dp button so it reads
+        // as the screen's primary action.
         if (smartDisplayed.isNotEmpty()) {
             val saveBtn = com.google.android.material.button.MaterialButton(this).apply {
                 text = "Save selected"
+                textSize = 16f
+                setTypeface(null, android.graphics.Typeface.BOLD)
                 setTextColor(getColor(android.R.color.white))
                 backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
                 cornerRadius = (12 * density).toInt()

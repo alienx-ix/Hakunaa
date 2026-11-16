@@ -1,5 +1,6 @@
 package com.hakunaa.app.image
 
+import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -10,9 +11,12 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
+import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
+import android.view.animation.DecelerateInterpolator
 import androidx.exifinterface.media.ExifInterface
 import java.io.File
 import kotlin.math.abs
@@ -24,6 +28,11 @@ import kotlin.math.abs
  * divider and the compressed result on the right. Drag the divider
  * to compare; tap to switch between the full Before and full
  * After views (split -> Before -> After -> split).
+ *
+ * Pinch to zoom (1x-4x) and drag to pan while zoomed. When zoomed
+ * in, a one-finger drag pans the image instead of moving the
+ * divider, and a double-tap smoothly resets the zoom. Zoom resets
+ * automatically whenever new images are set.
  *
  * Bitmaps are decoded downsampled on a background thread so a
  * large photo never blocks the UI or blows up memory.
@@ -40,6 +49,13 @@ class CompareView @JvmOverloads constructor(
         private const val MODE_AFTER = 2
         /** Longest side of the decoded preview bitmaps. */
         private const val MAX_PREVIEW_DIM = 1200
+        /** Pinch-zoom range. */
+        private const val MIN_ZOOM = 1f
+        private const val MAX_ZOOM = 4f
+        /** Max gap between two taps for a double-tap zoom reset. */
+        private const val DOUBLE_TAP_TIMEOUT_MS = 300L
+        /** Duration of the animated zoom reset. */
+        private const val ZOOM_RESET_DURATION_MS = 250L
     }
 
     private var originalFile: File? = null
@@ -49,6 +65,41 @@ class CompareView @JvmOverloads constructor(
     private var dividerFraction = 0.5f
     private var viewMode = MODE_SPLIT
     private var loadGeneration = 0
+
+    // ---- Zoom / pan state ----
+    private var zoomEnabled = true
+    private var scaleFactor = MIN_ZOOM
+    private var panX = 0f
+    private var panY = 0f
+    /** Base (unzoomed) destination rect of the bitmap, from the last draw. */
+    private val lastDest = RectF()
+    private var zoomAnimator: ValueAnimator? = null
+
+    private val scaleListener = object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+            zoomAnimator?.cancel()
+            parent?.requestDisallowInterceptTouchEvent(true)
+            return true
+        }
+
+        override fun onScale(detector: ScaleGestureDetector): Boolean {
+            if (!zoomEnabled) return false
+            val prevScale = scaleFactor
+            scaleFactor = (scaleFactor * detector.scaleFactor).coerceIn(MIN_ZOOM, MAX_ZOOM)
+            val factor = scaleFactor / prevScale
+            if (factor != 1f) {
+                // Keep the focal point under the fingers while scaling.
+                val cx = width / 2f
+                val cy = height / 2f
+                panX = detector.focusX - cx - factor * (detector.focusX - cx - panX)
+                panY = detector.focusY - cy - factor * (detector.focusY - cy - panY)
+                clampPan()
+                invalidate()
+            }
+            return true
+        }
+    }
+    private val scaleDetector = ScaleGestureDetector(context, scaleListener)
 
     private val dividerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
@@ -91,25 +142,99 @@ class CompareView @JvmOverloads constructor(
     private val clipPath = Path()
     private val clipRect = RectF()
 
-    /** Show [original] vs [compressed]. */
+    /** Show [original] vs [compressed]. Resets any zoom. */
     fun setImages(original: File, compressed: File) {
         originalFile = original
         compressedFile = compressed
         viewMode = MODE_SPLIT
         dividerFraction = 0.5f
+        resetZoomInstant()
         loadBitmaps()
     }
 
-    /** Keep the same original, swap in a different result file. */
+    /** Keep the same original, swap in a different result file. Resets any zoom. */
     fun setCompressedFile(compressed: File) {
         if (compressed == compressedFile) return
         compressedFile = compressed
+        resetZoomInstant()
         loadBitmaps()
     }
 
     fun setDividerFraction(fraction: Float) {
         dividerFraction = fraction.coerceIn(0.05f, 0.95f)
         invalidate()
+    }
+
+    /**
+     * Enable or disable pinch-to-zoom. Disabling resets any zoom
+     * in progress. Enabled by default.
+     */
+    fun setZoomEnabled(enabled: Boolean) {
+        zoomEnabled = enabled
+        if (!enabled) resetZoomInstant()
+    }
+
+    /**
+     * Smoothly animate the zoom back to 1x and re-centre the image.
+     * A no-op when already at 1x.
+     */
+    fun resetZoom() {
+        zoomAnimator?.cancel()
+        if (scaleFactor <= MIN_ZOOM + 0.001f && panX == 0f && panY == 0f) return
+        val startScale = scaleFactor
+        val startPanX = panX
+        val startPanY = panY
+        zoomAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = ZOOM_RESET_DURATION_MS
+            interpolator = DecelerateInterpolator()
+            addUpdateListener { anim ->
+                val t = anim.animatedValue as Float
+                scaleFactor = startScale + (MIN_ZOOM - startScale) * t
+                panX = startPanX * (1f - t)
+                panY = startPanY * (1f - t)
+                invalidate()
+            }
+            start()
+        }
+    }
+
+    /** Instant zoom reset, used when new images are set. */
+    private fun resetZoomInstant() {
+        zoomAnimator?.cancel()
+        scaleFactor = MIN_ZOOM
+        panX = 0f
+        panY = 0f
+        invalidate()
+    }
+
+    /**
+     * Clamp the pan so the zoomed image always covers the view and
+     * can never be dragged off-screen. At 1x the image is centred.
+     */
+    private fun clampPan() {
+        if (scaleFactor <= MIN_ZOOM + 0.001f) {
+            panX = 0f
+            panY = 0f
+            return
+        }
+        if (lastDest.isEmpty) return
+        val cx = width / 2f
+        val cy = height / 2f
+        val s = scaleFactor
+        if (lastDest.width() * s <= width) {
+            panX = 0f
+        } else {
+            val minPanX = width - cx - (lastDest.right - cx) * s
+            val maxPanX = -cx - (lastDest.left - cx) * s
+            panX = panX.coerceIn(minPanX, maxPanX)
+        }
+        if (lastDest.height() * s <= height) {
+            panY = 0f
+        } else {
+            val minPanY = height - cy - (lastDest.bottom - cy) * s
+            val maxPanY = -cy - (lastDest.top - cy) * s
+            panY = panY.coerceIn(minPanY, maxPanY)
+        }
     }
 
     private fun loadBitmaps() {
@@ -199,14 +324,27 @@ class CompareView @JvmOverloads constructor(
         // so one destination rect fits both.
         val bitmap = orig ?: comp!!
         val dest = fitRect(bitmap.width, bitmap.height, w, h)
+        lastDest.set(dest)
+
+        // Zoom transform (scale about the view centre + pan) applies
+        // to the images and the divider line only; pills and the
+        // divider handle are drawn in screen space below so they
+        // keep a constant size and stay readable while zoomed.
+        val cx = w / 2f
+        val cy = h / 2f
+        canvas.save()
+        canvas.translate(cx + panX, cy + panY)
+        canvas.scale(scaleFactor, scaleFactor)
+        canvas.translate(-cx, -cy)
+
+        var dividerScreenX = -1f
+        var dividerScreenY = -1f
         when (viewMode) {
             MODE_BEFORE -> {
                 orig?.let { canvas.drawBitmap(it, null, dest, null) }
-                drawLabel(canvas, "Before — tap to switch", 16f * density, 16f * density)
             }
             MODE_AFTER -> {
                 comp?.let { canvas.drawBitmap(it, null, dest, null) }
-                drawLabel(canvas, "After — tap to switch", 16f * density, 16f * density)
             }
             else -> {
                 orig?.let { canvas.drawBitmap(it, null, dest, null) }
@@ -217,16 +355,46 @@ class CompareView @JvmOverloads constructor(
                     canvas.clipRect(dividerX, dest.top, dest.right, dest.bottom)
                     canvas.drawBitmap(drawn, null, dest, null)
                     canvas.restore()
-                    drawDivider(canvas, dividerX, dest.top, dest.bottom)
+                    canvas.drawLine(dividerX, dest.top, dividerX, dest.bottom, dividerPaint)
+                    // Handle position in screen space (constant size).
+                    dividerScreenX = cx + panX + scaleFactor * (dividerX - cx)
+                    dividerScreenY = cy + panY
                 }
+            }
+        }
+        canvas.restore()
+
+        // ---- Screen-space overlays (pills, handle, zoom badge) ----
+        val zoomed = scaleFactor > MIN_ZOOM + 0.001f
+        when (viewMode) {
+            MODE_BEFORE -> {
+                val hint = if (zoomed) "Before — double-tap to reset zoom"
+                    else "Before — tap to switch"
+                drawLabel(canvas, hint, 16f * density, 16f * density)
+            }
+            MODE_AFTER -> {
+                val hint = if (zoomed) "After — double-tap to reset zoom"
+                    else "After — tap to switch"
+                drawLabel(canvas, hint, 16f * density, 16f * density)
+            }
+            else -> {
                 drawLabel(canvas, "Before", 16f * density, 16f * density)
                 val afterText = "After"
                 val afterWidth = labelPaint.measureText(afterText)
-                drawLabel(
-                    canvas, afterText,
-                    dest.right - afterWidth - 32f * density, 16f * density
-                )
+                val afterX = minOf(dest.right, w) - afterWidth - 16f * density
+                drawLabel(canvas, afterText, afterX, 16f * density)
+                if (dividerScreenX >= 0f) {
+                    drawDividerHandle(canvas, dividerScreenX, dividerScreenY)
+                }
             }
+        }
+        if (zoomed) {
+            val zoomText = "%.1f×".format(scaleFactor)
+            val zoomWidth = labelPaint.measureText(zoomText)
+            drawLabel(
+                canvas, zoomText,
+                w - zoomWidth - 16f * density, h - 16f * density - labelPaint.fontMetrics.run { bottom - top }
+            )
         }
         canvas.restore()
     }
@@ -255,10 +423,12 @@ class CompareView @JvmOverloads constructor(
         canvas.drawText(text, x, y - labelPaint.fontMetrics.top, labelPaint)
     }
 
-    private fun drawDivider(canvas: Canvas, x: Float, top: Float, bottom: Float) {
+    /** Teal circular handle with ‹ › chevrons, drawn at a constant
+     *  screen size so it never balloons while zoomed. Skipped when
+     *  the divider is off-screen. */
+    private fun drawDividerHandle(canvas: Canvas, x: Float, cy: Float) {
         val density = resources.displayMetrics.density
-        canvas.drawLine(x, top, x, bottom, dividerPaint)
-        val cy = (top + bottom) / 2f
+        if (x < -24f * density || x > width + 24f * density) return
         val radius = 20f * density
         canvas.drawCircle(x, cy, radius, handlePaint)
         canvas.drawCircle(x, cy, radius, handleBorderPaint)
@@ -279,22 +449,58 @@ class CompareView @JvmOverloads constructor(
 
     private var downX = 0f
     private var downY = 0f
+    private var lastPanX = 0f
+    private var lastPanY = 0f
     private var dragging = false
+    private var panning = false
+    private var pinched = false
+    private var lastTapUpTime = 0L
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (zoomEnabled) {
+            scaleDetector.onTouchEvent(event)
+            if (scaleDetector.isInProgress) {
+                pinched = true
+                dragging = false
+                panning = false
+                return true
+            }
+        }
         val density = resources.displayMetrics.density
         val slop = 12f * density
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                zoomAnimator?.cancel()
                 downX = event.x
                 downY = event.y
+                lastPanX = event.x
+                lastPanY = event.y
                 dragging = false
+                panning = false
                 // Don't disallow intercept yet: a vertical drag here
                 // should still scroll the results list. Only a
                 // horizontal drag (below) claims the gesture.
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
+                if (scaleFactor > MIN_ZOOM + 0.001f) {
+                    // Zoomed: one-finger drag pans the image.
+                    if (!panning &&
+                        (abs(event.x - downX) > slop || abs(event.y - downY) > slop)
+                    ) {
+                        panning = true
+                        parent?.requestDisallowInterceptTouchEvent(true)
+                    }
+                    if (panning) {
+                        panX += event.x - lastPanX
+                        panY += event.y - lastPanY
+                        clampPan()
+                        invalidate()
+                    }
+                    lastPanX = event.x
+                    lastPanY = event.y
+                    return true
+                }
                 if (!dragging && abs(event.x - downX) > slop) {
                     dragging = true
                     parent?.requestDisallowInterceptTouchEvent(true)
@@ -304,20 +510,38 @@ class CompareView @JvmOverloads constructor(
                     dividerFraction = (event.x / width).coerceIn(0.05f, 0.95f)
                     invalidate()
                 }
+                lastPanX = event.x
+                lastPanY = event.y
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 parent?.requestDisallowInterceptTouchEvent(false)
-                if (!dragging && event.actionMasked == MotionEvent.ACTION_UP) {
-                    // A tap cycles: split -> Before -> After -> split.
-                    viewMode = when (viewMode) {
-                        MODE_SPLIT -> MODE_BEFORE
-                        MODE_BEFORE -> MODE_AFTER
-                        else -> MODE_SPLIT
+                if (!dragging && !panning && !pinched &&
+                    event.actionMasked == MotionEvent.ACTION_UP
+                ) {
+                    if (scaleFactor > MIN_ZOOM + 0.001f) {
+                        // Zoomed: a tap does nothing; a double-tap
+                        // smoothly resets the zoom.
+                        val now = SystemClock.uptimeMillis()
+                        if (now - lastTapUpTime < DOUBLE_TAP_TIMEOUT_MS) {
+                            resetZoom()
+                            lastTapUpTime = 0L
+                        } else {
+                            lastTapUpTime = now
+                        }
+                    } else {
+                        // A tap cycles: split -> Before -> After -> split.
+                        viewMode = when (viewMode) {
+                            MODE_SPLIT -> MODE_BEFORE
+                            MODE_BEFORE -> MODE_AFTER
+                            else -> MODE_SPLIT
+                        }
+                        invalidate()
                     }
-                    invalidate()
                 }
                 dragging = false
+                panning = false
+                pinched = false
                 return true
             }
         }
@@ -326,6 +550,7 @@ class CompareView @JvmOverloads constructor(
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        zoomAnimator?.cancel()
         loadGeneration++
         originalBitmap?.recycle()
         compressedBitmap?.recycle()

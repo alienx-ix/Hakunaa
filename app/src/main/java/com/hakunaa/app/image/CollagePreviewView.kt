@@ -32,22 +32,22 @@ data class CollageCell(
 enum class CollageStyle { MINIMAL, FREESTYLE, POSTER, STITCHING }
 
 /**
- * Interactive live collage preview (v0.1.118).
+ * Interactive live collage preview (v0.1.119).
  *
  * Draws the collage itself from decoded bitmaps + the cell model —
- * no background bitmap render, so panning / resizing updates
- * instantly on draw. Touch behaviour:
+ * no background bitmap render, so panning / moving / resizing
+ * updates instantly on draw. Touch behaviour:
  *  - tap a cell to select it (teal highlight; in Freestyle the
  *    corner handles appear),
- *  - drag inside a selected cell to PAN the photo within it
- *    (clamped so the photo always covers the cell),
+ *  - drag inside a cell to PAN the photo within it (clamped so
+ *    the photo always covers the cell),
  *  - drag a photo from the strip onto a cell to ASSIGN that photo
  *    to the cell (drop highlight while hovering),
- *  - in Freestyle, drag a cell edge/corner to MOVE/RESIZE it
- *    freely (dragging an edge resizes; the cell rect itself is
- *    only moved via its edges — the whole rect can be shifted by
- *    dragging the top/left edge inward and the opposite edge out,
- *    and in practice users resize + the layout stays freeform).
+ *  - in Freestyle, drag an already-selected cell's body to MOVE
+ *    the whole cell freely (clamped inside the canvas), and drag
+ *    a cell edge/corner to RESIZE it. A first drag on a cell that
+ *    was not selected yet pans its photo, so both gestures stay
+ *    available: tap once to select, then drag to move.
  *
  * Poster mode reserves the bottom 12% of the canvas for the
  * caption (only when caption text is non-blank); Stitching draws
@@ -80,8 +80,9 @@ class CollagePreviewView @JvmOverloads constructor(
 
     /** (fromPhotoIndex, cellIndex) — activity swaps/assigns the photo. */
     var onPhotoDropped: ((Int, Int) -> Unit)? = null
-    /** Fired after a pan / resize changed the model (activity: nothing
-     *  to re-render — the view already shows it; kept for status text). */
+    /** Fired after a pan / move / resize changed the model (activity:
+     *  nothing to re-render — the view already shows it; kept for
+     *  status text). */
     var onModelChanged: (() -> Unit)? = null
 
     var selectedIndex: Int = -1
@@ -121,6 +122,7 @@ class CollagePreviewView @JvmOverloads constructor(
     private val srcRect = Rect()
     private val dstRect = Rect()
     private val tmpRect = RectF()
+    private val outlineRect = RectF()
     private val contentRect = RectF()
 
     init {
@@ -300,18 +302,12 @@ class CollagePreviewView @JvmOverloads constructor(
             }
             // Freestyle: white frame so freeform cells read as separate photos.
             if (style == CollageStyle.FREESTYLE) {
+                outlineRect.set(tmpRect)
+                freestyleBorderPaint.strokeWidth = 3f * density
                 if (cornerRadius > 0f) {
-                    clipPath.reset()
-                    clipPath.addRoundRect(RectF(dstRect), cornerRadius, cornerRadius, Path.Direction.CW)
-                    canvas.save()
-                    canvas.clipPath(clipPath)
-                    canvas.drawRect(dstRect, freestyleBorderPaint)
-                    canvas.restore()
-                    // Stroke the rounded outline itself.
-                    val outline = Paint(freestyleBorderPaint).apply { strokeWidth = 3f * density }
-                    canvas.drawRoundRect(RectF(dstRect), cornerRadius, cornerRadius, outline)
+                    canvas.drawRoundRect(outlineRect, cornerRadius, cornerRadius, freestyleBorderPaint)
                 } else {
-                    canvas.drawRect(dstRect, freestyleBorderPaint)
+                    canvas.drawRect(outlineRect, freestyleBorderPaint)
                 }
             }
             // Stitching: dashed "sewn" border just inside each cell.
@@ -376,8 +372,8 @@ class CollagePreviewView @JvmOverloads constructor(
         return 0.2126f * r + 0.7152f * g + 0.0722f * b < 0.5f
     }
 
-    // ---- touch: tap-select, pan, freestyle edge/corner resize ----
-    private enum class DragMode { NONE, PAN, RESIZE }
+    // ---- touch: tap-select, pan, freestyle move / edge-corner resize ----
+    private enum class DragMode { NONE, PAN, MOVE, RESIZE }
 
     private var dragMode = DragMode.NONE
     private var dragCell = -1
@@ -403,6 +399,7 @@ class CollagePreviewView @JvmOverloads constructor(
                     invalidate()
                     return true
                 }
+                val wasSelected = (selectedIndex == hit)
                 selectedIndex = hit
                 dragCell = hit
                 lastX = event.x; lastY = event.y
@@ -415,8 +412,13 @@ class CollagePreviewView @JvmOverloads constructor(
                     resizeRight = abs(event.x - tmpRect.right) < edge
                     resizeTop = abs(event.y - tmpRect.top) < edge
                     resizeBottom = abs(event.y - tmpRect.bottom) < edge
-                    dragMode = if (resizeLeft || resizeRight || resizeTop || resizeBottom)
-                        DragMode.RESIZE else DragMode.PAN
+                    dragMode = when {
+                        resizeLeft || resizeRight || resizeTop || resizeBottom -> DragMode.RESIZE
+                        // Already-selected cell: drag moves the whole cell.
+                        wasSelected -> DragMode.MOVE
+                        // First touch on a cell: drag pans the photo inside it.
+                        else -> DragMode.PAN
+                    }
                 } else {
                     dragMode = DragMode.PAN
                 }
@@ -432,27 +434,46 @@ class CollagePreviewView @JvmOverloads constructor(
                     moved = true
                 }
                 val cell = cells[dragCell]
-                if (dragMode == DragMode.PAN) {
-                    cellPx(cell, tmpRect)
-                    if (tmpRect.width() > 0f && tmpRect.height() > 0f) {
-                        cell.panX += dx / tmpRect.width()
-                        cell.panY += dy / tmpRect.height()
-                        val bmp = bitmaps.getOrNull(cell.photoIndex)
-                        clampPan(cell, bmp, tmpRect.width(), tmpRect.height())
+                when (dragMode) {
+                    DragMode.PAN -> {
+                        cellPx(cell, tmpRect)
+                        if (tmpRect.width() > 0f && tmpRect.height() > 0f) {
+                            cell.panX += dx / tmpRect.width()
+                            cell.panY += dy / tmpRect.height()
+                            val bmp = bitmaps.getOrNull(cell.photoIndex)
+                            clampPan(cell, bmp, tmpRect.width(), tmpRect.height())
+                        }
                     }
-                } else {
-                    // Freestyle resize: move whichever edges the finger grabbed.
-                    val dw = dx / contentRect.width()
-                    val dh = dy / contentRect.height()
-                    val r = cell.rect
-                    val minSize = 0.12f
-                    if (resizeLeft) r.left = (r.left + dw).coerceIn(0f, r.right - minSize)
-                    if (resizeRight) r.right = (r.right + dw).coerceIn(r.left + minSize, 1f)
-                    if (resizeTop) r.top = (r.top + dh).coerceIn(0f, r.bottom - minSize)
-                    if (resizeBottom) r.bottom = (r.bottom + dh).coerceIn(r.top + minSize, 1f)
-                    // Keep the photo covering the (possibly smaller) cell.
-                    cellPx(cell, tmpRect)
-                    clampPan(cell, bitmaps.getOrNull(cell.photoIndex), tmpRect.width(), tmpRect.height())
+                    DragMode.MOVE -> {
+                        // Freestyle move: shift the whole rect, keeping
+                        // its size, clamped inside the canvas.
+                        val dw = dx / contentRect.width()
+                        val dh = dy / (contentRect.height() * posterScaleY(style, posterText))
+                        val r = cell.rect
+                        val w = r.width()
+                        val h = r.height()
+                        if (contentRect.width() > 0f && contentRect.height() > 0f) {
+                            r.left = (r.left + dw).coerceIn(0f, 1f - w)
+                            r.top = (r.top + dh).coerceIn(0f, 1f - h)
+                            r.right = r.left + w
+                            r.bottom = r.top + h
+                        }
+                    }
+                    DragMode.RESIZE -> {
+                        // Freestyle resize: move whichever edges the finger grabbed.
+                        val dw = dx / contentRect.width()
+                        val dh = dy / (contentRect.height() * posterScaleY(style, posterText))
+                        val r = cell.rect
+                        val minSize = 0.12f
+                        if (resizeLeft) r.left = (r.left + dw).coerceIn(0f, r.right - minSize)
+                        if (resizeRight) r.right = (r.right + dw).coerceIn(r.left + minSize, 1f)
+                        if (resizeTop) r.top = (r.top + dh).coerceIn(0f, r.bottom - minSize)
+                        if (resizeBottom) r.bottom = (r.bottom + dh).coerceIn(r.top + minSize, 1f)
+                        // Keep the photo covering the (possibly smaller) cell.
+                        cellPx(cell, tmpRect)
+                        clampPan(cell, bitmaps.getOrNull(cell.photoIndex), tmpRect.width(), tmpRect.height())
+                    }
+                    DragMode.NONE -> { }
                 }
                 invalidate()
                 return true

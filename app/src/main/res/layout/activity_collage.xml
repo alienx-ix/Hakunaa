@@ -51,10 +51,19 @@
             <com.hakunaa.app.image.CollagePreviewView
                 android:id="@+id/previewView"
                 android:layout_width="match_parent"
-                android:layout_height="300dp"
+                android:layout_height="320dp"
                 android:layout_marginTop="12dp"
                 android:background="#EDEFF2"
                 android:contentDescription="Collage preview — tap a photo to select it, drag inside it to move the photo, drag a cell edge in Freestyle to resize" />
+
+            <TextView
+                android:id="@+id/tvHint"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Tap a photo to select it, then drag inside it to move the photo"
+                android:textColor="@color/hakunaa_text_secondary"
+                android:textSize="13sp" />
 
             <EditText
                 android:id="@+id/etPosterCaption"
@@ -106,7 +115,8 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="12dp"
-                    android:layout_weight="1" />
+                    android:layout_weight="1"
+                    android:max="40" />
 
                 <TextView
                     android:id="@+id/tvBorderValue"
