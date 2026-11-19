@@ -35,6 +35,12 @@ import kotlin.math.min
  * ([getCropRectPx]) and renders full-res with
  * [ImageCompressor.dpCircleRect] / [ImageCompressor.dpSquareRect].
  * The bitmap is owned by the caller — this view never recycles it.
+ *
+ * v0.1.134 (Batch 18): bigger, bolder resize handles (8dp
+ * dots, 3dp ring, 4dp frame outline) — the v0.1.133 dots were
+ * too small and the tool did not look professional. The drag /
+ * resize math is unchanged and still clamps the frame inside
+ * the photo (move coerceIn, corner scaleFit, circle maxR).
  */
 class DpAdjustView @JvmOverloads constructor(
     context: Context,
@@ -59,7 +65,9 @@ class DpAdjustView @JvmOverloads constructor(
     private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         color = 0xFF00BFA5.toInt()
-        strokeWidth = 3f * resources.displayMetrics.density
+        // v0.1.134 (Batch 18): 4dp — a bolder, clearly visible
+        // professional frame (was 3dp).
+        strokeWidth = 4f * resources.displayMetrics.density
     }
     private val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
@@ -79,7 +87,12 @@ class DpAdjustView @JvmOverloads constructor(
     private val handleDotRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         style = Paint.Style.STROKE
-        strokeWidth = 2f * resources.displayMetrics.density
+        // v0.1.134 (Batch 18): 3dp ring — the resize dots were
+        // tiny (5dp radius, 2dp ring) and hard to see; the user
+        // called the tool unprofessional. Bigger, bolder dots
+        // (8dp radius, 3dp white ring) read as proper grab
+        // handles, ProCropView-bold.
+        strokeWidth = 3f * resources.displayMetrics.density
     }
     private val colorFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
@@ -247,9 +260,11 @@ class DpAdjustView @JvmOverloads constructor(
                 }
             }
             // Circle outline + resize dots at the 4 cardinal points.
+            // v0.1.134 (Batch 18): 8dp dots — clearly visible
+            // professional grab handles (were 5dp, too small).
             canvas.drawCircle(frame.centerX(), frame.centerY(), frame.width() / 2f, framePaint)
             canvas.drawCircle(frame.centerX(), frame.centerY(), frame.width() / 2f, outlinePaint)
-            val dotR = 5f * density
+            val dotR = 8f * density
             val cx = frame.centerX()
             val cy = frame.centerY()
             val r = frame.width() / 2f

@@ -2006,6 +2006,14 @@ class ImageToolActivity : AppCompatActivity() {
     private fun runQualitySmartResults() {
         val input = inputFile ?: return
         setStatusText("Working…")
+        // v0.1.134 (Batch 18): hide the picker BEFORE showing the
+        // progress — showCompressingProgress makes resultsContainer
+        // VISIBLE while qualityContainer is still VISIBLE, so the
+        // "Compressing…" box appeared ABOVE the 7 quality cards
+        // (a mixed screen) for the whole compression — the
+        // "unwanted screen" the user reported. Picker → clean
+        // spinner → result.
+        findViewById<LinearLayout>(R.id.qualityContainer).visibility = View.GONE
         showCompressingProgress()
         val nextBtn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnNext)
         nextBtn.isEnabled = false
@@ -2036,6 +2044,10 @@ class ImageToolActivity : AppCompatActivity() {
                     nextBtn.isEnabled = true
                     if (allResults.isEmpty()) {
                         hideCompressingProgress()
+                        // v0.1.134: back to the picker (step is still
+                        // 1) instead of a blank screen — the picker
+                        // was hidden above, so re-render it.
+                        renderStep()
                         setStatusText("Already optimized — even the strongest settings couldn't shrink this image.")
                     } else {
                         webpLazyResults = null
@@ -2538,22 +2550,56 @@ class ImageToolActivity : AppCompatActivity() {
         inner.addView(textCol)
         // Per-result View, right side — opens the full-screen
         // View + Compare for THIS result.
-        val previewBtn = com.google.android.material.button.MaterialButton(this).apply {
-            text = "View"
-            textSize = 13f
-            setTextColor(getColor(R.color.hakunaa_teal))
-            backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_surface))
-            strokeColor = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
-            strokeWidth = (1 * density).toInt()
-            cornerRadius = (10 * density).toInt()
-            setPadding((12 * density).toInt(), 0, (12 * density).toInt(), 0)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                (40 * density).toInt()
-            ).apply { marginStart = (12 * density).toInt() }
+        // v0.1.134 (Batch 18): in the WebP window (plainCard) the
+        // View is a plain TextView pill, NOT a MaterialButton —
+        // the dialog's M3 theme tints a MaterialButton dark (the
+        // same tint that darkened MaterialCardViews there,
+        // v0.1.131), so the WebP View button looked dark next to
+        // Smart's white one. The pill's fill is the card's own
+        // colour, so it blends exactly like Smart's white button
+        // on Smart's white card: same 13sp teal text, same 1dp
+        // teal stroke, same 10dp corners, same 40dp height.
+        // Smart keeps its MaterialButton, untouched.
+        if (plainCard) {
+            val cardColor = if (isSelected) 0xFFE0F2F1.toInt() else 0xFFECF3FB.toInt()
+            val pill = TextView(this).apply {
+                text = "View"
+                textSize = 13f
+                setTextColor(getColor(R.color.hakunaa_teal))
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 10f * density
+                    setColor(cardColor)
+                    setStroke((1 * density).toInt(), getColor(R.color.hakunaa_teal))
+                }
+                setPadding((12 * density).toInt(), 0, (12 * density).toInt(), 0)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    (40 * density).toInt()
+                ).apply { marginStart = (12 * density).toInt() }
+                isClickable = true
+            }
+            pill.setOnClickListener { onPreview(r) }
+            inner.addView(pill)
+        } else {
+            val previewBtn = com.google.android.material.button.MaterialButton(this).apply {
+                text = "View"
+                textSize = 13f
+                setTextColor(getColor(R.color.hakunaa_teal))
+                backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_surface))
+                strokeColor = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+                strokeWidth = (1 * density).toInt()
+                cornerRadius = (10 * density).toInt()
+                setPadding((12 * density).toInt(), 0, (12 * density).toInt(), 0)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    (40 * density).toInt()
+                ).apply { marginStart = (12 * density).toInt() }
+            }
+            previewBtn.setOnClickListener { onPreview(r) }
+            inner.addView(previewBtn)
         }
-        previewBtn.setOnClickListener { onPreview(r) }
-        inner.addView(previewBtn)
         card.addView(inner)
         card.setOnClickListener { onSelect(r) }
         // v0.1.128: the cards SHARE the rows' height by weight, so
@@ -2599,10 +2645,15 @@ class ImageToolActivity : AppCompatActivity() {
         return buildResultRow(
             // v0.1.132: no Best badge on the 2-box screens
             // (Quality / Target / HD) — Smart only.
+            // v0.1.134 (Batch 18): no Smaller badge there either —
+            // the user removed it too. NO badges on the 2-box
+            // screens; Best/Smaller live ONLY in Smart (and the
+            // WebP window, which builds its rows directly, not
+            // through here, so its badges are untouched).
             r, !smartHideBestBadge && r == best, r == selectedSmartResult,
             onPreview = { selectSmartResult(it); openFullPreviewFor(it) },
             onSelect = { selectSmartResult(it) },
-            showSmaller = r == smallest && r != best,
+            showSmaller = !smartHideBestBadge && r == smallest && r != best,
             // v0.1.131: fixed normal height on the 2-box screens
             // (Quality / Target / HD); null = weight-shared (Smart).
             fixedHeightPx = smartFixedCardHeightPx
@@ -2748,10 +2799,21 @@ class ImageToolActivity : AppCompatActivity() {
         // Image details card (v0.1.124): the picked photo's
         // details, big and clear at the top — name, size, format,
         // resolution.
-        val imageCard = com.google.android.material.card.MaterialCardView(this).apply {
-            radius = 12f * density
-            cardElevation = 2f * density
-            setCardBackgroundColor(getColor(R.color.hakunaa_surface))
+        // v0.1.134 (Batch 18): plain container, not a
+        // MaterialCardView — the dialog's M3 theme tints a
+        // MaterialCardView darker (the v0.1.131 finding), so this
+        // card rendered grey-blue instead of Smart's light colour.
+        // Same #ECF3FB as the result cards, so the whole window
+        // is one consistent light colour.
+        val imageCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 12f * density
+                setColor(0xFFECF3FB.toInt())
+            }
+            elevation = 2f * density
+            clipToOutline = true
         }
         val imageRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -2815,10 +2877,18 @@ class ImageToolActivity : AppCompatActivity() {
         // the result cards are normal size now, so the WebP facts
         // get their own card instead of a bare line. Same facts as
         // the old line — nothing new invented.
-        val webpInfoCard = com.google.android.material.card.MaterialCardView(this).apply {
-            radius = 12f * density
-            cardElevation = 2f * density
-            setCardBackgroundColor(getColor(R.color.hakunaa_surface))
+        // v0.1.134 (Batch 18): plain container, not a
+        // MaterialCardView — same dialog-tint reason as the image
+        // card above; same #ECF3FB as the result cards.
+        val webpInfoCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 12f * density
+                setColor(0xFFECF3FB.toInt())
+            }
+            elevation = 2f * density
+            clipToOutline = true
         }
         val webpInfoInner = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL

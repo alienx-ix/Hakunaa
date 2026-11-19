@@ -1,5 +1,6 @@
 package com.hakunaa.app.image
 
+import android.app.Dialog
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -11,12 +12,12 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.Window
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.exifinterface.media.ExifInterface
 import androidx.recyclerview.widget.ItemTouchHelper
@@ -479,14 +480,48 @@ class ImageToPdfActivity : AppCompatActivity() {
             "Compress" to "Balanced — crisp at print size",
             "Extreme" to "Smallest file — for sharing"
         )
-        val list = LinearLayout(this).apply {
+        // v0.1.134 (Batch 18): a THEMED dialog, not the system
+        // AlertDialog — the old one rendered plain white with a
+        // blue Cancel, nothing like the app's theme. Custom Dialog
+        // with a plain GradientDrawable card (no M3 dialog tint
+        // can darken it, v0.1.131 finding), teal accents, 20dp
+        // corners, teal Cancel — same 3 options, same real sizes,
+        // same tap-to-save behaviour.
+        val dialog = Dialog(this)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.setCancelable(true)
+        val outer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((24 * density).toInt(), 0, (24 * density).toInt(), 0)
+        }
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 20f * density
+                setColor(getColor(R.color.hakunaa_surface))
+            }
+            elevation = 8f * density
+            clipToOutline = true
+        }
+        val inner = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(
-                (20 * density).toInt(), (8 * density).toInt(),
-                (20 * density).toInt(), (8 * density).toInt()
+                (24 * density).toInt(), (24 * density).toInt(),
+                (24 * density).toInt(), (16 * density).toInt()
             )
         }
-        var dialog: AlertDialog? = null
+        inner.addView(TextView(this).apply {
+            text = "Choose PDF size"
+            textSize = 18f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+        })
+        val list = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, (8 * density).toInt(), 0, 0)
+        }
         for ((name, file) in built) {
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -518,7 +553,7 @@ class ImageToPdfActivity : AppCompatActivity() {
                 setPadding(0, (2 * density).toInt(), 0, 0)
             })
             row.setOnClickListener {
-                dialog?.dismiss()
+                dialog.dismiss()
                 saveChosen(file)
             }
             list.addView(row)
@@ -533,11 +568,22 @@ class ImageToPdfActivity : AppCompatActivity() {
                 })
             }
         }
-        dialog = AlertDialog.Builder(this)
-            .setTitle("Choose PDF size")
-            .setView(list)
-            .setNegativeButton("Cancel", null)
-            .create()
+        inner.addView(list)
+        // Teal Cancel (not the system's blue).
+        val cancel = TextView(this).apply {
+            text = "Cancel"
+            textSize = 15f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_teal))
+            gravity = Gravity.END
+            setPadding(0, (16 * density).toInt(), 0, (4 * density).toInt())
+            isClickable = true
+        }
+        cancel.setOnClickListener { dialog.dismiss() }
+        inner.addView(cancel)
+        card.addView(inner)
+        outer.addView(card)
+        dialog.setContentView(outer)
         dialog.show()
     }
 
