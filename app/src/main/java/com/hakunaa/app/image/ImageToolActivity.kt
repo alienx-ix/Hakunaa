@@ -2750,15 +2750,19 @@ class ImageToolActivity : AppCompatActivity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(getColor(R.color.hakunaa_background))
-            // v0.1.137 (Batch 21): WRAP_CONTENT height — the
-            // dialog must shrink to fit its content. A
-            // MATCH_PARENT root inside a WRAP_CONTENT window
-            // still measures full screen height (FrameLayout
-            // measures MATCH_PARENT children at its full AT_MOST
-            // size), so the gap below the last card would stay.
+            // v0.1.138 (Batch 22): FULL-SCREEN like Smart — the
+            // floating dialog (WRAP_CONTENT, v0.1.137) was the
+            // visible difference the user kept seeing (user:
+            // "Smart mari nottuthu..."). Smart is a full-screen
+            // activity; this window is now full-screen too (same
+            // pattern as FullPreviewDialog: MATCH_PARENT window
+            // + MATCH_PARENT root). The dialog's decor applies
+            // the system insets, so the content sits below the
+            // status bar and above the nav bar, like the
+            // preview dialog.
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
+                ViewGroup.LayoutParams.MATCH_PARENT
             )
         }
         // Top bar: X + title.
@@ -2793,18 +2797,18 @@ class ImageToolActivity : AppCompatActivity() {
         topBar.addView(title)
         root.addView(topBar)
         // Content — NOT a ScrollView (v0.1.125): the cards are
-        // WRAP_CONTENT (v0.1.127), so nothing is ever cut off.
-        // v0.1.137 (Batch 21): WRAP_CONTENT height, NOT
-        // weight-fill — the weight-fill stretched this container
-        // to the full dialog height, leaving ~300dp of empty
-        // space below the last card (the 4 fixed-height cards
-        // only occupy ~376dp). The dialog now shrinks to fit
-        // its content, so no gap remains below the last card.
+        // weight-shared (v0.1.138, Batch 22), so nothing is ever
+        // cut off.
+        // v0.1.138 (Batch 22): weight-fill again — the window is
+        // FULL-SCREEN now, so this container takes ALL remaining
+        // height between the top bar and the Save bar, exactly
+        // like Smart's content area (v0.1.125). v0.1.137 made it
+        // WRAP_CONTENT to shrink the floating dialog to its
+        // content; the floating dialog itself is gone now.
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
             )
             // v0.1.137 fold-in: bottom padding 0 — the rows
             // container already leaves 8dp below the last card
@@ -3001,23 +3005,21 @@ class ImageToolActivity : AppCompatActivity() {
             visibility = View.GONE
         }
         content.addView(status)
-        // Rows wrap their content (v0.1.137, Batch 21) — the cards
-        // are FIXED Smart height (v0.1.136, Batch 20): v0.1.135
-        // made them weight-shared "like Smart", but 4 cards
-        // sharing the rows' height stretched TALLER than Smart's
-        // 5 cards. Each card is now exactly Smart's on-screen
-        // height (measureSmartCardHeightPx), 6dp gaps, TOP
-        // gravity — the same rows as Smart. The rows container
-        // itself was weight-filled (0, 1f) before, which stretched
-        // it to the full dialog height and left ~300dp empty
-        // below the last card; WRAP_CONTENT ends the container
-        // right after the last card.
+        // Rows fill the rest of the content (v0.1.138, Batch 22)
+        // — the cards are weight-shared again, EXACTLY like
+        // Smart's rows: the v0.1.136 fixed-height change was my
+        // invention, never asked for (user: "Ila una yaru card
+        // size simple pana sona?"). Smart's cards are
+        // weight-shared (height 0, weight 1, 6dp gaps, TOP
+        // gravity), so weight-shared IS "like Smart". The rows
+        // container is weight-filled (0, 1f) like Smart's, so
+        // the 4 cards share the full-screen height and fill the
+        // window with no gap above Save.
         val rowsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.TOP
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
             )
             // v0.1.130: 8dp room below the last card + clipToPadding
             // =false, so the last card's shadow can actually draw
@@ -3053,13 +3055,20 @@ class ImageToolActivity : AppCompatActivity() {
         bottomBar.addView(saveBtn)
         root.addView(bottomBar)
         dialog.setContentView(root)
-        // v0.1.137 (Batch 21): WRAP_CONTENT height — the dialog
-        // shrinks to fit its content. MATCH_PARENT height left
-        // ~300dp empty below the last card (4 fixed-height cards
-        // in a full-height window). Cards stay Smart-height.
+        // v0.1.138 (Batch 22): FULL-SCREEN like Smart — the
+        // floating dialog is gone. Same pattern as
+        // FullPreviewDialog: the window background is the
+        // screen colour (kills the floating dialog frame),
+        // MATCH_PARENT x MATCH_PARENT, no dim behind it
+        // (nothing is visible behind a full-screen window).
+        // The dialog's decor applies the system insets, so
+        // the top bar sits below the status bar and Save
+        // above the nav bar.
+        dialog.window?.setBackgroundDrawableResource(R.color.hakunaa_background)
+        dialog.window?.setDimAmount(0f)
         dialog.window?.setLayout(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
+            ViewGroup.LayoutParams.MATCH_PARENT
         )
         dialog.show()
         // This window's own selection (independent of the main list).
@@ -3069,14 +3078,15 @@ class ImageToolActivity : AppCompatActivity() {
             rowsContainer.removeAllViews()
             val best = ImageCompressor.balancedBest(webpRows)
             val smallest = webpRows.minByOrNull { it.size }
-            // v0.1.136 (Batch 20): FIXED Smart-height cards —
-            // v0.1.135's weight-shared cards were WRONG: 4 cards
-            // sharing the rows' height stretched TALLER than
-            // Smart's 5 cards, so the window never looked like
-            // Smart (user: "Smart um same aa?"). Each WebP card
-            // is now exactly Smart's on-screen height
-            // (measureSmartCardHeightPx, ~88dp fallback), 6dp
-            // gaps, TOP gravity — the same rows as Smart.
+            // v0.1.138 (Batch 22): weight-shared cards again —
+            // the v0.1.136 fixed-height change is REVERTED. It
+            // was my invention, never asked for (user: "Ila una
+            // yaru card size simple pana sona?" + "Same Old card
+            // la.. Perfect a pani kotu.. Smart mari.."). Smart's
+            // cards are weight-shared (height 0, weight 1), so
+            // these are too — fixedHeightPx is NOT passed (null
+            // default = weight-shared, exactly like
+            // buildSmartResultCard). 6dp gaps, TOP gravity.
             for (r in webpRows) {
                 val card = buildResultRow(
                     r, r == best, r == selectedWebp,
@@ -3092,7 +3102,6 @@ class ImageToolActivity : AppCompatActivity() {
                         saveBtn.isEnabled = true
                     },
                     showSmaller = r == smallest && r != best,
-                    fixedHeightPx = measureSmartCardHeightPx(),
                     topMarginDp = 6,
                     // Plain container (no MaterialCardView tint),
                     // so the WebP cards are Smart's exact light
