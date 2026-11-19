@@ -2555,13 +2555,16 @@ class ImageToolActivity : AppCompatActivity() {
         // the dialog's M3 theme tints a MaterialButton dark (the
         // same tint that darkened MaterialCardViews there,
         // v0.1.131), so the WebP View button looked dark next to
-        // Smart's white one. The pill's fill is the card's own
-        // colour, so it blends exactly like Smart's white button
-        // on Smart's white card: same 13sp teal text, same 1dp
-        // teal stroke, same 10dp corners, same 40dp height.
-        // Smart keeps its MaterialButton, untouched.
+        // Smart's white one. Same 13sp teal text, same 1dp teal
+        // stroke, same 10dp corners, same 40dp height.
+        // v0.1.135 (Batch 19): the pill is WHITE
+        // (hakunaa_surface) — EXACTLY like Smart's MaterialButton,
+        // which is white on Smart's light-blue rendered card
+        // (#ECF3FB). v0.1.134 filled the pill with the card's own
+        // colour, so the WebP View still looked bluish next to
+        // Smart's white one. Smart keeps its MaterialButton,
+        // untouched.
         if (plainCard) {
-            val cardColor = if (isSelected) 0xFFE0F2F1.toInt() else 0xFFECF3FB.toInt()
             val pill = TextView(this).apply {
                 text = "View"
                 textSize = 13f
@@ -2570,7 +2573,7 @@ class ImageToolActivity : AppCompatActivity() {
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.RECTANGLE
                     cornerRadius = 10f * density
-                    setColor(cardColor)
+                    setColor(getColor(R.color.hakunaa_surface))
                     setStroke((1 * density).toInt(), getColor(R.color.hakunaa_teal))
                 }
                 setPadding((12 * density).toInt(), 0, (12 * density).toInt(), 0)
@@ -2955,17 +2958,17 @@ class ImageToolActivity : AppCompatActivity() {
             visibility = View.GONE
         }
         content.addView(status)
-        // Rows fill the rest of the window (v0.1.125) — the 4
-        // WRAP_CONTENT cards sit at the top (v0.1.127), no scroll,
-        // no cut-off.
+        // Rows fill the rest of the window (v0.1.125) — the cards
+        // share the rows' height by weight (v0.1.135, Batch 19),
+        // EXACTLY like Smart: height 0, weight 1, 6dp gaps, TOP
+        // gravity, so the cards fill the screen with no empty gap
+        // above or below the group. The fixed-height centred cards
+        // (v0.1.130–134) always left empty space, so the window
+        // never looked like Smart — Smart fills its screen, and
+        // this window must do the same.
         val rowsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            // v0.1.131 (Batch 15): the WebP cards are PERFECTLY
-            // centred — the group sits in the vertical middle of
-            // the window, not pushed to the top. The cards are
-            // fixed height with 10dp gaps (v0.1.132: a little
-            // space, per user — the tight 6dp was still worst).
-            gravity = Gravity.CENTER_VERTICAL
+            gravity = Gravity.TOP
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
             )
@@ -3008,40 +3011,20 @@ class ImageToolActivity : AppCompatActivity() {
         // This window's own selection (independent of the main list).
         var selectedWebp: ImageCompressor.LevelResult? = null
         var webpRows: List<ImageCompressor.LevelResult> = emptyList()
-        var webpCardH = -1
         fun refreshWebpRows() {
             rowsContainer.removeAllViews()
             val best = ImageCompressor.balancedBest(webpRows)
             val smallest = webpRows.minByOrNull { it.size }
-            // Normal-size cards (v0.1.130): EXACTLY the Smart
-            // cards' height, measured from the Smart list that
-            // is already on screen — never a guessed dp. v0.1.129
-            // guessed a fixed 112dp from a wrong density, and
-            // Smart renders at ~90dp on the user's phone, so the
-            // WebP boxes looked "very very worst". Capped by the
-            // space actually available (minus this container's
-            // bottom padding), so a small phone never clips the
-            // last card.
-            // v0.1.131 (Batch 15): NO weight-1 spacers — the 5
-            // spacers shared all the slack, which is why the gaps
-            // between boxes were huge. The cards sit in a
-            // centre-gravity container now (set at creation), with
-            // a minimal 6dp gap between them, so the group is
-            // perfectly centred and the gaps are minimal.
-            // v0.1.132 (Batch 16): the user still calls it worst
-            // ("Lite a space kotutha ena?") — a LITTLE space now:
-            // 10dp between boxes, not the tight 6dp. The height
-            // cap subtracts the margins, so the last card still
-            // never clips.
-            val marginPx = (10 * density).toInt()
-            val wantPx = measureSmartCardHeightPx()
-            val availPx = rowsContainer.height -
-                rowsContainer.paddingTop - rowsContainer.paddingBottom
-            val cardH = if (availPx > 0 && webpRows.isNotEmpty()) {
-                val perCard = (availPx - webpRows.size * marginPx) / webpRows.size
-                if (perCard > 0) minOf(wantPx, perCard) else wantPx
-            } else wantPx
-            webpCardH = cardH
+            // v0.1.135 (Batch 19): weight-shared cards, EXACTLY
+            // like Smart — fixedHeightPx = null means height 0 +
+            // weight 1 in buildResultRow, so the 4 cards fill the
+            // rows' height with 6dp gaps and TOP gravity, no empty
+            // space above or below the group. The fixed-height
+            // centred cards (v0.1.130–134, measured from Smart at
+            // ~88dp) always left a big empty gap, so the window
+            // never looked like Smart. Same card style, same white
+            // View pill, same badges — the only difference left is
+            // 4 cards instead of Smart's 5, so each is taller.
             for (r in webpRows) {
                 val card = buildResultRow(
                     r, r == best, r == selectedWebp,
@@ -3057,31 +3040,14 @@ class ImageToolActivity : AppCompatActivity() {
                         saveBtn.isEnabled = true
                     },
                     showSmaller = r == smallest && r != best,
-                    fixedHeightPx = cardH,
-                    topMarginDp = 10,
+                    fixedHeightPx = null,
+                    topMarginDp = 6,
                     // Plain container (no MaterialCardView tint),
                     // so the WebP cards are Smart's exact light
                     // colour instead of the darker dialog tint.
                     plainCard = true
                 )
                 rowsContainer.addView(card)
-            }
-            // The first measurement can be stale (taken while
-            // "Compressing WebP…" was still visible, so the rows
-            // container was shorter). Re-check once laid out and
-            // rebuild only if the height changed — the container
-            // height is weight-determined, so this converges in
-            // one pass and never loops.
-            rowsContainer.post {
-                if (webpRows.isNotEmpty() && rowsContainer.height > 0) {
-                    val avail2 = rowsContainer.height -
-                        rowsContainer.paddingTop - rowsContainer.paddingBottom
-                    val newH = if (avail2 > 0) {
-                        val perCard = (avail2 - webpRows.size * marginPx) / webpRows.size
-                        if (perCard > 0) minOf(wantPx, perCard) else wantPx
-                    } else wantPx
-                    if (newH != webpCardH) refreshWebpRows()
-                }
             }
         }
         saveBtn.setOnClickListener {

@@ -166,17 +166,16 @@ class DpAdjustView @JvmOverloads constructor(
         blurredBg = null
     }
 
-    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        // Always square: the smaller of the two offered sizes.
-        val size = minOf(
-            MeasureSpec.getSize(widthMeasureSpec),
-            MeasureSpec.getSize(heightMeasureSpec)
-        )
-        super.onMeasure(
-            MeasureSpec.makeMeasureSpec(size, MeasureSpec.EXACTLY),
-            MeasureSpec.makeMeasureSpec(size, MeasureSpec.EXACTLY)
-        )
-    }
+    // v0.1.135 (Batch 19): NO square onMeasure anymore — the
+    // view fills the full-screen space the activity gives it.
+    // The old override forced the view square (min of offered
+    // width/height), so the photo was a small square in the
+    // middle of a tall screen and the user called DP Crop "nala
+    // vae ila". The photo is fitted into the view in onDraw
+    // (scale = min(w/bmpW, h/bmpH), centred) and the frame is
+    // stored in bitmap fractions, so any view size works — the
+    // default onMeasure (MATCH_PARENT in the activity) is all
+    // this view needs.
 
     private fun ensureBlurredBg() {
         val bmp = bitmap ?: return
