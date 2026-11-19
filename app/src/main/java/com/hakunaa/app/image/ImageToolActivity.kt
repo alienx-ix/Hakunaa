@@ -441,7 +441,14 @@ class ImageToolActivity : AppCompatActivity() {
         // v0.1.129: a little room BELOW the last card, so its
         // shadow is never clipped — the last box in every list
         // gets the same treatment.
+        // v0.1.130: the padding alone NEVER worked — clipToPadding
+        // defaults to true, which clips every child's shadow to
+        // the padding box, so a shadow falling into the bottom
+        // padding is cut at the card's edge. clipToPadding=false
+        // lets the shadow draw into the padding. That is why the
+        // v0.1.129 last-box shadow was still missing on the phone.
         container.setPadding(0, 0, 0, (8 * density).toInt())
+        container.clipToPadding = false
         val gapPx = (8 * density).toInt()
         for ((index, opt) in options.withIndex()) {
             val (tag, title, subtitle) = opt
@@ -1651,7 +1658,11 @@ class ImageToolActivity : AppCompatActivity() {
         // v0.1.129: a little room BELOW the last row, so its
         // shadow is never clipped — the last box in every list
         // gets the same treatment.
+        // v0.1.130: padding alone never worked (clipToPadding
+        // defaults to true and cuts the shadow at the card's
+        // edge) — clipToPadding=false is the actual fix.
         container.setPadding(0, 0, 0, (8 * density).toInt())
+        container.clipToPadding = false
         val gapPx = (8 * density).toInt()
         val modes = listOf(
             Triple(R.drawable.ic_tune, "Quality", "Choose a quality %") to 1,
@@ -1926,7 +1937,11 @@ class ImageToolActivity : AppCompatActivity() {
         // v0.1.129: a little room BELOW the last row, so its
         // shadow is never clipped — the last box in every list
         // gets the same treatment.
+        // v0.1.130: padding alone never worked (clipToPadding
+        // defaults to true and cuts the shadow at the card's
+        // edge) — clipToPadding=false is the actual fix.
         container.setPadding(0, 0, 0, (8 * density).toInt())
+        container.clipToPadding = false
         val gapPx = (8 * density).toInt()
         val rowHeightPx = (48 * density).toInt()
         val qualities = listOf(
@@ -2420,6 +2435,35 @@ class ImageToolActivity : AppCompatActivity() {
         ) { saveSmartResult(result) }.show()
     }
 
+    /** WebP cards must be EXACTLY the size of the Smart result
+     *  cards (v0.1.130). v0.1.129 guessed a fixed 112dp from a
+     *  wrong density estimate — Smart's cards are weight-shared
+     *  and render at ~90dp on the user's phone, so 112dp looked
+     *  "very very worst". A hardcoded dp can never match a
+     *  weight-shared height across densities, so measure the
+     *  Smart card that is already on screen (the WebP window
+     *  only opens from a results screen, so the list is laid
+     *  out). HD shows a single card that fills the whole list —
+     *  for that case estimate what 5 cards would be from the
+     *  rows container's own height. Fallback 88dp. */
+    private fun measureSmartCardHeightPx(): Int {
+        val density = resources.displayMetrics.density
+        val fallback = (88 * density).toInt()
+        val rows = findViewById<LinearLayout>(R.id.resultsContainer)
+            ?.findViewWithTag<LinearLayout>("smart_rows") ?: return fallback
+        val n = smartDisplayed.size
+        if (n >= 2) {
+            val h = rows.getChildAt(0)?.height ?: 0
+            if (h > 0) return h
+        }
+        val rowsH = rows.height
+        if (rowsH > 0) {
+            val est = (rowsH - (8 * density).toInt() - 5 * (6 * density).toInt()) / 5
+            if (est > 0) return est
+        }
+        return fallback
+    }
+
     /** "Better Compress with WebP" — a full-screen window
      *  (v0.1.122, renamed v0.1.123) that explains WebP and shows
      *  its results there, instead of appending WebP rows inline
@@ -2488,6 +2532,10 @@ class ImageToolActivity : AppCompatActivity() {
                 (16 * density).toInt(), (8 * density).toInt(),
                 (16 * density).toInt(), (16 * density).toInt()
             )
+            // v0.1.130: let card shadows draw into the padding —
+            // clipToPadding=true (default) cuts the last card's
+            // shadow at its edge (the v0.1.129 failure).
+            clipToPadding = false
         }
         // Image details card (v0.1.124): the picked photo's
         // details, big and clear at the top — name, size, format,
@@ -2637,6 +2685,13 @@ class ImageToolActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
             )
+            // v0.1.130: 8dp room below the last card + clipToPadding
+            // =false, so the last card's shadow can actually draw
+            // (v0.1.129's padding-only fix on the main screen never
+            // worked — clipToPadding defaults to true and cuts the
+            // shadow at the card's edge).
+            setPadding(0, 0, 0, (8 * density).toInt())
+            clipToPadding = false
         }
         content.addView(rowsContainer)
         root.addView(content)
@@ -2669,24 +2724,29 @@ class ImageToolActivity : AppCompatActivity() {
         // This window's own selection (independent of the main list).
         var selectedWebp: ImageCompressor.LevelResult? = null
         var webpRows: List<ImageCompressor.LevelResult> = emptyList()
+        var webpCardH = -1
         fun refreshWebpRows() {
             rowsContainer.removeAllViews()
             val best = ImageCompressor.balancedBest(webpRows)
             val smallest = webpRows.minByOrNull { it.size }
-            // Normal-size cards (v0.1.129): a FIXED height instead
-            // of the shared weight that stretched them to ~173dp.
-            // Capped by the space actually available, so a small
-            // phone never clips the last card. Even weight-1
-            // spacers between the cards take the slack, so the
-            // last card always has a little space (and shadow
-            // room) above Save.
-            val cardH = run {
-                val availPx = rowsContainer.height
-                val wantPx = (112 * density).toInt()
-                if (availPx > 0 && webpRows.isNotEmpty()) {
-                    minOf(wantPx, availPx / webpRows.size)
-                } else wantPx
-            }
+            // Normal-size cards (v0.1.130): EXACTLY the Smart
+            // cards' height, measured from the Smart list that
+            // is already on screen — never a guessed dp. v0.1.129
+            // guessed a fixed 112dp from a wrong density, and
+            // Smart renders at ~90dp on the user's phone, so the
+            // WebP boxes looked "very very worst". Capped by the
+            // space actually available (minus this container's
+            // bottom padding), so a small phone never clips the
+            // last card. Even weight-1 spacers between the cards
+            // take the slack, so the last card always has a
+            // little space (and shadow room) above Save.
+            val wantPx = measureSmartCardHeightPx()
+            val availPx = rowsContainer.height -
+                rowsContainer.paddingTop - rowsContainer.paddingBottom
+            val cardH = if (availPx > 0 && webpRows.isNotEmpty()) {
+                minOf(wantPx, availPx / webpRows.size)
+            } else wantPx
+            webpCardH = cardH
             fun spacer(): View = View(this@ImageToolActivity).apply {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
@@ -2714,11 +2774,21 @@ class ImageToolActivity : AppCompatActivity() {
                 rowsContainer.addView(card)
                 rowsContainer.addView(spacer())
             }
-            // If the window was not laid out yet, the cap above
-            // used the 112dp want — re-run once laid out so the
-            // cap is exact (never clips on a small phone).
-            if (rowsContainer.height <= 0 && webpRows.isNotEmpty()) {
-                rowsContainer.post { if (rowsContainer.height > 0) refreshWebpRows() }
+            // The first measurement can be stale (taken while
+            // "Compressing WebP…" was still visible, so the rows
+            // container was shorter). Re-check once laid out and
+            // rebuild only if the height changed — the container
+            // height is weight-determined, so this converges in
+            // one pass and never loops.
+            rowsContainer.post {
+                if (webpRows.isNotEmpty() && rowsContainer.height > 0) {
+                    val avail2 = rowsContainer.height -
+                        rowsContainer.paddingTop - rowsContainer.paddingBottom
+                    val newH = if (avail2 > 0) {
+                        minOf(wantPx, avail2 / webpRows.size)
+                    } else wantPx
+                    if (newH != webpCardH) refreshWebpRows()
+                }
             }
         }
         saveBtn.setOnClickListener {
@@ -2872,7 +2942,14 @@ class ImageToolActivity : AppCompatActivity() {
                 // its shadow is never clipped (the last box always
                 // had a broken shadow) — and a little space above
                 // Save, not zero, not the big gap of before.
+                // v0.1.130: the padding alone NEVER worked —
+                // clipToPadding defaults to true, which clips every
+                // child's shadow to the padding box, so the last
+                // card's shadow (falling into this bottom padding)
+                // was cut at the card's edge on the phone.
+                // clipToPadding=false is the actual fix.
                 setPadding(0, 0, 0, (8 * density).toInt())
+                clipToPadding = false
             }
             container.addView(rowsContainer)
             refreshSmartRows()
