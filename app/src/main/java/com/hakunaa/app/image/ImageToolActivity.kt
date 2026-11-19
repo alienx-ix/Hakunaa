@@ -2867,11 +2867,20 @@ class ImageToolActivity : AppCompatActivity() {
         // "Original → Best" summary (v0.1.128, Batch 12): more
         // details at the top, as the user asked. Set once the
         // WebP results arrive (the Best is only known then).
+        // v0.1.136 (Batch 20): CENTRED, like Smart's status line
+        // (tvStatus has gravity=center in the layout) — the WebP
+        // summary was left-aligned, so the window's text never
+        // looked like Smart's.
         val webpSummary = TextView(this).apply {
             text = ""
             textSize = 14f
             setTypeface(null, android.graphics.Typeface.BOLD)
             setTextColor(getColor(R.color.hakunaa_text))
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
             setPadding(0, (10 * density).toInt(), 0, 0)
             visibility = View.GONE
         }
@@ -2900,16 +2909,29 @@ class ImageToolActivity : AppCompatActivity() {
                 (16 * density).toInt(), (12 * density).toInt()
             )
         }
+        // v0.1.136 (Batch 20): the explain-box text is CENTRED,
+        // like Smart's centred status lines — the user asked for
+        // the WebP window's text centred like Smart's.
         webpInfoInner.addView(TextView(this).apply {
             text = "WebP — smaller files, same quality"
             textSize = 14f
             setTypeface(null, android.graphics.Typeface.BOLD)
             setTextColor(getColor(R.color.hakunaa_text))
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
         })
         webpInfoInner.addView(TextView(this).apply {
             text = "25–35% smaller than JPG  •  NOT for Govt forms"
             textSize = 13f
             setTextColor(getColor(R.color.hakunaa_text_secondary))
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
             setPadding(0, (4 * density).toInt(), 0, 0)
         })
         webpInfoCard.addView(webpInfoInner)
@@ -2959,13 +2981,12 @@ class ImageToolActivity : AppCompatActivity() {
         }
         content.addView(status)
         // Rows fill the rest of the window (v0.1.125) — the cards
-        // share the rows' height by weight (v0.1.135, Batch 19),
-        // EXACTLY like Smart: height 0, weight 1, 6dp gaps, TOP
-        // gravity, so the cards fill the screen with no empty gap
-        // above or below the group. The fixed-height centred cards
-        // (v0.1.130–134) always left empty space, so the window
-        // never looked like Smart — Smart fills its screen, and
-        // this window must do the same.
+        // are FIXED Smart height (v0.1.136, Batch 20): v0.1.135
+        // made them weight-shared "like Smart", but 4 cards
+        // sharing the rows' height stretched TALLER than Smart's
+        // 5 cards. Each card is now exactly Smart's on-screen
+        // height (measureSmartCardHeightPx), 6dp gaps, TOP
+        // gravity — the same rows as Smart.
         val rowsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.TOP
@@ -3015,16 +3036,14 @@ class ImageToolActivity : AppCompatActivity() {
             rowsContainer.removeAllViews()
             val best = ImageCompressor.balancedBest(webpRows)
             val smallest = webpRows.minByOrNull { it.size }
-            // v0.1.135 (Batch 19): weight-shared cards, EXACTLY
-            // like Smart — fixedHeightPx = null means height 0 +
-            // weight 1 in buildResultRow, so the 4 cards fill the
-            // rows' height with 6dp gaps and TOP gravity, no empty
-            // space above or below the group. The fixed-height
-            // centred cards (v0.1.130–134, measured from Smart at
-            // ~88dp) always left a big empty gap, so the window
-            // never looked like Smart. Same card style, same white
-            // View pill, same badges — the only difference left is
-            // 4 cards instead of Smart's 5, so each is taller.
+            // v0.1.136 (Batch 20): FIXED Smart-height cards —
+            // v0.1.135's weight-shared cards were WRONG: 4 cards
+            // sharing the rows' height stretched TALLER than
+            // Smart's 5 cards, so the window never looked like
+            // Smart (user: "Smart um same aa?"). Each WebP card
+            // is now exactly Smart's on-screen height
+            // (measureSmartCardHeightPx, ~88dp fallback), 6dp
+            // gaps, TOP gravity — the same rows as Smart.
             for (r in webpRows) {
                 val card = buildResultRow(
                     r, r == best, r == selectedWebp,
@@ -3040,7 +3059,7 @@ class ImageToolActivity : AppCompatActivity() {
                         saveBtn.isEnabled = true
                     },
                     showSmaller = r == smallest && r != best,
-                    fixedHeightPx = null,
+                    fixedHeightPx = measureSmartCardHeightPx(),
                     topMarginDp = 6,
                     // Plain container (no MaterialCardView tint),
                     // so the WebP cards are Smart's exact light
