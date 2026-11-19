@@ -312,8 +312,17 @@ class ImageCropActivity : AppCompatActivity() {
                             this, out, MediaStoreSaver.Kind.IMAGE, out.name,
                             ImageCompressor.formatOf(out).mime
                         )
-                        tvStatus.text = if (saved != null) "Done — cropped image saved to Pictures/Hakunaa"
-                        else "Done, but couldn't save to Pictures — please try again"
+                        if (saved != null) {
+                            // Professional Saved popup on EVERY save
+                            // (v0.1.124) — Crop / Fit to social / DP.
+                            tvStatus.text = ""
+                            SavedDialog.show(
+                                this, out, saved,
+                                ImageCompressor.formatOf(out), inputFile
+                            )
+                        } else {
+                            tvStatus.text = "Done, but couldn't save to Pictures — please try again"
+                        }
                     } else {
                         tvStatus.text = "Crop failed — try again"
                     }

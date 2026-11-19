@@ -876,7 +876,12 @@ object ImageCompressor {
         input: File,
         outputBase: File,
         quality: Int,
-        maxDimension: Int = 2048
+        // FULL resolution by default (v0.1.124): the old 2048 default
+        // silently downscaled the photo, so Smart JPEG results were
+        // compared at 864px against full-res WebP — the WebP-looks-
+        // bigger bug. Every ladder is full-res now, so formats are
+        // compared at the same resolution.
+        maxDimension: Int = 10000
     ): List<LevelResult> {
         val inputSize = input.length()
         // FORMAT-AWARE: same rule as compressAllLevels.
@@ -1044,7 +1049,12 @@ object ImageCompressor {
                 outputBase.parent,
                 "${outputBase.nameWithoutExtension}_${label.replace(" ", "_").replace("%", "")}.${format.extension}"
             )
-            val ok = compress(input, candidate, quality, format)
+            // FULL resolution (v0.1.124): the old default (2048) silently
+            // downscaled a 3456x4608 photo to 864x1152, so JPEG 60% came
+            // out at 97 KB while full-res WebP 60% was 664 KB — WebP
+            // looked 7x WORSE than JPEG. Same resolution for every
+            // ladder now, so WebP is actually smaller than JPEG again.
+            val ok = compress(input, candidate, quality, format, 10000)
             if (!ok || !candidate.exists()) {
                 try { candidate.delete() } catch (_: Throwable) { }
                 continue
@@ -1058,6 +1068,22 @@ object ImageCompressor {
             }
         }
         return results.sortedBy { it.size }
+    }
+
+    /**
+     * The "Best" result (v0.1.124) is NOT the smallest — the smallest
+     * is the LOWEST quality and looks bad. "Best" is the highest-
+     * quality result whose file is still close to the smallest
+     * (within 2x), i.e. the quality + size BALANCED one. The
+     * smallest keeps its own label, "Smaller". Returns null for
+     * an empty list.
+     */
+    fun balancedBest(results: List<LevelResult>): LevelResult? {
+        if (results.isEmpty()) return null
+        val smallest = results.minByOrNull { it.size } ?: return null
+        val limit = smallest.size * 2
+        return results.filter { it.size <= limit }.maxByOrNull { it.quality }
+            ?: smallest
     }
 
     /**
@@ -1278,6 +1304,77 @@ object ImageCompressor {
             fitted.recycle()
             result.recycle()
             true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * DP Crop — from the ADJUST step (v0.1.124): the photo is placed
+     * with the user's adjust transform ([userScale] relative to fit,
+     * 1x–4x; [userDx]/[userDy] as fractions of the output square,
+     * 0 = centred) on a square canvas with the chosen outer area.
+     * Circle masks the photo to a circle (PNG when transparent);
+     * Square keeps the whole fitted-adjusted photo. Always full
+     * resolution — the adjust view works on a preview, this renders
+     * the real file.
+     */
+    fun dpAdjust(
+        input: File,
+        output: File,
+        circle: Boolean,
+        background: DpBackground,
+        color: Int,
+        userScale: Float,
+        userDx: Float,
+        userDy: Float
+    ): Boolean {
+        return try {
+            val bitmap = FileUtils.decodeBitmapWithExif(input.absolutePath) ?: return false
+            val size = maxOf(bitmap.width, bitmap.height)
+            val result = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(result)
+            when (background) {
+                DpBackground.BLUR -> {
+                    val bg = blurredBackground(bitmap, size, size)
+                    canvas.drawBitmap(bg, 0f, 0f, null)
+                    bg.recycle()
+                }
+                DpBackground.COLOR -> canvas.drawColor(color)
+                DpBackground.TRANSPARENT -> { /* leave transparent */ }
+            }
+            // Fit scale, then the user's zoom + pan (fractions of the square).
+            val fitScale = minOf(size.toFloat() / bitmap.width, size.toFloat() / bitmap.height)
+            val scale = fitScale * userScale.coerceIn(1f, 4f)
+            val drawW = bitmap.width * scale
+            val drawH = bitmap.height * scale
+            val cx = size / 2f + userDx * size
+            val cy = size / 2f + userDy * size
+            val left = cx - drawW / 2f
+            val top = cy - drawH / 2f
+            if (circle) {
+                val path = Path()
+                path.addCircle(size / 2f, size / 2f, size / 2f, Path.Direction.CW)
+                canvas.clipPath(path)
+            }
+            val matrix = Matrix()
+            matrix.setScale(scale, scale)
+            matrix.postTranslate(left, top)
+            canvas.drawBitmap(bitmap, matrix, Paint(Paint.ANTI_ALIAS_FLAG))
+            val ok = if (circle && background == DpBackground.TRANSPARENT) {
+                FileOutputStream(output).use { out ->
+                    result.compress(Bitmap.CompressFormat.PNG, 100, out)
+                }
+                true
+            } else {
+                FileOutputStream(output).use { out ->
+                    result.compress(Bitmap.CompressFormat.JPEG, 92, out)
+                }
+                true
+            }
+            bitmap.recycle()
+            result.recycle()
+            ok
         } catch (_: Throwable) {
             false
         }
