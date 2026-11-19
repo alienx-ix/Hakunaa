@@ -26,13 +26,21 @@ import java.io.OutputStream
  * 8.1.9); TIFF/BMP use pure-Kotlin writers, no new library.
  */
 object ImageCompressor {
-    enum class Format(val extension: String) {
-        JPEG("jpg"),
-        WEBP("webp"),
-        PNG("png"),
-        TIFF("tif"),
-        BMP("bmp"),
-        AVIF("avif")
+    /** Every format has its real MIME type — MediaStore MUST get
+     *  the right one (v0.1.123 fix): TIFF/AVIF files were saved
+     *  as "image/jpeg", so Gallery could not open them at all.
+     *  GIF is new (FFmpeg). HEIC is INPUT ONLY — this FFmpeg
+     *  build has no HEIF muxer, so HEIC output is not offered
+     *  (and the user's phone has no HEVC decoder to check it). */
+    enum class Format(val extension: String, val mime: String) {
+        JPEG("jpg", "image/jpeg"),
+        WEBP("webp", "image/webp"),
+        PNG("png", "image/png"),
+        TIFF("tif", "image/tiff"),
+        BMP("bmp", "image/bmp"),
+        AVIF("avif", "image/avif"),
+        GIF("gif", "image/gif"),
+        HEIC("heic", "image/heic")
     }
 
     fun compress(
@@ -121,31 +129,43 @@ object ImageCompressor {
 
     /**
      * Convert image format: re-encode the image as [format]
-     * (JPEG / PNG / WEBP / TIFF / BMP / AVIF) at [quality].
+     * (JPEG / PNG / WEBP / GIF / TIFF / BMP / AVIF) at [quality].
      * TIFF and BMP use pure-Kotlin writers (no new library);
-     * AVIF encodes via FFmpegKit (libaom-av1). Returns true
-     * on success.
+     * AVIF encodes via FFmpegKit (libaom-av1), GIF via FFmpegKit
+     * (palettegen, best 256 colours). A HEIC input (iPhone photo)
+     * is decoded to a temp PNG with FFmpeg first — Android's
+     * BitmapFactory cannot read HEIC on phones without an HEVC
+     * decoder. Returns true on success.
      */
     fun convertFormat(input: File, output: File, format: Format, quality: Int = 90): Boolean {
+        // HEIC input: decode to a temp PNG first, convert from there.
+        var tempHeic: File? = null
+        var src = input
         return try {
+            if (formatOf(input) == Format.HEIC) {
+                tempHeic = File(input.parent, "hakunaa_heic_${System.currentTimeMillis()}.png")
+                if (!decodeHeicToPng(input, tempHeic)) return false
+                src = tempHeic
+            }
             when (format) {
                 Format.TIFF -> {
-                    val bitmap = BitmapFactory.decodeFile(input.absolutePath)
+                    val bitmap = BitmapFactory.decodeFile(src.absolutePath)
                         ?: return false
                     val ok = writeTiff(bitmap, output)
                     bitmap.recycle()
                     ok
                 }
                 Format.BMP -> {
-                    val bitmap = BitmapFactory.decodeFile(input.absolutePath)
+                    val bitmap = BitmapFactory.decodeFile(src.absolutePath)
                         ?: return false
                     val ok = writeBmp(bitmap, output)
                     bitmap.recycle()
                     ok
                 }
-                Format.AVIF -> convertToAvif(input, output, quality)
+                Format.AVIF -> convertToAvif(src, output, quality)
+                Format.GIF -> convertToGif(src, output)
                 else -> {
-                    val bitmap = BitmapFactory.decodeFile(input.absolutePath)
+                    val bitmap = BitmapFactory.decodeFile(src.absolutePath)
                         ?: return false
                     val compressFormat = when (format) {
                         Format.JPEG -> Bitmap.CompressFormat.JPEG
@@ -161,6 +181,57 @@ object ImageCompressor {
                 }
             }
         } catch (_: Throwable) {
+            false
+        } finally {
+            try { tempHeic?.delete() } catch (_: Throwable) { }
+        }
+    }
+
+    /**
+     * GIF encode via FFmpegKit (native gif encoder + palettegen,
+     * both in ffmpeg-kit-full-gpl). One still frame, best 256
+     * colours. Blocking call.
+     */
+    private fun convertToGif(input: File, output: File): Boolean {
+        return try {
+            val argv = arrayOf(
+                "-y", "-i", input.absolutePath,
+                "-vf", "split[s0][s1];[s0]palettegen=stats_mode=single[p];[s1][p]paletteuse",
+                "-frames:v", "1", output.absolutePath
+            )
+            val session = FFmpegKit.executeWithArguments(argv)
+            val ok = ReturnCode.isSuccess(session.returnCode) &&
+                output.exists() && output.length() > 0
+            if (!ok) {
+                try { output.delete() } catch (_: Throwable) { }
+            }
+            ok
+        } catch (_: Throwable) {
+            try { output.delete() } catch (_: Throwable) { }
+            false
+        }
+    }
+
+    /**
+     * Decode one HEIC/HEIF still image to PNG with FFmpeg (mov
+     * demuxer + native HEVC decoder — both in ffmpeg-kit-full-gpl).
+     * Blocking call.
+     */
+    fun decodeHeicToPng(input: File, output: File): Boolean {
+        return try {
+            val argv = arrayOf(
+                "-y", "-i", input.absolutePath,
+                "-frames:v", "1", output.absolutePath
+            )
+            val session = FFmpegKit.executeWithArguments(argv)
+            val ok = ReturnCode.isSuccess(session.returnCode) &&
+                output.exists() && output.length() > 0
+            if (!ok) {
+                try { output.delete() } catch (_: Throwable) { }
+            }
+            ok
+        } catch (_: Throwable) {
+            try { output.delete() } catch (_: Throwable) { }
             false
         }
     }
@@ -376,6 +447,13 @@ object ImageCompressor {
                     bytes[10] == 0x79.toByte() && bytes[11] == 0x70.toByte() &&
                     bytes[12] == 0x61.toByte() && bytes[13] == 0x76.toByte() &&
                     bytes[14] == 0x69.toByte() && bytes[15] == 0x66.toByte() -> Format.AVIF
+                // HEIC/HEIF: an ftyp box whose brand is heic/heix/
+                // hevc/hevx/mif1/msf1. (AVIF is caught above — its
+                // brand is "avif", not in this set.)
+                bytes[4] == 0x66.toByte() && bytes[5] == 0x74.toByte() &&
+                    bytes[6] == 0x79.toByte() && bytes[7] == 0x70.toByte() &&
+                    String(bytes, 8, 4, Charsets.US_ASCII) in
+                        setOf("heic", "heix", "hevc", "hevx", "mif1", "msf1") -> Format.HEIC
                 else -> Format.JPEG
             }
         } catch (_: Throwable) {
@@ -398,7 +476,8 @@ object ImageCompressor {
                 Triple(70, Format.WEBP, " (used WebP 70%)"),
                 Triple(60, Format.WEBP, " (used WebP 60%)")
             )
-            Format.PNG, Format.TIFF, Format.BMP, Format.AVIF -> listOf(
+            Format.PNG, Format.TIFF, Format.BMP, Format.AVIF,
+            Format.GIF, Format.HEIC -> listOf(
                 Triple(100, Format.PNG, ""),
                 Triple(85, Format.JPEG, " (used JPEG 85%)"),
                 Triple(70, Format.JPEG, " (used JPEG 70%)")
@@ -804,7 +883,8 @@ object ImageCompressor {
         val format = when (formatOf(input)) {
             Format.JPEG -> Format.JPEG
             Format.WEBP -> Format.WEBP
-            Format.PNG, Format.TIFF, Format.BMP, Format.AVIF -> Format.JPEG
+            Format.PNG, Format.TIFF, Format.BMP, Format.AVIF,
+            Format.GIF, Format.HEIC -> Format.JPEG
         }
         val label = if (format == Format.WEBP) "WebP $quality%" else "JPEG $quality%"
         val candidate = File(
@@ -826,38 +906,36 @@ object ImageCompressor {
     }
 
     /**
-     * "More Compress" results for a CHOSEN quality: WebP ONLY at
-     * that quality (the explicit extra-compression choice — the
-     * user asked for WebP, so the format change is theirs, not
-     * automatic). Returns the result only if it is smaller than
-     * the original, smallest first. Nothing bigger than the
-     * original is ever returned.
+     * "Better Compress with WebP" results: WebP at SEVERAL quality
+     * levels (95 / 85 / 70 / 60), all smaller than the original,
+     * smallest first. The WebP window shows all of them so the user
+     * picks the quality/size they want — not just one result.
+     * Nothing bigger than the original is ever returned.
      */
-    fun compressAtQualityWebp(
-        input: File,
-        outputBase: File,
-        quality: Int,
-        maxDimension: Int = 10000
-    ): List<LevelResult> {
+    fun compressWebpLevels(input: File, outputBase: File): List<LevelResult> {
         val inputSize = input.length()
-        val format = Format.WEBP
-        val label = "WebP $quality%"
-        val candidate = File(
-            outputBase.parent,
-            "${outputBase.nameWithoutExtension}_q${quality}_${format.extension}.${format.extension}"
-        )
-        val ok = compress(input, candidate, quality, format, maxDimension)
-        if (!ok || !candidate.exists()) {
-            try { candidate.delete() } catch (_: Throwable) { }
-            return emptyList()
+        val results = mutableListOf<LevelResult>()
+        for (quality in listOf(95, 85, 70, 60)) {
+            val candidate = File(
+                outputBase.parent,
+                "${outputBase.nameWithoutExtension}_webp_q$quality.webp"
+            )
+            val ok = compress(input, candidate, quality, Format.WEBP, 10000)
+            if (!ok || !candidate.exists()) {
+                try { candidate.delete() } catch (_: Throwable) { }
+                continue
+            }
+            val size = candidate.length()
+            if (size < inputSize) {
+                val saving = ((inputSize - size) * 100 / inputSize).toInt()
+                results.add(
+                    LevelResult("WebP $quality%", Format.WEBP, quality, candidate, size, saving)
+                )
+            } else {
+                try { candidate.delete() } catch (_: Throwable) { }
+            }
         }
-        val size = candidate.length()
-        if (size >= inputSize) {
-            try { candidate.delete() } catch (_: Throwable) { }
-            return emptyList()
-        }
-        val saving = ((inputSize - size) * 100 / inputSize).toInt()
-        return listOf(LevelResult(label, format, quality, candidate, size, saving))
+        return results.sortedBy { it.size }
     }
 
     /**
@@ -876,7 +954,8 @@ object ImageCompressor {
         val format = when (formatOf(input)) {
             Format.JPEG -> Format.JPEG
             Format.WEBP -> Format.WEBP
-            Format.PNG, Format.TIFF, Format.BMP, Format.AVIF -> Format.JPEG
+            Format.PNG, Format.TIFF, Format.BMP, Format.AVIF,
+            Format.GIF, Format.HEIC -> Format.JPEG
         }
         var best: LevelResult? = null
         for (quality in listOf(95, 90)) {
@@ -923,26 +1002,40 @@ object ImageCompressor {
     /**
      * Smart Compress: try every level in the ORIGINAL format and
      * return ALL results smaller than the original, smallest first.
-     * The caller shows them with real sizes and lets the user pick
-     * one to save. Nothing bigger than the original is returned.
+     * FIVE levels (v0.1.123 — was 3): the caller shows them with
+     * real sizes and lets the user pick one to save. Nothing bigger
+     * than the original is returned.
      */
     fun compressAllLevels(input: File, outputBase: File): List<LevelResult> {
         val inputSize = input.length()
         val attempts = when (formatOf(input)) {
             Format.JPEG -> listOf(
+                Triple(95, Format.JPEG, "JPEG 95%"),
                 Triple(85, Format.JPEG, "JPEG 85%"),
+                Triple(75, Format.JPEG, "JPEG 75%"),
                 Triple(70, Format.JPEG, "JPEG 70%"),
                 Triple(60, Format.JPEG, "JPEG 60%")
             )
             Format.WEBP -> listOf(
+                Triple(95, Format.WEBP, "WebP 95%"),
                 Triple(85, Format.WEBP, "WebP 85%"),
+                Triple(75, Format.WEBP, "WebP 75%"),
                 Triple(70, Format.WEBP, "WebP 70%"),
                 Triple(60, Format.WEBP, "WebP 60%")
             )
             Format.PNG, Format.TIFF, Format.BMP, Format.AVIF -> listOf(
                 Triple(100, Format.PNG, "PNG"),
+                Triple(95, Format.JPEG, "JPEG 95%"),
                 Triple(85, Format.JPEG, "JPEG 85%"),
-                Triple(70, Format.JPEG, "JPEG 70%")
+                Triple(70, Format.JPEG, "JPEG 70%"),
+                Triple(60, Format.JPEG, "JPEG 60%")
+            )
+            Format.GIF, Format.HEIC -> listOf(
+                Triple(95, Format.JPEG, "JPEG 95%"),
+                Triple(85, Format.JPEG, "JPEG 85%"),
+                Triple(75, Format.JPEG, "JPEG 75%"),
+                Triple(70, Format.JPEG, "JPEG 70%"),
+                Triple(60, Format.JPEG, "JPEG 60%")
             )
         }
         val results = mutableListOf<LevelResult>()
@@ -1032,57 +1125,157 @@ object ImageCompressor {
         }
     }
 
-    /**
-     * DP Edit — Circle: centre-square the photo, mask it to a
-     * circle, save as PNG (transparent outside the circle).
-     * The square DP is just fitToAspect(1, 1).
-     */
-    fun circleCrop(input: File, output: File): Boolean {
-        return try {
-            val bitmap = FileUtils.decodeBitmapWithExif(input.absolutePath) ?: return false
-            val size = minOf(bitmap.width, bitmap.height)
-            val x = (bitmap.width - size) / 2
-            val y = (bitmap.height - size) / 2
-            val square = Bitmap.createBitmap(bitmap, x, y, size, size)
-            val result = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(result)
-            val path = Path()
-            path.addCircle(size / 2f, size / 2f, size / 2f, Path.Direction.CW)
-            canvas.clipPath(path)
-            canvas.drawBitmap(square, 0f, 0f, Paint(Paint.ANTI_ALIAS_FLAG))
-            FileOutputStream(output).use { out ->
-                result.compress(Bitmap.CompressFormat.PNG, 100, out)
+    /** Outer area of a DP Crop: what fills the corners outside
+     *  the circle (Circle) or the bands around the fitted photo
+     *  (Square). BLUR is the default — the photo's own blurred
+     *  colours. TRANSPARENT only applies to Circle (Square is
+     *  always a full JPG canvas). */
+    enum class DpBackground { BLUR, COLOR, TRANSPARENT }
+
+    /** Cheap, good-looking blur: downscale to ~32px on the short
+     *  side, then upscale with bilinear filtering. No RenderScript,
+     *  no new library. */
+    private fun blurredBackground(bitmap: Bitmap, outW: Int, outH: Int): Bitmap {
+        val smallH = (32f * outH / outW).toInt().coerceAtLeast(1)
+        val small = Bitmap.createScaledBitmap(bitmap, 32, smallH, true)
+        val blurred = Bitmap.createScaledBitmap(small, outW, outH, true)
+        small.recycle()
+        return blurred
+    }
+
+    /** Composite a square photo into a circle on a square canvas
+     *  with the chosen outer area. Returns the composited bitmap
+     *  (caller recycles it). */
+    private fun renderCircleOnBackground(
+        square: Bitmap,
+        background: DpBackground,
+        color: Int
+    ): Bitmap {
+        val size = square.width
+        val result = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(result)
+        when (background) {
+            DpBackground.BLUR -> {
+                val bg = blurredBackground(square, size, size)
+                canvas.drawBitmap(bg, 0f, 0f, null)
+                bg.recycle()
             }
-            bitmap.recycle()
-            square.recycle()
-            result.recycle()
+            DpBackground.COLOR -> canvas.drawColor(color)
+            DpBackground.TRANSPARENT -> { /* leave transparent */ }
+        }
+        val path = Path()
+        path.addCircle(size / 2f, size / 2f, size / 2f, Path.Direction.CW)
+        canvas.clipPath(path)
+        canvas.drawBitmap(square, 0f, 0f, Paint(Paint.ANTI_ALIAS_FLAG))
+        return result
+    }
+
+    /** Save a composited circle bitmap: PNG when transparent,
+     *  JPG 92 otherwise (smaller than PNG). */
+    private fun saveCircleBitmap(result: Bitmap, output: File, background: DpBackground): Boolean {
+        return try {
+            if (background == DpBackground.TRANSPARENT) {
+                FileOutputStream(output).use { out ->
+                    result.compress(Bitmap.CompressFormat.PNG, 100, out)
+                }
+            } else {
+                FileOutputStream(output).use { out ->
+                    result.compress(Bitmap.CompressFormat.JPEG, 92, out)
+                }
+            }
             true
         } catch (_: Throwable) {
             false
         }
     }
 
-    /** DP Circle with a CHOSEN square: crop the [left, top, size]
-     *  square, mask it to a circle, save as PNG (transparent
-     *  outside the circle). */
-    fun circleCropRect(input: File, output: File, left: Int, top: Int, size: Int): Boolean {
+    /**
+     * DP Crop — Circle: centre-square the photo, mask it to a
+     * circle, composite it on a square canvas with the chosen
+     * outer area (Blur / Color / Transparent).
+     */
+    fun dpCircle(input: File, output: File, background: DpBackground, color: Int): Boolean {
+        return try {
+            val bitmap = FileUtils.decodeBitmapWithExif(input.absolutePath) ?: return false
+            val size = minOf(bitmap.width, bitmap.height)
+            val x = (bitmap.width - size) / 2
+            val y = (bitmap.height - size) / 2
+            val square = Bitmap.createBitmap(bitmap, x, y, size, size)
+            val result = renderCircleOnBackground(square, background, color)
+            val ok = saveCircleBitmap(result, output, background)
+            bitmap.recycle()
+            square.recycle()
+            result.recycle()
+            ok
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /** DP Crop — Circle from a CHOSEN square rect (crop activity):
+     *  crop the [left, top, size] square, mask it to a circle,
+     *  composite with the chosen outer area. */
+    fun dpCircleRect(
+        input: File,
+        output: File,
+        left: Int,
+        top: Int,
+        size: Int,
+        background: DpBackground,
+        color: Int
+    ): Boolean {
         return try {
             val bitmap = FileUtils.decodeBitmapWithExif(input.absolutePath) ?: return false
             val s = size.coerceIn(1, minOf(bitmap.width, bitmap.height))
             val l = left.coerceIn(0, bitmap.width - s)
             val t = top.coerceIn(0, bitmap.height - s)
             val square = Bitmap.createBitmap(bitmap, l, t, s, s)
-            val result = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(result)
-            val path = Path()
-            path.addCircle(s / 2f, s / 2f, s / 2f, Path.Direction.CW)
-            canvas.clipPath(path)
-            canvas.drawBitmap(square, 0f, 0f, Paint(Paint.ANTI_ALIAS_FLAG))
-            FileOutputStream(output).use { out ->
-                result.compress(Bitmap.CompressFormat.PNG, 100, out)
-            }
+            val result = renderCircleOnBackground(square, background, color)
+            val ok = saveCircleBitmap(result, output, background)
             bitmap.recycle()
             square.recycle()
+            result.recycle()
+            ok
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * DP Crop — Square: the WHOLE photo is fitted (contained,
+     *  nothing cropped) inside a square canvas, with the chosen
+     *  outer area filling the bands (Blur = the photo's own blurred
+     *  colours, Color = a solid colour). Always JPG 92.
+     */
+    fun dpSquare(input: File, output: File, background: DpBackground, color: Int): Boolean {
+        return try {
+            val bitmap = FileUtils.decodeBitmapWithExif(input.absolutePath) ?: return false
+            val size = maxOf(bitmap.width, bitmap.height)
+            val result = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(result)
+            when (background) {
+                DpBackground.BLUR -> {
+                    val bg = blurredBackground(bitmap, size, size)
+                    canvas.drawBitmap(bg, 0f, 0f, null)
+                    bg.recycle()
+                }
+                DpBackground.COLOR -> canvas.drawColor(color)
+                DpBackground.TRANSPARENT -> canvas.drawColor(0xFFFFFFFF.toInt())
+            }
+            // Fit the whole photo inside, centred.
+            val fitScale = minOf(
+                size.toFloat() / bitmap.width,
+                size.toFloat() / bitmap.height
+            )
+            val fitW = (bitmap.width * fitScale).toInt().coerceAtLeast(1)
+            val fitH = (bitmap.height * fitScale).toInt().coerceAtLeast(1)
+            val fitted = Bitmap.createScaledBitmap(bitmap, fitW, fitH, true)
+            canvas.drawBitmap(fitted, (size - fitW) / 2f, (size - fitH) / 2f, null)
+            FileOutputStream(output).use { out ->
+                result.compress(Bitmap.CompressFormat.JPEG, 92, out)
+            }
+            bitmap.recycle()
+            fitted.recycle()
             result.recycle()
             true
         } catch (_: Throwable) {

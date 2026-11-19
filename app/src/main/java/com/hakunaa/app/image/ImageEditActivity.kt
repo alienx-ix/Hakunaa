@@ -301,7 +301,10 @@ class ImageEditActivity : AppCompatActivity() {
                 }
                 runOnUiThread {
                     if (ok) {
-                        val saved = MediaStoreSaver.save(this, out, MediaStoreSaver.Kind.IMAGE, out.name)
+                        val saved = MediaStoreSaver.save(
+                            this, out, MediaStoreSaver.Kind.IMAGE, out.name,
+                            ImageCompressor.formatOf(out).mime
+                        )
                         status.text = if (saved != null) "Done — edited image saved to Pictures/Hakunaa"
                         else "Done, but couldn't save to Pictures — please try again"
                     } else {

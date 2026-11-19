@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- White play triangle only — shown on a red rounded-rectangle
+     badge background (code), so the YouTube badge matches the
+     other 40dp circular platform badges in size and presence
+     (v0.1.123 — the full red mark looked small next to them). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M9,7.5 v9 L16.5,12 z" />
+</vector>

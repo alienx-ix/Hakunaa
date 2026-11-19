@@ -11,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import com.hakunaa.app.R
 import com.hakunaa.app.core.FileUtils
+import com.hakunaa.app.image.ImageCompressor
 import com.hakunaa.app.core.MediaStoreSaver
 import java.io.File
 import com.hakunaa.app.core.StatusBar
@@ -330,7 +331,7 @@ class PdfToolsActivity : AppCompatActivity() {
                 val created = PdfTools.extractImages(input, outDir)
                 var published = 0
                 for (file in created) {
-                    if (MediaStoreSaver.save(this, file, MediaStoreSaver.Kind.IMAGE, file.name) != null) {
+                    if (MediaStoreSaver.save(this, file, MediaStoreSaver.Kind.IMAGE, file.name, ImageCompressor.formatOf(file).mime) != null) {
                         published++
                     }
                 }
@@ -355,7 +356,7 @@ class PdfToolsActivity : AppCompatActivity() {
                 val created = PdfTools.pdfToJpg(input, outDir)
                 var published = 0
                 for (file in created) {
-                    if (MediaStoreSaver.save(this, file, MediaStoreSaver.Kind.IMAGE, file.name) != null) {
+                    if (MediaStoreSaver.save(this, file, MediaStoreSaver.Kind.IMAGE, file.name, ImageCompressor.formatOf(file).mime) != null) {
                         published++
                     }
                 }

@@ -222,6 +222,20 @@
         android:textColor="@color/hakunaa_success"
         android:textSize="14sp" />
 
+    <!-- "Better Compress with WebP" — pinned just above the
+         bottom bar on result screens (v0.1.123), NOT inside the
+         scrolling results list, so the list stays light and the
+         button is always right above Back / Done. -->
+    <LinearLayout
+        android:id="@+id/betterCompressBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="8dp"
+        android:visibility="gone" />
+
     <!-- Bottom bar: Back / Next — matching theme buttons, same
          size and shape (v0.1.121 fix: Back was a plain TextView
          and looked nothing like Next). -->

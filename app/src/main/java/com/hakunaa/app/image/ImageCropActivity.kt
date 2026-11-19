@@ -33,7 +33,7 @@ import java.io.FileOutputStream
  *
  * Save: the rotated bitmap is written to a cache file (only when the
  * rotation is non-zero; otherwise the original input file is used),
- * then cropped with ImageCompressor.crop / circleCropRect using the
+ * then cropped with ImageCompressor.crop / dpCircleRect using the
  * crop rect in rotated-bitmap pixels, and saved via MediaStoreSaver.
  */
 class ImageCropActivity : AppCompatActivity() {
@@ -45,12 +45,20 @@ class ImageCropActivity : AppCompatActivity() {
         const val EXTRA_ASPECT_H = "aspect_h"
         /** Circle frame (DP Circle) — the frame is a circle. */
         const val EXTRA_CIRCLE = "circle"
+        /** DP Crop outer area: "BLUR" (default), "COLOR" or
+         *  "TRANSPARENT" (see ImageCompressor.DpBackground). */
+        const val EXTRA_DP_BG = "dp_bg"
+        /** DP Crop outer-area colour (ARGB int) when COLOR is picked. */
+        const val EXTRA_DP_COLOR = "dp_color"
     }
 
     private var bitmap: Bitmap? = null
     private var inputFile: File? = null
     private var circleMode = false
     private var saving = false
+    /** DP Crop outer area (from the DP screen; Blur by default). */
+    private var dpBackground = ImageCompressor.DpBackground.BLUR
+    private var dpBgColor = 0xFFFFFFFF.toInt()
 
     private lateinit var cropView: ProCropView
     private lateinit var tvDimensions: TextView
@@ -119,6 +127,14 @@ class ImageCropActivity : AppCompatActivity() {
                     val aspectW = intent.getIntExtra(EXTRA_ASPECT_W, 0)
                     val aspectH = intent.getIntExtra(EXTRA_ASPECT_H, 0)
                     circleMode = intent.getBooleanExtra(EXTRA_CIRCLE, false)
+                    dpBackground = try {
+                        ImageCompressor.DpBackground.valueOf(
+                            intent.getStringExtra(EXTRA_DP_BG) ?: "BLUR"
+                        )
+                    } catch (_: Throwable) {
+                        ImageCompressor.DpBackground.BLUR
+                    }
+                    dpBgColor = intent.getIntExtra(EXTRA_DP_COLOR, 0xFFFFFFFF.toInt())
                     cropView.setBitmap(bmp)
                     if (circleMode) {
                         cropView.setCircleMode(true)
@@ -273,20 +289,29 @@ class ImageCropActivity : AppCompatActivity() {
                     tmp
                 }
                 val out = if (circleMode) {
-                    File(cacheDir, "hakunaa_dp_${System.currentTimeMillis()}.png")
+                    // Transparent outer area saves as PNG; Blur /
+                    // Color save as JPG (smaller).
+                    val ext =
+                        if (dpBackground == ImageCompressor.DpBackground.TRANSPARENT) "png" else "jpg"
+                    File(cacheDir, "hakunaa_dp_${System.currentTimeMillis()}.$ext")
                 } else {
                     File(cacheDir, "hakunaa_cropped_${System.currentTimeMillis()}.jpg")
                 }
                 val ok = if (circleMode) {
                     val size = minOf(rect.width(), rect.height())
-                    ImageCompressor.circleCropRect(sourceFile, out, rect.left, rect.top, size)
+                    ImageCompressor.dpCircleRect(
+                        sourceFile, out, rect.left, rect.top, size, dpBackground, dpBgColor
+                    )
                 } else {
                     ImageCompressor.crop(sourceFile, out, rect.left, rect.top, rect.right, rect.bottom)
                 }
                 runOnUiThread {
                     saving = false
                     if (ok) {
-                        val saved = MediaStoreSaver.save(this, out, MediaStoreSaver.Kind.IMAGE, out.name)
+                        val saved = MediaStoreSaver.save(
+                            this, out, MediaStoreSaver.Kind.IMAGE, out.name,
+                            ImageCompressor.formatOf(out).mime
+                        )
                         tvStatus.text = if (saved != null) "Done — cropped image saved to Pictures/Hakunaa"
                         else "Done, but couldn't save to Pictures — please try again"
                     } else {
