@@ -1426,14 +1426,27 @@ class ImageToolActivity : AppCompatActivity() {
         showCompressingProgress()
         Thread {
             try {
-                val base = File(cacheDir, "hakunaa_smart_${System.currentTimeMillis()}")
-                val results = ImageCompressor.compressAllLevels(input, base)
+                // BOTH resolution variations (v0.1.126): the small-file
+                // ladder (downscaled 2048 — the old build's super
+                // results, shown by default) and the full-size ladder
+                // (10000). Small encodes are fast (1 MP); the full
+                // ladder is the same work v0.1.125 already did.
+                val smallBase = File(cacheDir, "hakunaa_smart_s_${System.currentTimeMillis()}")
+                val fullBase = File(cacheDir, "hakunaa_smart_f_${System.currentTimeMillis()}")
+                val smallResults = ImageCompressor.compressAllLevels(input, smallBase, 2048)
+                val fullResults = ImageCompressor.compressAllLevels(input, fullBase, 10000)
+                // The small ladder is the default view; if it is empty
+                // (photo already tiny) fall back to the full ladder.
+                val results = if (smallResults.isNotEmpty()) smallResults else fullResults
                 runOnUiThread {
                     if (results.isEmpty()) {
                         hideCompressingProgress()
                         status.text = "Already optimized — even the strongest settings couldn't shrink this image."
                     } else {
                         webpLazyResults = null
+                        smartSmallResults = smallResults
+                        smartFullResults = fullResults
+                        smartSizeSmall = smallResults.isNotEmpty()
                         smartResults = results
                         step = 1
                         renderStep()
@@ -1611,6 +1624,13 @@ class ImageToolActivity : AppCompatActivity() {
     }
 
     private var smartResults: List<ImageCompressor.LevelResult> = emptyList()
+    /** Smart's two resolution variations (v0.1.126): the small-file
+     *  ladder (downscaled — the old build's super results) and the
+     *  full-size ladder. The switch above the results flips between
+     *  them; Small file is the default. */
+    private var smartSmallResults: List<ImageCompressor.LevelResult> = emptyList()
+    private var smartFullResults: List<ImageCompressor.LevelResult> = emptyList()
+    private var smartSizeSmall: Boolean = true
     private var qualityChoice = 85
     /** The format the Convert flow just saved (for the save popup). */
     private var convertFormatUsed: ImageCompressor.Format = ImageCompressor.Format.JPEG
@@ -1836,7 +1856,11 @@ class ImageToolActivity : AppCompatActivity() {
             .show()
     }
 
-    /** Quality % -> Smart results at FULL resolution (no resolution step). */
+    /** Quality % -> Smart results at the SMALL-file downscale
+     *  (v0.1.126 — restores the old build): no resolution step,
+     *  the chosen quality compresses the downscaled photo, so the
+     *  file is small like the old build. Full resolution is HD's
+     *  job, not Quality's. */
     private fun runQualitySmartResults() {
         val input = inputFile ?: return
         val status = findViewById<TextView>(R.id.tvStatus)
@@ -1847,7 +1871,7 @@ class ImageToolActivity : AppCompatActivity() {
         Thread {
             try {
                 val base = File(cacheDir, "hakunaa_smart_${System.currentTimeMillis()}")
-                val results = ImageCompressor.compressAtQuality(input, base, qualityChoice, 10000)
+                val results = ImageCompressor.compressAtQuality(input, base, qualityChoice, 2048)
                 runOnUiThread {
                     nextBtn.isEnabled = true
                     if (results.isEmpty()) {
@@ -2724,6 +2748,77 @@ class ImageToolActivity : AppCompatActivity() {
                     setTextColor(getColor(R.color.hakunaa_text_secondary))
                     setPadding(0, (12 * density).toInt(), 0, 0)
                 })
+            }
+
+            // Resolution switch — Smart ONLY (v0.1.126): "Small file"
+            // (downscaled — the old build's super results, default)
+            // vs "Full size". One compact 40dp row, so the 5 cards
+            // still share the rest of the screen by weight — no
+            // scroll. Quality / HD / Target reuse this screen but
+            // have no second variation, so they get no switch.
+            if (mode == MODE_SMART && smartFullResults.isNotEmpty()) {
+                val switchRow = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        (40 * density).toInt()
+                    ).apply { topMargin = (8 * density).toInt() }
+                }
+                val smallChip = com.google.android.material.button.MaterialButton(this).apply {
+                    text = "Small file"
+                    textSize = 13f
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    cornerRadius = (20 * density).toInt()
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply {
+                        marginEnd = (4 * density).toInt()
+                    }
+                    if (smartSizeSmall) {
+                        setTextColor(getColor(android.R.color.white))
+                        backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+                        strokeWidth = 0
+                    } else {
+                        setTextColor(getColor(R.color.hakunaa_teal))
+                        backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_surface))
+                        strokeColor = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+                        strokeWidth = (2 * density).toInt()
+                    }
+                }
+                val fullChip = com.google.android.material.button.MaterialButton(this).apply {
+                    text = "Full size"
+                    textSize = 13f
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    cornerRadius = (20 * density).toInt()
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply {
+                        marginStart = (4 * density).toInt()
+                    }
+                    if (!smartSizeSmall) {
+                        setTextColor(getColor(android.R.color.white))
+                        backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+                        strokeWidth = 0
+                    } else {
+                        setTextColor(getColor(R.color.hakunaa_teal))
+                        backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_surface))
+                        strokeColor = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+                        strokeWidth = (2 * density).toInt()
+                    }
+                }
+                smallChip.setOnClickListener {
+                    if (!smartSizeSmall && smartSmallResults.isNotEmpty()) {
+                        smartSizeSmall = true
+                        smartResults = smartSmallResults
+                        showSmartResults(smartResults)
+                    }
+                }
+                fullChip.setOnClickListener {
+                    if (smartSizeSmall && smartFullResults.isNotEmpty()) {
+                        smartSizeSmall = false
+                        smartResults = smartFullResults
+                        showSmartResults(smartResults)
+                    }
+                }
+                switchRow.addView(smallChip)
+                switchRow.addView(fullChip)
+                container.addView(switchRow)
             }
 
             // "Results" section heading, then the selectable cards

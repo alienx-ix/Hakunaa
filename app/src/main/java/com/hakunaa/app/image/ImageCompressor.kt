@@ -522,7 +522,20 @@ object ImageCompressor {
      */
     fun compressToTargetSize(input: File, output: File, targetBytes: Long): File? {
         return try {
-            val bitmap = BitmapFactory.decodeFile(input.absolutePath) ?: return null
+            // Small-file downscale (v0.1.126): decode at most 2048 px
+            // (same as Smart/Quality), so small targets are actually
+            // reachable — a full-res 16 MP photo cannot reach 100 KB
+            // even at quality 10. WhatsApp Optimize already resizes
+            // to 1600 px first, so this is a no-op for it.
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(input.absolutePath, bounds)
+            var sample = 1
+            val largest = maxOf(bounds.outWidth, bounds.outHeight)
+            while (largest / sample > 2048) sample *= 2
+            val bitmap = BitmapFactory.decodeFile(
+                input.absolutePath,
+                BitmapFactory.Options().apply { inSampleSize = sample }
+            ) ?: return null
             var low = 10
             var high = 95
             var bestBytes: ByteArray? = null
@@ -876,12 +889,12 @@ object ImageCompressor {
         input: File,
         outputBase: File,
         quality: Int,
-        // FULL resolution by default (v0.1.124): the old 2048 default
-        // silently downscaled the photo, so Smart JPEG results were
-        // compared at 864px against full-res WebP — the WebP-looks-
-        // bigger bug. Every ladder is full-res now, so formats are
-        // compared at the same resolution.
-        maxDimension: Int = 10000
+        // Small-file downscale by default (v0.1.126 — restores the
+        // old build): the photo is decoded at most 2048 px, so a
+        // 3456x4608 camera photo compresses to a small file again
+        // instead of 1.1 MB at full resolution. HD and WebP keep
+        // their own full-res paths (compressHd / compressWebpLevels).
+        maxDimension: Int = 2048
     ): List<LevelResult> {
         val inputSize = input.length()
         // FORMAT-AWARE: same rule as compressAllLevels.
@@ -995,7 +1008,9 @@ object ImageCompressor {
     fun minPossibleSize(input: File): Long {
         return try {
             val out = File(input.parent, "hakunaa_min_${System.currentTimeMillis()}.jpg")
-            val ok = compress(input, out, 10, Format.JPEG, 10000)
+            // Same downscale as Target (v0.1.126): the smallest the
+            // photo can be is the downscaled JPEG-10 size.
+            val ok = compress(input, out, 10, Format.JPEG, 2048)
             val size = if (ok && out.exists()) out.length() else Long.MAX_VALUE
             try { out.delete() } catch (_: Throwable) { }
             size
@@ -1011,7 +1026,16 @@ object ImageCompressor {
      * real sizes and lets the user pick one to save. Nothing bigger
      * than the original is returned.
      */
-    fun compressAllLevels(input: File, outputBase: File): List<LevelResult> {
+    fun compressAllLevels(
+        input: File,
+        outputBase: File,
+        // Small-file downscale by default (v0.1.126 — restores the
+        // old build): 2048 decodes a 3456x4608 photo at 864x1152,
+        // so Smart gives small files again. Pass 10000 for the
+        // full-size variation. NOT a fixed size target — the result
+        // adapts to each photo.
+        maxDimension: Int = 2048
+    ): List<LevelResult> {
         val inputSize = input.length()
         val attempts = when (formatOf(input)) {
             Format.JPEG -> listOf(
@@ -1049,12 +1073,12 @@ object ImageCompressor {
                 outputBase.parent,
                 "${outputBase.nameWithoutExtension}_${label.replace(" ", "_").replace("%", "")}.${format.extension}"
             )
-            // FULL resolution (v0.1.124): the old default (2048) silently
-            // downscaled a 3456x4608 photo to 864x1152, so JPEG 60% came
-            // out at 97 KB while full-res WebP 60% was 664 KB — WebP
-            // looked 7x WORSE than JPEG. Same resolution for every
-            // ladder now, so WebP is actually smaller than JPEG again.
-            val ok = compress(input, candidate, quality, format, 10000)
+            // [maxDimension] resolution (v0.1.126): the caller picks
+            // the variation — 2048 for the small-file ladder (the
+            // old build's super results), 10000 for full size.
+            // WebP is separate (its own window, own full-res
+            // ladder), so no cross-format comparison happens here.
+            val ok = compress(input, candidate, quality, format, maxDimension)
             if (!ok || !candidate.exists()) {
                 try { candidate.delete() } catch (_: Throwable) { }
                 continue
