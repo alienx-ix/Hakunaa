@@ -2750,6 +2750,16 @@ class ImageToolActivity : AppCompatActivity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(getColor(R.color.hakunaa_background))
+            // v0.1.137 (Batch 21): WRAP_CONTENT height — the
+            // dialog must shrink to fit its content. A
+            // MATCH_PARENT root inside a WRAP_CONTENT window
+            // still measures full screen height (FrameLayout
+            // measures MATCH_PARENT children at its full AT_MOST
+            // size), so the gap below the last card would stay.
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
         }
         // Top bar: X + title.
         val topBar = LinearLayout(this).apply {
@@ -2782,17 +2792,28 @@ class ImageToolActivity : AppCompatActivity() {
         topBar.addView(close)
         topBar.addView(title)
         root.addView(topBar)
-        // Content — NOT a ScrollView (v0.1.125): the window fills
-        // one screen; the cards are WRAP_CONTENT (v0.1.127), so
-        // nothing is ever cut off.
+        // Content — NOT a ScrollView (v0.1.125): the cards are
+        // WRAP_CONTENT (v0.1.127), so nothing is ever cut off.
+        // v0.1.137 (Batch 21): WRAP_CONTENT height, NOT
+        // weight-fill — the weight-fill stretched this container
+        // to the full dialog height, leaving ~300dp of empty
+        // space below the last card (the 4 fixed-height cards
+        // only occupy ~376dp). The dialog now shrinks to fit
+        // its content, so no gap remains below the last card.
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
             )
+            // v0.1.137 fold-in: bottom padding 0 — the rows
+            // container already leaves 8dp below the last card
+            // (shadow room, v0.1.130), so 16dp more here would
+            // make the gap above Save looser than Smart's tight
+            // 8dp. Gap below the last card is now 8dp, like Smart.
             setPadding(
                 (16 * density).toInt(), (8 * density).toInt(),
-                (16 * density).toInt(), (16 * density).toInt()
+                (16 * density).toInt(), 0
             )
             // v0.1.130: let card shadows draw into the padding —
             // clipToPadding=true (default) cuts the last card's
@@ -2980,18 +3001,23 @@ class ImageToolActivity : AppCompatActivity() {
             visibility = View.GONE
         }
         content.addView(status)
-        // Rows fill the rest of the window (v0.1.125) — the cards
+        // Rows wrap their content (v0.1.137, Batch 21) — the cards
         // are FIXED Smart height (v0.1.136, Batch 20): v0.1.135
         // made them weight-shared "like Smart", but 4 cards
         // sharing the rows' height stretched TALLER than Smart's
         // 5 cards. Each card is now exactly Smart's on-screen
         // height (measureSmartCardHeightPx), 6dp gaps, TOP
-        // gravity — the same rows as Smart.
+        // gravity — the same rows as Smart. The rows container
+        // itself was weight-filled (0, 1f) before, which stretched
+        // it to the full dialog height and left ~300dp empty
+        // below the last card; WRAP_CONTENT ends the container
+        // right after the last card.
         val rowsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.TOP
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
             )
             // v0.1.130: 8dp room below the last card + clipToPadding
             // =false, so the last card's shadow can actually draw
@@ -3004,9 +3030,12 @@ class ImageToolActivity : AppCompatActivity() {
         content.addView(rowsContainer)
         root.addView(content)
         // Bottom bar: Save selected (enabled once a result is picked).
+        // v0.1.137 fold-in: top padding 0 — the gap above Save is
+        // already exactly Smart's 8dp (rows container bottom
+        // padding); 8dp more here would loosen it.
         val bottomBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding((16 * density).toInt(), (8 * density).toInt(), (16 * density).toInt(), (16 * density).toInt())
+            setPadding((16 * density).toInt(), 0, (16 * density).toInt(), (16 * density).toInt())
         }
         val saveBtn = com.google.android.material.button.MaterialButton(this).apply {
             text = "Save selected"
@@ -3024,9 +3053,13 @@ class ImageToolActivity : AppCompatActivity() {
         bottomBar.addView(saveBtn)
         root.addView(bottomBar)
         dialog.setContentView(root)
+        // v0.1.137 (Batch 21): WRAP_CONTENT height — the dialog
+        // shrinks to fit its content. MATCH_PARENT height left
+        // ~300dp empty below the last card (4 fixed-height cards
+        // in a full-height window). Cards stay Smart-height.
         dialog.window?.setLayout(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT
+            ViewGroup.LayoutParams.WRAP_CONTENT
         )
         dialog.show()
         // This window's own selection (independent of the main list).
