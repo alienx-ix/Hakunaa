@@ -567,6 +567,77 @@ object ImageCompressor {
     }
 
     /**
+     * v0.1.131 (Batch 15): the COMPANION result for the Target
+     * screen — WebP at the SAME target size, so the Target result
+     * shows TWO boxes (JPEG + WebP) instead of one giant box.
+     * Mirrors compressToTargetSize exactly (same 2048 downscale,
+     * same binary search on quality 10..95, same "use the lowest
+     * quality tried" fallback), except it encodes WebP
+     * (Bitmap.CompressFormat.WEBP — lossy, works on all supported
+     * APIs, same as compress()) instead of JPEG. Returns a ready
+     * LevelResult (label "WebP Target <size>") with the quality
+     * the binary search settled on, or null if WebP could not
+     * shrink below the original. Does NOT change
+     * compressToTargetSize.
+     */
+    fun compressWebpToTargetSize(
+        input: File,
+        output: File,
+        targetBytes: Long
+    ): LevelResult? {
+        return try {
+            val inputSize = input.length()
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(input.absolutePath, bounds)
+            var sample = 1
+            val largest = maxOf(bounds.outWidth, bounds.outHeight)
+            while (largest / sample > 2048) sample *= 2
+            val bitmap = BitmapFactory.decodeFile(
+                input.absolutePath,
+                BitmapFactory.Options().apply { inSampleSize = sample }
+            ) ?: return null
+            var low = 10
+            var high = 95
+            var bestBytes: ByteArray? = null
+            var bestQuality = 10
+            // Binary search: fewer tries, same result.
+            while (low <= high) {
+                val mid = (low + high) / 2
+                val bytes = ByteArrayOutputStream().use { stream ->
+                    bitmap.compress(Bitmap.CompressFormat.WEBP, mid, stream)
+                    stream.toByteArray()
+                }
+                if (bytes.size <= targetBytes) {
+                    bestBytes = bytes
+                    bestQuality = mid
+                    low = mid + 1
+                } else {
+                    high = mid - 1
+                }
+            }
+            // If nothing fit, use the lowest quality tried.
+            val result = bestBytes ?: ByteArrayOutputStream().use { stream ->
+                bitmap.compress(Bitmap.CompressFormat.WEBP, 10, stream)
+                stream.toByteArray()
+            }
+            bitmap.recycle()
+            FileOutputStream(output).use { it.write(result) }
+            val size = output.length()
+            if (size >= inputSize) {
+                try { output.delete() } catch (_: Throwable) { }
+                return null
+            }
+            val saving = ((inputSize - size) * 100 / inputSize).toInt()
+            LevelResult(
+                "WebP Target ${com.hakunaa.app.core.FileUtils.formatSize(targetBytes)}",
+                Format.WEBP, bestQuality, output, size, saving
+            )
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /**
      * Resize to exact dimensions (width x height), keeping the
      * aspect ratio of the target by scaling to fit. Returns true
      * on success. Output is JPEG 90%.
@@ -924,6 +995,43 @@ object ImageCompressor {
     }
 
     /**
+     * v0.1.131 (Batch 15): the COMPANION result for the Quality
+     * screen — the same chosen quality in an EXPLICIT format
+     * (JPEG or WebP), so the Quality result shows TWO boxes
+     * (JPEG + WebP) instead of one giant box. Mirrors
+     * compressAtQuality exactly, except the format is given by
+     * the caller instead of taken from the input. Same 2048
+     * downscale, same "smaller than original or nothing" rule.
+     * Does NOT change compressAtQuality or any other function.
+     */
+    fun compressAtQualityFormat(
+        input: File,
+        outputBase: File,
+        quality: Int,
+        format: Format,
+        maxDimension: Int = 2048
+    ): List<LevelResult> {
+        val inputSize = input.length()
+        val label = if (format == Format.WEBP) "WebP $quality%" else "JPEG $quality%"
+        val candidate = File(
+            outputBase.parent,
+            "${outputBase.nameWithoutExtension}_q${quality}_${format.extension}.${format.extension}"
+        )
+        val ok = compress(input, candidate, quality, format, maxDimension)
+        if (!ok || !candidate.exists()) {
+            try { candidate.delete() } catch (_: Throwable) { }
+            return emptyList()
+        }
+        val size = candidate.length()
+        if (size >= inputSize) {
+            try { candidate.delete() } catch (_: Throwable) { }
+            return emptyList()
+        }
+        val saving = ((inputSize - size) * 100 / inputSize).toInt()
+        return listOf(LevelResult(label, format, quality, candidate, size, saving))
+    }
+
+    /**
      * "Better Compress with WebP" results: WebP at SEVERAL quality
      * levels (95 / 85 / 70 / 60), all smaller than the original,
      * smallest first. The WebP window shows all of them so the user
@@ -983,6 +1091,51 @@ object ImageCompressor {
             val candidate = File(
                 outputBase.parent,
                 "${outputBase.nameWithoutExtension}_hd_q$quality.${format.extension}"
+            )
+            val ok = compress(input, candidate, quality, format, 10000)
+            if (!ok || !candidate.exists()) {
+                try { candidate.delete() } catch (_: Throwable) { }
+                continue
+            }
+            val size = candidate.length()
+            if (size < inputSize) {
+                val saving = ((inputSize - size) * 100 / inputSize).toInt()
+                val label = if (format == Format.WEBP) "WebP $quality%" else "JPEG $quality%"
+                val r = LevelResult(label, format, quality, candidate, size, saving)
+                if (best == null || size < best.size) {
+                    best?.file?.let { try { it.delete() } catch (_: Throwable) { } }
+                    best = r
+                } else {
+                    try { candidate.delete() } catch (_: Throwable) { }
+                }
+            } else {
+                try { candidate.delete() } catch (_: Throwable) { }
+            }
+        }
+        return best?.let { listOf(it) } ?: emptyList()
+    }
+
+    /**
+     * v0.1.131 (Batch 15): the COMPANION result for the HD screen
+     * — the HD ladder (qualities 95 then 90, FULL resolution
+     * 10000, smallest smaller-than-original) in an EXPLICIT
+     * format (JPEG or WebP), so the HD result shows TWO boxes
+     * (JPEG + WebP) instead of one giant box. Mirrors compressHd
+     * exactly, except the format is given by the caller. The HD
+     * WebP is full-res and high quality — HD is NEVER
+     * downscaled. Does NOT change compressHd.
+     */
+    fun compressHdCompanion(
+        input: File,
+        outputBase: File,
+        format: Format
+    ): List<LevelResult> {
+        val inputSize = input.length()
+        var best: LevelResult? = null
+        for (quality in listOf(95, 90)) {
+            val candidate = File(
+                outputBase.parent,
+                "${outputBase.nameWithoutExtension}_hd_${format.extension}_q$quality.${format.extension}"
             )
             val ok = compress(input, candidate, quality, format, 10000)
             if (!ok || !candidate.exists()) {

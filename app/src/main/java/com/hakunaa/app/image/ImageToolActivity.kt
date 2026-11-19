@@ -70,6 +70,13 @@ class ImageToolActivity : AppCompatActivity() {
     private var smartDisplayed: MutableList<ImageCompressor.LevelResult> = mutableListOf()
     /** The Smart result currently selected for preview / save. */
     private var selectedSmartResult: ImageCompressor.LevelResult? = null
+    /** v0.1.131 (Batch 15): fixed card height (px) for the 2-box
+     *  result screens (Quality / Target / HD) — Smart's normal
+     *  ~88dp, so 1–2 cards are normal size and centred instead
+     *  of weight-stretched into giant boxes. Null = the normal
+     *  weight-shared cards (Smart, 5 results). Set by
+     *  showSmartResults from its fixedSizeCards flag. */
+    private var smartFixedCardHeightPx: Int? = null
     /** Lazily computed WebP results for the Better Compress window. */
     private var webpLazyResults: List<ImageCompressor.LevelResult>? = null
     /** Metadata before removal (for the Before/After view). */
@@ -239,7 +246,16 @@ class ImageToolActivity : AppCompatActivity() {
                             if (smartResults.isNotEmpty()) {
                                 step = 3
                                 renderStep()
-                                showSmartResults(smartResults)
+                                // v0.1.131: same 2-box params as
+                                // runQualitySmartResults — fixed
+                                // normal-size boxes, no Better
+                                // button (the WebP box is shown
+                                // directly). The defaults would
+                                // re-stretch them into giant boxes.
+                                showSmartResults(
+                                    smartResults, allowWebp = true,
+                                    fixedSizeCards = true, showBetterButton = false
+                                )
                             } else {
                                 runQualitySmartResults()
                             }
@@ -428,7 +444,14 @@ class ImageToolActivity : AppCompatActivity() {
         // When given, the ratio indicator shows the ACTUAL photo
         // cropped to that aspect (Fit to social media) instead of
         // an empty outline rectangle (v0.1.124).
-        previewProvider: ((String) -> android.graphics.Bitmap?)? = null
+        previewProvider: ((String) -> android.graphics.Bitmap?)? = null,
+        // v0.1.131 (Batch 15): when true (default), the list gets
+        // the 8dp room below the last card + clipToPadding=false
+        // (v0.1.129/130 shadow fix). Resize passes false — the
+        // user wants its OLD menu back, exactly as in v0.1.128
+        // (no bottom room, default clipping). Every other list
+        // keeps the fix.
+        lastBoxRoom: Boolean = true
     ) {
         val container = findViewById<LinearLayout>(R.id.cardsContainer)
         container.removeAllViews()
@@ -447,8 +470,18 @@ class ImageToolActivity : AppCompatActivity() {
         // padding is cut at the card's edge. clipToPadding=false
         // lets the shadow draw into the padding. That is why the
         // v0.1.129 last-box shadow was still missing on the phone.
-        container.setPadding(0, 0, 0, (8 * density).toInt())
-        container.clipToPadding = false
+        // v0.1.131: Resize (lastBoxRoom=false) gets the OLD menu
+        // back — no bottom room, default clipping, exactly as in
+        // v0.1.128. Set explicitly (not skipped) because this
+        // container is reused across screens and may still carry
+        // another list's padding.
+        if (lastBoxRoom) {
+            container.setPadding(0, 0, 0, (8 * density).toInt())
+            container.clipToPadding = false
+        } else {
+            container.setPadding(0, 0, 0, 0)
+            container.clipToPadding = true
+        }
         val gapPx = (8 * density).toInt()
         for ((index, opt) in options.withIndex()) {
             val (tag, title, subtitle) = opt
@@ -636,7 +669,11 @@ class ImageToolActivity : AppCompatActivity() {
             renderStep()
             // Tapping Custom selects it AND opens the WxH dialog.
             if (tag.startsWith("Custom")) showCustomSizeDialog()
-        }, weightCards = true, compact = true)
+        }, weightCards = true, compact = true,
+        // v0.1.131 (Batch 15): Resize is NOT touched — the OLD
+        // menu (v0.1.128), no 8dp bottom room, no clipToPadding
+        // change. Do not touch it again.
+        lastBoxRoom = false)
     }
 
     /** Fit / Fit to social media: aspect cards. Tapping one in
@@ -664,12 +701,11 @@ class ImageToolActivity : AppCompatActivity() {
         )
         // FIT keeps its 1:1 default; FIT_SOCIAL starts with nothing selected.
         if (mode == MODE_FIT && selectedCardTag == null) selectedCardTag = "1:1"
-        // Fit to social media: the 6 cards SHARE the screen height
-        // (weight) — no empty space, no gap below the last one, no
-        // card cut off (v0.1.124; the v0.1.123 fixed-height formula
-        // left a big gap above Back on tall phones). Each card's
-        // aspect frame shows the ACTUAL photo cropped to that aspect.
-        if (mode == MODE_FIT_SOCIAL) buildAspectPreviews(options)
+        // v0.1.131 (Batch 15): NO side previews on Fit-to-social
+        // cards — the user wants just the box (logo + aspect +
+        // label), the old way before v0.1.124. The preview
+        // bitmaps are not computed anymore, and previewProvider
+        // is null (the card shows the empty outline frame).
         buildOptionCards(
             options, selectedCardTag,
             onSelect = { tag ->
@@ -716,9 +752,9 @@ class ImageToolActivity : AppCompatActivity() {
             // Both Fit and Fit-to-social share one screen
             // (v0.1.125) — no scroll, no gap, per the no-scroll rule.
             weightCards = true,
-            previewProvider = if (mode == MODE_FIT_SOCIAL) { tag ->
-                aspectPreviews[tag]
-            } else null
+            // v0.1.131 (Batch 15): no side previews (see above) —
+            // the outline frame + logo + text is the whole card.
+            previewProvider = null
         )
     }
 
@@ -1770,20 +1806,45 @@ class ImageToolActivity : AppCompatActivity() {
                 // resolution — 95 alone almost never shrinks a camera
                 // photo, which is why HD always said "Already optimized".
                 val results = ImageCompressor.compressHd(input, base)
+                // v0.1.131 (Batch 15): the HD result shows TWO
+                // boxes (JPEG + WebP) instead of one giant box.
+                // The companion is the HD ladder (95/90, FULL
+                // resolution — HD is never downscaled) in the
+                // OTHER format. If the main result could not
+                // shrink, the WebP companion is still tried — it
+                // may shrink where JPEG could not.
+                val companionFormat = if (results.isNotEmpty()) {
+                    if (results[0].format == ImageCompressor.Format.WEBP) {
+                        ImageCompressor.Format.JPEG
+                    } else {
+                        ImageCompressor.Format.WEBP
+                    }
+                } else {
+                    ImageCompressor.Format.WEBP
+                }
+                val companion = ImageCompressor.compressHdCompanion(input, base, companionFormat)
+                val allResults = results + companion
                 runOnUiThread {
                     nextBtn.isEnabled = true
-                    if (results.isNotEmpty()) {
+                    if (allResults.isNotEmpty()) {
                         webpLazyResults = null
                         // Better Compress for HD uses quality 95.
                         qualityChoice = 95
-                        smartResults = results
+                        smartResults = allResults
                         step = 2
                         renderStep()
                         setStatusText("HD done — View, then Save")
                         // Result screen (not a silent save): Preview
                         // button + Save selected. allowWebp = true because a
                         // WebP input stays WebP at quality 95.
-                        showSmartResults(results, allowWebp = true)
+                        // v0.1.131: 2 normal-size boxes
+                        // (fixedSizeCards), and NO "Better Compress
+                        // with WebP" button — the WebP box is
+                        // already shown directly.
+                        showSmartResults(
+                            allResults, allowWebp = true,
+                            fixedSizeCards = true, showBetterButton = false
+                        )
                     } else {
                         hideCompressingProgress()
                         setStatusText("Already optimized — this photo is already small")
@@ -1810,22 +1871,42 @@ class ImageToolActivity : AppCompatActivity() {
             try {
                 val outFile = File(cacheDir, "hakunaa_target_${System.currentTimeMillis()}.jpg")
                 val result = ImageCompressor.compressToTargetSize(input, outFile, targetBytes)
+                // v0.1.131 (Batch 15): the Target result shows TWO
+                // boxes (JPEG + WebP) instead of one giant box.
+                // The WebP companion is the same target size.
+                val webpOut = File(cacheDir, "hakunaa_target_webp_${System.currentTimeMillis()}.webp")
+                val webpResult = ImageCompressor.compressWebpToTargetSize(input, webpOut, targetBytes)
                 runOnUiThread {
                     nextBtn.isEnabled = true
                     if (result != null && result.exists() && result.length() <= targetBytes) {
                         step = 2
                         renderStep()
-                        // Result screen (not a silent save): one clear
-                        // card + full-screen Preview + Save.
+                        // Result screen (not a silent save): two
+                        // clear boxes (JPEG + WebP) + full-screen
+                        // Preview + Save.
                         val format = ImageCompressor.formatOf(input)
                         val saving = ((inputSize - result.length()) * 100 / inputSize).toInt()
-                        showSmartResults(
-                            listOf(
-                                ImageCompressor.LevelResult(
-                                    "Target ${FileUtils.formatSize(targetBytes)}",
-                                    format, 0, result, result.length(), saving
-                                )
+                        // The WebP box only joins if it also
+                        // reached the target — otherwise the JPEG
+                        // box shows alone (normal size, centred).
+                        val shown = mutableListOf(
+                            ImageCompressor.LevelResult(
+                                "JPEG Target ${FileUtils.formatSize(targetBytes)}",
+                                format, 0, result, result.length(), saving
                             )
+                        )
+                        if (webpResult != null && webpResult.size <= targetBytes) {
+                            shown.add(webpResult)
+                        } else {
+                            try { webpOut.delete() } catch (_: Throwable) { }
+                        }
+                        // v0.1.131: 2 normal-size boxes
+                        // (fixedSizeCards), and NO "Better Compress
+                        // with WebP" button — the WebP box is
+                        // already shown directly.
+                        showSmartResults(
+                            shown, allowWebp = true,
+                            fixedSizeCards = true, showBetterButton = false
                         )
                     } else {
                         hideCompressingProgress()
@@ -1869,17 +1950,43 @@ class ImageToolActivity : AppCompatActivity() {
             try {
                 val base = File(cacheDir, "hakunaa_smart_${System.currentTimeMillis()}")
                 val results = ImageCompressor.compressAtQuality(input, base, qualityChoice, 2048)
+                // v0.1.131 (Batch 15): the Quality result shows
+                // TWO boxes (JPEG + WebP at the chosen quality)
+                // instead of one giant box. The companion is the
+                // same quality in the OTHER format (same 2048
+                // downscale). If the main result could not shrink,
+                // the WebP companion is still tried.
+                val companionFormat = if (results.isNotEmpty()) {
+                    if (results[0].format == ImageCompressor.Format.WEBP) {
+                        ImageCompressor.Format.JPEG
+                    } else {
+                        ImageCompressor.Format.WEBP
+                    }
+                } else {
+                    ImageCompressor.Format.WEBP
+                }
+                val companion = ImageCompressor.compressAtQualityFormat(
+                    input, base, qualityChoice, companionFormat, 2048
+                )
+                val allResults = results + companion
                 runOnUiThread {
                     nextBtn.isEnabled = true
-                    if (results.isEmpty()) {
+                    if (allResults.isEmpty()) {
                         hideCompressingProgress()
                         setStatusText("Already optimized — even the strongest settings couldn't shrink this image.")
                     } else {
                         webpLazyResults = null
-                        smartResults = results
+                        smartResults = allResults
                         step = 3
                         renderStep()
-                        showSmartResults(results)
+                        // v0.1.131: 2 normal-size boxes
+                        // (fixedSizeCards), and NO "Better Compress
+                        // with WebP" button — the WebP box is
+                        // already shown directly.
+                        showSmartResults(
+                            allResults, allowWebp = true,
+                            fixedSizeCards = true, showBetterButton = false
+                        )
                     }
                 }
             } catch (_: Throwable) {
@@ -2244,17 +2351,50 @@ class ImageToolActivity : AppCompatActivity() {
         onSelect: (ImageCompressor.LevelResult) -> Unit,
         showSmaller: Boolean = false,
         fixedHeightPx: Int? = null,
-        topMarginDp: Int = 6
+        topMarginDp: Int = 6,
+        // v0.1.131 (Batch 15): when true, the card is a plain
+        // container (LinearLayout + GradientDrawable) instead of
+        // a MaterialCardView — used ONLY by the WebP window, so
+        // its cards render Smart's exact light colour. A
+        // MaterialCardView tints darker inside a Dialog (the M3
+        // surface-tint / elevation overlay is stronger there),
+        // and no source colour can pre-compensate for it (it
+        // would need a red value above 255).
+        plainCard: Boolean = false
     ): View {
         val density = resources.displayMetrics.density
-        val card = com.google.android.material.card.MaterialCardView(this).apply {
-            radius = 12f * density
-            cardElevation = 2f * density
-            setCardBackgroundColor(
-                if (isSelected) 0xFFE0F2F1.toInt() else getColor(R.color.hakunaa_surface)
-            )
-            strokeWidth = if (isSelected) (2 * density).toInt() else 0
-            strokeColor = getColor(R.color.hakunaa_teal)
+        // The outer container: MaterialCardView normally (Smart
+        // keeps it, untouched); a plain LinearLayout for the WebP
+        // window (plainCard), so the card colour is exactly
+        // Smart's rendered colour (#ECF3FB unselected, #E0F2F1
+        // selected) with no M3 surface tint. Framework elevation
+        // 2dp gives the same shadow.
+        val card: ViewGroup = if (plainCard) {
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 12f * density
+                    setColor(
+                        if (isSelected) 0xFFE0F2F1.toInt() else 0xFFECF3FB.toInt()
+                    )
+                    if (isSelected) {
+                        setStroke((2 * density).toInt(), getColor(R.color.hakunaa_teal))
+                    }
+                }
+                elevation = 2f * density
+                clipToOutline = true
+            }
+        } else {
+            com.google.android.material.card.MaterialCardView(this).apply {
+                radius = 12f * density
+                cardElevation = 2f * density
+                setCardBackgroundColor(
+                    if (isSelected) 0xFFE0F2F1.toInt() else getColor(R.color.hakunaa_surface)
+                )
+                strokeWidth = if (isSelected) (2 * density).toInt() else 0
+                strokeColor = getColor(R.color.hakunaa_teal)
+            }
         }
         val inner = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -2397,7 +2537,10 @@ class ImageToolActivity : AppCompatActivity() {
             r, r == best, r == selectedSmartResult,
             onPreview = { selectSmartResult(it); openFullPreviewFor(it) },
             onSelect = { selectSmartResult(it) },
-            showSmaller = r == smallest && r != best
+            showSmaller = r == smallest && r != best,
+            // v0.1.131: fixed normal height on the 2-box screens
+            // (Quality / Target / HD); null = weight-shared (Smart).
+            fixedHeightPx = smartFixedCardHeightPx
         )
     }
 
@@ -2682,6 +2825,11 @@ class ImageToolActivity : AppCompatActivity() {
         // no cut-off.
         val rowsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            // v0.1.131 (Batch 15): the WebP cards are PERFECTLY
+            // centred — the group sits in the vertical middle of
+            // the window, not pushed to the top. The cards are
+            // fixed height with minimal 6dp gaps (no spacers).
+            gravity = Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
             )
@@ -2737,9 +2885,13 @@ class ImageToolActivity : AppCompatActivity() {
             // WebP boxes looked "very very worst". Capped by the
             // space actually available (minus this container's
             // bottom padding), so a small phone never clips the
-            // last card. Even weight-1 spacers between the cards
-            // take the slack, so the last card always has a
-            // little space (and shadow room) above Save.
+            // last card.
+            // v0.1.131 (Batch 15): NO weight-1 spacers — the 5
+            // spacers shared all the slack, which is why the gaps
+            // between boxes were huge. The cards sit in a
+            // centre-gravity container now (set at creation), with
+            // a minimal 6dp gap between them, so the group is
+            // perfectly centred and the gaps are minimal.
             val wantPx = measureSmartCardHeightPx()
             val availPx = rowsContainer.height -
                 rowsContainer.paddingTop - rowsContainer.paddingBottom
@@ -2747,12 +2899,6 @@ class ImageToolActivity : AppCompatActivity() {
                 minOf(wantPx, availPx / webpRows.size)
             } else wantPx
             webpCardH = cardH
-            fun spacer(): View = View(this@ImageToolActivity).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
-                )
-            }
-            rowsContainer.addView(spacer())
             for (r in webpRows) {
                 val card = buildResultRow(
                     r, r == best, r == selectedWebp,
@@ -2769,10 +2915,13 @@ class ImageToolActivity : AppCompatActivity() {
                     },
                     showSmaller = r == smallest && r != best,
                     fixedHeightPx = cardH,
-                    topMarginDp = 0
+                    topMarginDp = 6,
+                    // Plain container (no MaterialCardView tint),
+                    // so the WebP cards are Smart's exact light
+                    // colour instead of the darker dialog tint.
+                    plainCard = true
                 )
                 rowsContainer.addView(card)
-                rowsContainer.addView(spacer())
             }
             // The first measurement can be stale (taken while
             // "Compressing WebP…" was still visible, so the rows
@@ -2865,7 +3014,19 @@ class ImageToolActivity : AppCompatActivity() {
 
     private fun showSmartResults(
         results: List<ImageCompressor.LevelResult>,
-        allowWebp: Boolean = false
+        allowWebp: Boolean = false,
+        // v0.1.131 (Batch 15): when true, the result cards are a
+        // FIXED normal height (Smart's ~88dp) and centred — NOT
+        // weight-stretched. Used by Quality / Target / HD, which
+        // show only 1–2 results: a single weight-shared card
+        // stretched into one giant box ("very very worst").
+        // Smart (5 results) keeps the weight-shared cards.
+        fixedSizeCards: Boolean = false,
+        // v0.1.131 (Batch 15): when false, the bottom "Better
+        // Compress with WebP" button is hidden. Used by Quality /
+        // Target / HD — the WebP box is already shown directly,
+        // so the button is not needed there. Smart keeps it.
+        showBetterButton: Boolean = true
     ) {
         val container = findViewById<LinearLayout>(R.id.resultsContainer)
         container.removeAllViews()
@@ -2893,6 +3054,11 @@ class ImageToolActivity : AppCompatActivity() {
         // Default selection is the BALANCED Best (v0.1.124) — not
         // the smallest.
         selectedSmartResult = ImageCompressor.balancedBest(smartDisplayed)
+        // v0.1.131: the fixed card height for the 2-box screens
+        // (Quality / Target / HD). Smart's measured card height
+        // (~88dp fallback when the list is not laid out yet) —
+        // the same normal size the WebP window uses.
+        smartFixedCardHeightPx = if (fixedSizeCards) measureSmartCardHeightPx() else null
 
         if (smartDisplayed.isEmpty()) {
             container.addView(TextView(this).apply {
@@ -2935,6 +3101,11 @@ class ImageToolActivity : AppCompatActivity() {
             val rowsContainer = LinearLayout(this).apply {
                 tag = "smart_rows"
                 orientation = LinearLayout.VERTICAL
+                // v0.1.131: fixed-size cards (Quality / Target /
+                // HD) are centred as a group, not stretched — a
+                // weight-shared container would make 1–2 cards
+                // giant. Smart keeps the default (top) gravity.
+                gravity = if (fixedSizeCards) Gravity.CENTER_VERTICAL else Gravity.TOP
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
                 )
@@ -2989,8 +3160,12 @@ class ImageToolActivity : AppCompatActivity() {
         // below the scrolling results, NOT inside the list. It is
         // the secondary action; the list stays light. Tapping it
         // opens the WebP window (see showWebpWindow()).
-        val showMore = (mode == MODE_COMPRESS && (compressMode == 1 || compressMode == 3)) ||
-            mode == MODE_SMART
+        // v0.1.131: the Better button is hidden on the 2-box
+        // screens (Quality / Target / HD) — showBetterButton is
+        // false there, because the WebP box is already shown
+        // directly and the button is not needed.
+        val showMore = ((mode == MODE_COMPRESS && (compressMode == 1 || compressMode == 3)) ||
+            mode == MODE_SMART) && showBetterButton
         val bar = findViewById<LinearLayout>(R.id.betterCompressBar)
         bar.removeAllViews()
         if (showMore) {

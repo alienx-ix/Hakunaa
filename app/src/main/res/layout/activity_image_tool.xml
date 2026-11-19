@@ -204,6 +204,17 @@
                 android:visibility="gone" />
     </LinearLayout>
 
+    <!-- v0.1.131 (Batch 15): these two lines are GONE by default.
+         They had no visibility attribute, so they were VISIBLE
+         with empty text — ~54dp of invisible dead space (~35dp
+         status + ~19dp result) that sat between the content and
+         the bottom bar on every screen where no status was ever
+         set (Compress mode, Convert), leaving a big empty gap
+         above Back. setStatusText / setResultText already toggle
+         visibility whenever text is set, so a real status still
+         shows. Removing the dead space also gives the Compress
+         photo and the Convert cards more room, so they fill the
+         screen (Convert's boxes get a little bigger). -->
     <TextView
         android:id="@+id/tvStatus"
         android:layout_width="match_parent"
@@ -212,7 +223,8 @@
         android:padding="8dp"
         android:text=""
         android:textColor="@color/hakunaa_text"
-        android:textSize="14sp" />
+        android:textSize="14sp"
+        android:visibility="gone" />
 
     <TextView
         android:id="@+id/tvResult"
@@ -221,7 +233,8 @@
         android:gravity="center"
         android:text=""
         android:textColor="@color/hakunaa_success"
-        android:textSize="14sp" />
+        android:textSize="14sp"
+        android:visibility="gone" />
 
     <!-- "Save selected" — pinned just above the bottom bar on
          result screens (v0.1.124), NOT inside the scrolling list,
