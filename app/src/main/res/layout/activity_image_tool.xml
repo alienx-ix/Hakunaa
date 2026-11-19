@@ -79,7 +79,8 @@
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1">
+        android:layout_weight="1"
+        android:fillViewport="true">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -164,11 +165,15 @@
                 </LinearLayout>
             </LinearLayout>
 
+            <!-- Compress mode cards (Quality / Target / HD): fill the
+                 remaining screen height (v0.1.122) — the 3 cards share
+                 the space, so the screen looks full, no empty gap. -->
             <LinearLayout
                 android:id="@+id/modeContainer"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:layout_height="0dp"
                 android:layout_marginTop="8dp"
+                android:layout_weight="1"
                 android:orientation="vertical"
                 android:visibility="gone" />
 

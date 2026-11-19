@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Image Tools menu (v0.1.121): box-by-box grid, importance order,
-     professional look. Pick an image first, then tap a tool. No
-     search bar, no status card — all 10 tools fit one screen. -->
+<!-- Image Tools menu (v0.1.122): box-by-box grid, importance order,
+     professional look. The 5 rows SHARE the whole screen height
+     (weight) — no ScrollView, no empty space at the bottom.
+     Pick an image first, then tap a tool. No search bar, no
+     status card. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -19,22 +21,13 @@
         android:titleTextColor="@color/hakunaa_text"
         app:navigationIcon="@drawable/ic_arrow_back" />
 
-    <ScrollView
+    <!-- Tool boxes, built in code (importance order). Rows stretch
+         to fill the screen — see buildToolGrid(). -->
+    <LinearLayout
+        android:id="@+id/toolsContainer"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:padding="12dp">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical">
-
-            <!-- Tool boxes, built in code (importance order). -->
-            <LinearLayout
-                android:id="@+id/toolsContainer"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical" />
-        </LinearLayout>
-    </ScrollView>
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:padding="12dp" />
 </LinearLayout>

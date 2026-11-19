@@ -122,7 +122,7 @@ class ImageCropActivity : AppCompatActivity() {
                     cropView.setBitmap(bmp)
                     if (circleMode) {
                         cropView.setCircleMode(true)
-                        findViewById<TextView>(R.id.tvCropTitle).text = "DP Edit — Circle"
+                        findViewById<TextView>(R.id.tvCropTitle).text = "DP Crop — Circle"
                         tvStatus.text = "Drag the circle to frame your DP"
                         findViewById<View>(R.id.aspectScroll).visibility = View.GONE
                     } else if (aspectW > 0 && aspectH > 0) {

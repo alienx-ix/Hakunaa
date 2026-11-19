@@ -66,9 +66,7 @@ class ImageToolActivity : AppCompatActivity() {
     private var step = 0 // Compress has 2 steps: quality, then resolution.
     /** Card-based option selection (Resize / Fit / Convert / DP). */
     private var selectedCardTag: String? = null
-    /** WebP rows in Smart results are hidden until "More Compress". */
-    private var webpShown = false
-    /** Smart results currently shown (JPG rows, plus WebP after More Compress). */
+    /** Smart results currently shown (JPG rows). */
     private var smartDisplayed: MutableList<ImageCompressor.LevelResult> = mutableListOf()
     /** The Smart result currently selected for preview / save. */
     private var selectedSmartResult: ImageCompressor.LevelResult? = null
@@ -173,7 +171,7 @@ class ImageToolActivity : AppCompatActivity() {
         MODE_FIT_SOCIAL -> "Fit to social media"
         MODE_CONVERT -> "Convert"
         MODE_SMART -> "Smart Compress"
-        MODE_DP -> "DP Edit"
+        MODE_DP -> "DP Crop"
         MODE_METADATA -> "Remove Metadata"
         else -> "Compress"
     }
@@ -250,7 +248,7 @@ class ImageToolActivity : AppCompatActivity() {
                         }
                     }
                     else -> {
-                        subtitle.text = "Tap a result to preview it, then Save"
+                        subtitle.text = "Tap Preview on a result to see it, then Save"
                         group.visibility = View.GONE
                         findViewById<LinearLayout>(R.id.resultsContainer).visibility = View.VISIBLE
                     }
@@ -261,7 +259,7 @@ class ImageToolActivity : AppCompatActivity() {
                     subtitle.text = "Trying all levels…"
                     group.visibility = View.GONE
                 } else {
-                    subtitle.text = "Tap a result to preview it, then Save"
+                    subtitle.text = "Tap Preview on a result to see it, then Save"
                     group.visibility = View.GONE
                     findViewById<LinearLayout>(R.id.resultsContainer).visibility = View.VISIBLE
                 }
@@ -285,7 +283,7 @@ class ImageToolActivity : AppCompatActivity() {
             }
             MODE_FIT, MODE_FIT_SOCIAL -> {
                 subtitle.text = if (mode == MODE_FIT_SOCIAL)
-                    "Fit to Instagram, FB, TikTok and more"
+                    "Fit to Instagram, FB, WhatsApp, TikTok and more"
                 else "Adjust to social media, square, any size"
                 group.visibility = View.GONE
                 buildAspectCards()
@@ -320,16 +318,19 @@ class ImageToolActivity : AppCompatActivity() {
      *  bordered rectangle drawn in the card's proportions sits at
      *  the left of the title. When [badgeProvider] is given (Fit to
      *  social media), the exact platform logo (vector drawable,
-     *  drawn in code — no downloaded assets) sits on a coloured
-     *  circle. When [centerText] is true the title/subtitle are
-     *  centre-aligned and the title is larger + bold. */
+     *  drawn in code — no downloaded assets) sits on its real
+     *  brand background: Instagram's gradient, Facebook's blue
+     *  circle, WhatsApp's green circle, YouTube's full red
+     *  play-button mark (no circle behind it). When [centerText]
+     *  is true the title/subtitle are centre-aligned and the title
+     *  is larger + bold. */
     private fun buildOptionCards(
         options: List<Triple<String, String, String>>,
         selected: String?,
         onSelect: (String) -> Unit,
         ratioIndicator: ((String) -> Pair<Float, Float>?)? = null,
         centerText: Boolean = false,
-        badgeProvider: ((String) -> Pair<Int, Int>?)? = null
+        badgeProvider: ((String) -> Pair<Int, android.graphics.drawable.Drawable>?)? = null
     ) {
         val container = findViewById<LinearLayout>(R.id.cardsContainer)
         container.removeAllViews()
@@ -378,18 +379,15 @@ class ImageToolActivity : AppCompatActivity() {
             val badge = badgeProvider?.invoke(tag)
             if (badge != null) {
                 // Platform logo: the exact mark, drawn in code
-                // (vector drawable, no downloaded assets), on a
-                // coloured circle.
+                // (vector drawable, no downloaded assets), on its
+                // real brand background (supplied by the provider).
                 val badgeView = ImageView(this).apply {
                     setImageResource(badge.first)
                     setPadding(
                         (8 * density).toInt(), (8 * density).toInt(),
                         (8 * density).toInt(), (8 * density).toInt()
                     )
-                    background = GradientDrawable().apply {
-                        shape = GradientDrawable.OVAL
-                        setColor(badge.second)
-                    }
+                    background = badge.second
                     layoutParams = LinearLayout.LayoutParams(
                         (40 * density).toInt(), (40 * density).toInt()
                     ).apply {
@@ -480,14 +478,15 @@ class ImageToolActivity : AppCompatActivity() {
      *  only the tapped card highlights, and nothing is pre-selected
      *  there. Each card shows a small ratio-shape indicator plus the
      *  exact platform logo (drawn in code), with centre-aligned
-     *  bold ratio text. */
+     *  bold ratio text. Includes a WhatsApp DP (profile photo) card. */
     private fun buildAspectCards() {
         val options = if (mode == MODE_FIT_SOCIAL) listOf(
             Triple("1:1:ig_post", "1:1", "Instagram post (square)"),
             Triple("4:5:ig_feed", "4:5", "Instagram feed (portrait)"),
             Triple("9:16:story", "9:16", "Instagram / TikTok / WhatsApp story"),
             Triple("16:9:cover", "16:9", "Facebook / YouTube cover"),
-            Triple("1:1:fb_profile", "1:1", "Facebook profile")
+            Triple("1:1:fb_profile", "1:1", "Facebook profile"),
+            Triple("1:1:wa_dp", "1:1", "WhatsApp DP (profile photo)")
         ) else listOf(
             Triple("1:1", "1:1", "Square"),
             Triple("4:5", "4:5", "Portrait 4:5"),
@@ -521,19 +520,43 @@ class ImageToolActivity : AppCompatActivity() {
             },
             // Fit to social media only: centre-aligned bold ratio
             // text + the exact platform logo per card (vector
-            // drawable, drawn in code — no downloaded assets).
+            // drawable, drawn in code — no downloaded assets), on
+            // its real brand background (Instagram gradient,
+            // Facebook blue, WhatsApp green, YouTube's full red
+            // play-button mark with no circle behind it).
             centerText = mode == MODE_FIT_SOCIAL,
             badgeProvider = if (mode == MODE_FIT_SOCIAL) { tag ->
                 when (tag) {
-                    "1:1:ig_post", "4:5:ig_feed" -> R.drawable.ic_logo_instagram to 0xFFE1306C.toInt()
-                    "9:16:story" -> R.drawable.ic_logo_instagram to 0xFFE1306C.toInt()
-                    "16:9:cover" -> R.drawable.ic_logo_youtube to 0xFFFF0000.toInt()
-                    "1:1:fb_profile" -> R.drawable.ic_logo_facebook to 0xFF1877F2.toInt()
+                    "1:1:ig_post", "4:5:ig_feed", "9:16:story" ->
+                        R.drawable.ic_logo_instagram to instagramBadgeBackground()
+                    "16:9:cover" ->
+                        R.drawable.ic_logo_youtube to
+                            android.graphics.drawable.ColorDrawable(
+                                android.graphics.Color.TRANSPARENT
+                            )
+                    "1:1:fb_profile" ->
+                        R.drawable.ic_logo_facebook to brandCircleBackground(0xFF1877F2.toInt())
+                    "1:1:wa_dp" ->
+                        R.drawable.ic_logo_whatsapp to brandCircleBackground(0xFF25D366.toInt())
                     else -> null
                 }
             } else null
         )
     }
+
+    /** A solid brand-colour circle, used behind a platform logo. */
+    private fun brandCircleBackground(color: Int): android.graphics.drawable.Drawable =
+        GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(color)
+        }
+
+    /** Instagram's real badge: purple → pink → orange gradient. */
+    private fun instagramBadgeBackground(): android.graphics.drawable.Drawable =
+        GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(0xFF833AB4.toInt(), 0xFFE1306C.toInt(), 0xFFF77737.toInt())
+        ).apply { shape = GradientDrawable.OVAL }
 
     /** Convert: format cards with short, scannable compatibility info. */
     private fun buildFormatCards() {
@@ -567,27 +590,23 @@ class ImageToolActivity : AppCompatActivity() {
         })
     }
 
-    /** DP Edit: a LIVE preview row first — the picked photo as a
-     *  circle and as a square, side by side — then the Circle /
-     *  Square cards (tapping one opens the crop preview). */
+    /** DP Edit — FULL redesign (v0.1.122): the live previews ARE
+     *  the actions. Two LARGE tappable preview cards side by side —
+     *  Circle (on a checkerboard, so its transparency reads) and
+     *  Square — each with a bold label and its format underneath.
+     *  Tapping a preview opens the crop preview for that shape.
+     *  No separate Circle/Square cards below (they duplicated the
+     *  previews and left a huge empty gap), just a short hint and
+     *  a tip. The preview content is the actual input photo. */
     private fun buildDpCards() {
-        val options = listOf(
-            Triple(
-                "circle", "Circle",
-                "Round profile photo (PNG, transparent outside)"
-            ),
-            Triple("square", "Square", "Square profile photo (JPG)")
-        )
-        buildOptionCards(options, selectedCardTag, onSelect = { tag ->
-            selectedCardTag = tag
-            launchCropActivity(1, 1, circle = tag == "circle")
-        })
         val container = findViewById<LinearLayout>(R.id.cardsContainer)
+        container.removeAllViews()
+        container.visibility = View.VISIBLE
         val density = resources.displayMetrics.density
-        val previewSizePx = (140 * density).toInt()
-        // Live previews, bigger and professional: the Circle one
-        // sits on a checkerboard (so its transparency reads) and
-        // both sit in teal-ringed rounded cards with bold labels.
+        // Previews as big as the screen allows: half the width
+        // minus padding and the gap between the two cards.
+        val previewSizePx = (resources.displayMetrics.widthPixels / 2 -
+            (32 * density).toInt()).coerceAtLeast((120 * density).toInt())
         val ivCircle = ImageView(this).apply {
             layoutParams = LinearLayout.LayoutParams(previewSizePx, previewSizePx)
             scaleType = ImageView.ScaleType.FIT_CENTER
@@ -598,56 +617,96 @@ class ImageToolActivity : AppCompatActivity() {
             scaleType = ImageView.ScaleType.CENTER_CROP
             setBackgroundColor(getColor(R.color.hakunaa_outline))
         }
-        fun previewCell(iv: ImageView, label: String): LinearLayout {
-            val cell = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER_HORIZONTAL
-                layoutParams = LinearLayout.LayoutParams(
-                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
-                )
-            }
+        // One big tappable preview card: the preview itself, a bold
+        // label, and the format underneath. Tapping it crops & saves
+        // that shape — the preview IS the button.
+        fun previewCard(iv: ImageView, label: String, caption: String, circle: Boolean): View {
             val card = com.google.android.material.card.MaterialCardView(this).apply {
-                radius = 12f * density
+                radius = 16f * density
                 cardElevation = 2f * density
                 strokeWidth = (2 * density).toInt()
                 strokeColor = getColor(R.color.hakunaa_teal)
             }
-            card.addView(iv)
-            cell.addView(card)
-            cell.addView(TextView(this).apply {
+            val inner = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+            }
+            inner.addView(iv)
+            inner.addView(TextView(this).apply {
                 text = label
-                textSize = 13f
+                textSize = 16f
                 setTypeface(null, android.graphics.Typeface.BOLD)
                 setTextColor(getColor(R.color.hakunaa_text))
                 gravity = Gravity.CENTER
-                setPadding(0, (8 * density).toInt(), 0, 0)
+                setPadding(0, (10 * density).toInt(), 0, 0)
             })
-            return cell
+            inner.addView(TextView(this).apply {
+                text = caption
+                textSize = 12f
+                setTextColor(getColor(R.color.hakunaa_text_secondary))
+                gravity = Gravity.CENTER
+                setPadding(
+                    (8 * density).toInt(), (2 * density).toInt(),
+                    (8 * density).toInt(), (12 * density).toInt()
+                )
+            })
+            card.addView(inner)
+            card.setOnClickListener {
+                selectedCardTag = if (circle) "circle" else "square"
+                launchCropActivity(1, 1, circle = circle)
+            }
+            return card
         }
         val heading = TextView(this).apply {
             text = "Live preview"
-            textSize = 14f
+            textSize = 16f
             setTypeface(null, android.graphics.Typeface.BOLD)
             setTextColor(getColor(R.color.hakunaa_text))
-            setPadding(0, (4 * density).toInt(), 0, (8 * density).toInt())
+            setPadding(0, (4 * density).toInt(), 0, (12 * density).toInt())
         }
         val previewRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(0, (4 * density).toInt(), 0, (4 * density).toInt())
         }
-        previewRow.addView(previewCell(ivCircle, "Circle"))
-        previewRow.addView(previewCell(ivSquare, "Square"))
+        val circleCell = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+            ).apply { marginEnd = (6 * density).toInt() }
+        }
+        circleCell.addView(previewCard(ivCircle, "Circle", "PNG • transparent outside", true))
+        val squareCell = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+            ).apply { marginStart = (6 * density).toInt() }
+        }
+        squareCell.addView(previewCard(ivSquare, "Square", "JPG • square", false))
+        previewRow.addView(circleCell)
+        previewRow.addView(squareCell)
         val hint = TextView(this).apply {
-            text = "Tap a shape below to crop & save"
+            text = "Tap a preview to crop & save"
             textSize = 13f
             setTextColor(getColor(R.color.hakunaa_text_secondary))
             gravity = Gravity.CENTER
-            setPadding(0, (8 * density).toInt(), 0, (4 * density).toInt())
+            setPadding(0, (16 * density).toInt(), 0, 0)
         }
-        container.addView(heading, 0)
-        container.addView(previewRow, 1)
-        container.addView(hint, 2)
+        val tip = TextView(this).apply {
+            text = "Tip: Circle works best for WhatsApp & Instagram profile photos."
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            gravity = Gravity.CENTER
+            setPadding(
+                (16 * density).toInt(), (8 * density).toInt(),
+                (16 * density).toInt(), 0
+            )
+        }
+        container.addView(heading)
+        container.addView(previewRow)
+        container.addView(hint)
+        container.addView(tip)
         // Render both previews on a background thread, then show them.
         val input = inputFile ?: return
         Thread {
@@ -664,7 +723,7 @@ class ImageToolActivity : AppCompatActivity() {
                     squareBmp?.let { ivSquare.setImageBitmap(it) }
                 }
             } catch (_: Throwable) {
-                // Previews are a bonus — the shape cards still work.
+                // Previews are a bonus — the preview cards still work.
             }
         }.start()
     }
@@ -1000,7 +1059,10 @@ class ImageToolActivity : AppCompatActivity() {
         else -> false
     }
 
-    /** The 3 professional Compress buttons: Quality / Target size / HD Compress. */
+    /** The 3 professional Compress buttons: Quality / Target size / HD Compress.
+     *  v0.1.122: the cards SHARE the screen height (weight) with
+     *  their content vertically centred — no tall empty cards, no
+     *  empty gap below them, the screen looks full. */
     private fun buildCompressModeCards() {
         val container = findViewById<LinearLayout>(R.id.modeContainer)
         container.removeAllViews()
@@ -1018,11 +1080,11 @@ class ImageToolActivity : AppCompatActivity() {
             card.findViewById<android.widget.ImageView>(R.id.ivIcon).setImageResource(icon)
             card.findViewById<TextView>(R.id.tvTitle).text = title
             card.findViewById<TextView>(R.id.tvSubtitle).text = subtitle
-            if (index > 0) {
-                val params = card.layoutParams as? LinearLayout.LayoutParams
-                params?.topMargin = gapPx
-                card.layoutParams = params
-            }
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            )
+            if (index > 0) params.topMargin = gapPx
+            card.layoutParams = params
             card.setOnClickListener {
                 compressMode = mode
                 if (mode == 3) {
@@ -1326,25 +1388,29 @@ class ImageToolActivity : AppCompatActivity() {
         sizeRow.addView(etW)
         sizeRow.addView(times)
         sizeRow.addView(etH)
-        // Quick-pick chips for common exam sizes.
-        val chipsRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
+        // Quick-pick chips for common exam sizes — 2 per row, so a
+        // size like "1080×1080" never wraps mid-number (v0.1.122).
+        // Each chip has its size on one line and its label below.
+        val chipsGrid = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             setPadding(0, (16 * density).toInt(), 0, 0)
         }
+        chipsGrid.addView(TextView(this).apply {
+            text = "Common sizes"
+            textSize = 12f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            setPadding(0, 0, 0, (8 * density).toInt())
+        })
         val examSizes = listOf(
             Triple(600, 600, "Passport"),
             Triple(800, 800, "Square"),
             Triple(1080, 1080, "Square"),
             Triple(1080, 1350, "Portrait")
         )
-        for ((w, h, label) in examSizes) {
-            val chip = TextView(this).apply {
-                text = "$w×$h\n$label"
+        fun makeChip(w: Int, h: Int, label: String): View {
+            val chip = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
-                textSize = 12f
-                setTypeface(null, android.graphics.Typeface.BOLD)
-                setTextColor(getColor(R.color.hakunaa_teal))
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.RECTANGLE
                     setColor(getColor(R.color.hakunaa_surface))
@@ -1352,8 +1418,8 @@ class ImageToolActivity : AppCompatActivity() {
                     cornerRadius = 12f * density
                 }
                 setPadding(
-                    (8 * density).toInt(), (8 * density).toInt(),
-                    (8 * density).toInt(), (8 * density).toInt()
+                    (8 * density).toInt(), (10 * density).toInt(),
+                    (8 * density).toInt(), (10 * density).toInt()
                 )
                 layoutParams = LinearLayout.LayoutParams(
                     0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
@@ -1363,11 +1429,34 @@ class ImageToolActivity : AppCompatActivity() {
                     marginEnd = m
                 }
             }
+            chip.addView(TextView(this).apply {
+                text = "$w × $h"
+                gravity = Gravity.CENTER
+                textSize = 13f
+                maxLines = 1
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(getColor(R.color.hakunaa_teal))
+            })
+            chip.addView(TextView(this).apply {
+                text = label
+                gravity = Gravity.CENTER
+                textSize = 11f
+                setTextColor(getColor(R.color.hakunaa_teal))
+                setPadding(0, (2 * density).toInt(), 0, 0)
+            })
             chip.setOnClickListener {
                 etW.setText(w.toString())
                 etH.setText(h.toString())
             }
-            chipsRow.addView(chip)
+            return chip
+        }
+        for (row in examSizes.chunked(2)) {
+            val rowLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+            }
+            for ((w, h, label) in row) rowLayout.addView(makeChip(w, h, label))
+            chipsGrid.addView(rowLayout)
         }
         val buttons = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1406,7 +1495,7 @@ class ImageToolActivity : AppCompatActivity() {
         inner.addView(title)
         inner.addView(hintText)
         inner.addView(sizeRow)
-        inner.addView(chipsRow)
+        inner.addView(chipsGrid)
         inner.addView(buttons)
         card.addView(inner)
         outer.addView(card)
@@ -1449,14 +1538,23 @@ class ImageToolActivity : AppCompatActivity() {
                 "(${FileUtils.savedPercent(inputSize, after)})"
     }
 
-    /** One Smart result as a simple professional card: label +
-     *  Best badge + "size • saved N%". Tapping the card SELECTS
-     *  it (highlight); the single "Save selected" button below
-     *  saves it. (Per-row SAVE buttons were removed in v0.1.121 —
+    /** One result as a simple professional card: label + Best badge +
+     *  "size • saved N%" on the left, a small Preview button on the
+     *  RIGHT (v0.1.122 — the separate full-width "Preview — full
+     *  screen" button is gone; every result previews itself).
+     *  Tapping the card SELECTS it ([onSelect]); tapping Preview
+     *  opens the full-screen Preview + Compare for THAT result
+     *  ([onPreview]). Shared by the main results list and the
+     *  WebP window. (Per-row SAVE buttons were removed in v0.1.121 —
      *  they made the screen too complex.) */
-    private fun buildSmartResultCard(r: ImageCompressor.LevelResult, showBest: Boolean): View {
+    private fun buildResultRow(
+        r: ImageCompressor.LevelResult,
+        showBest: Boolean,
+        isSelected: Boolean,
+        onPreview: (ImageCompressor.LevelResult) -> Unit,
+        onSelect: (ImageCompressor.LevelResult) -> Unit
+    ): View {
         val density = resources.displayMetrics.density
-        val isSelected = r == selectedSmartResult
         val card = com.google.android.material.card.MaterialCardView(this).apply {
             radius = 12f * density
             cardElevation = 2f * density
@@ -1467,10 +1565,17 @@ class ImageToolActivity : AppCompatActivity() {
             strokeColor = getColor(R.color.hakunaa_teal)
         }
         val inner = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             setPadding(
                 (16 * density).toInt(), (12 * density).toInt(),
                 (16 * density).toInt(), (12 * density).toInt()
+            )
+        }
+        val textCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
             )
         }
         val line1 = LinearLayout(this).apply {
@@ -1505,10 +1610,29 @@ class ImageToolActivity : AppCompatActivity() {
             textSize = 14f
             setTextColor(getColor(R.color.hakunaa_text_secondary))
         }
-        inner.addView(line1)
-        inner.addView(line2)
+        textCol.addView(line1)
+        textCol.addView(line2)
+        inner.addView(textCol)
+        // Per-result Preview, right side — opens the full-screen
+        // Preview + Compare for THIS result.
+        val previewBtn = com.google.android.material.button.MaterialButton(this).apply {
+            text = "Preview"
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_teal))
+            backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_surface))
+            strokeColor = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+            strokeWidth = (1 * density).toInt()
+            cornerRadius = (10 * density).toInt()
+            setPadding((12 * density).toInt(), 0, (12 * density).toInt(), 0)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                (40 * density).toInt()
+            ).apply { marginStart = (12 * density).toInt() }
+        }
+        previewBtn.setOnClickListener { onPreview(r) }
+        inner.addView(previewBtn)
         card.addView(inner)
-        card.setOnClickListener { selectSmartResult(r) }
+        card.setOnClickListener { onSelect(r) }
         val params = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
@@ -1517,6 +1641,16 @@ class ImageToolActivity : AppCompatActivity() {
         card.layoutParams = params
         return card
     }
+
+    /** The main results list uses the shared row: tapping the card
+     *  selects it, Preview opens the full-screen dialog for that
+     *  result (and selects it, so "Save selected" matches). */
+    private fun buildSmartResultCard(r: ImageCompressor.LevelResult, showBest: Boolean): View =
+        buildResultRow(
+            r, showBest, r == selectedSmartResult,
+            onPreview = { selectSmartResult(it); openFullPreviewFor(it) },
+            onSelect = { selectSmartResult(it) }
+        )
 
     /** Rebuild the result cards from [smartDisplayed] and update the
      *  summary header to match the selection. */
@@ -1544,24 +1678,174 @@ class ImageToolActivity : AppCompatActivity() {
         refreshSmartRows()
     }
 
-    /** Open the full-screen Preview + Compare dialog for the
-     *  selected result (v0.1.121 redesign). */
-    private fun openFullPreview() {
+    /** Open the full-screen Preview + Compare dialog for ONE
+     *  result (v0.1.121 redesign, v0.1.122: per-result button). */
+    private fun openFullPreviewFor(result: ImageCompressor.LevelResult) {
         val input = inputFile ?: return
-        val selected = selectedSmartResult ?: return
         FullPreviewDialog(
-            this, input, selected, inputSize,
+            this, input, result, inputSize,
             ImageCompressor.formatOf(input), inputW, inputH
-        ) { saveSmartResult(selected) }.show()
+        ) { saveSmartResult(result) }.show()
     }
 
-    /** "More Compress": compute the WebP results LAZILY on a
-     *  background thread (Quality flow only) and append them below
-     *  the JPG rows with the Govt compatibility note. */
-    private fun loadMoreCompressWebp() {
+    /** "More Compress" — a NEW full-screen window (v0.1.122) that
+     *  explains WebP and shows its results there, instead of
+     *  appending WebP rows inline on the result screen.
+     *
+     *  The window: what WebP is (Google's modern format, 25–35%
+     *  smaller than JPG at the same quality), where it works
+     *  (WhatsApp, Instagram, web) and where it does NOT
+     *  (Govt forms / portals), then the WebP results as the same
+     *  cards as the main screen (per-result Preview on the right),
+     *  and a Save button at the bottom. WebP is computed LAZILY
+     *  on a background thread and cached ([webpLazyResults]). */
+    private fun showWebpWindow() {
         val input = inputFile ?: return
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Checking WebP…"
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        dialog.setCancelable(true)
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(getColor(R.color.hakunaa_background))
+        }
+        // Top bar: X + title.
+        val topBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(
+                (8 * density).toInt(), (8 * density).toInt(),
+                (16 * density).toInt(), (8 * density).toInt()
+            )
+        }
+        val close = ImageView(this).apply {
+            setImageResource(R.drawable.ic_close)
+            setColorFilter(getColor(R.color.hakunaa_text))
+            setPadding(
+                (8 * density).toInt(), (8 * density).toInt(),
+                (8 * density).toInt(), (8 * density).toInt()
+            )
+            layoutParams = LinearLayout.LayoutParams(
+                (40 * density).toInt(), (40 * density).toInt()
+            )
+        }
+        close.setOnClickListener { dialog.dismiss() }
+        val title = TextView(this).apply {
+            text = "More Compress — WebP"
+            textSize = 20f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            setPadding((12 * density).toInt(), 0, 0, 0)
+        }
+        topBar.addView(close)
+        topBar.addView(title)
+        root.addView(topBar)
+        // Scrollable content: explanation, note, results.
+        val scroll = android.widget.ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            )
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(
+                (16 * density).toInt(), (8 * density).toInt(),
+                (16 * density).toInt(), (16 * density).toInt()
+            )
+        }
+        val explainCard = com.google.android.material.card.MaterialCardView(this).apply {
+            radius = 12f * density
+            cardElevation = 2f * density
+            setCardBackgroundColor(0xFFE0F2F1.toInt())
+        }
+        explainCard.addView(TextView(this).apply {
+            text = "WebP is Google's modern photo format — the same photo, " +
+                "25–35% smaller than JPG at the same quality."
+            textSize = 14f
+            setTextColor(getColor(R.color.hakunaa_text))
+            setPadding(
+                (16 * density).toInt(), (14 * density).toInt(),
+                (16 * density).toInt(), (14 * density).toInt()
+            )
+        })
+        content.addView(explainCard)
+        content.addView(TextView(this).apply {
+            text = "✓ Works: WhatsApp, Instagram, web\n" +
+                "✗ NOT accepted: Govt forms / portals"
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            setPadding(0, (12 * density).toInt(), 0, 0)
+        })
+        val status = TextView(this).apply {
+            text = "Checking WebP…"
+            textSize = 14f
+            setTextColor(getColor(R.color.hakunaa_text))
+            setPadding(0, (16 * density).toInt(), 0, 0)
+        }
+        content.addView(status)
+        val rowsContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        content.addView(rowsContainer)
+        scroll.addView(content)
+        root.addView(scroll)
+        // Bottom bar: Save selected (enabled once a result is picked).
+        val bottomBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding((16 * density).toInt(), (8 * density).toInt(), (16 * density).toInt(), (16 * density).toInt())
+        }
+        val saveBtn = com.google.android.material.button.MaterialButton(this).apply {
+            text = "Save selected"
+            textSize = 16f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(android.R.color.white))
+            backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+            cornerRadius = (12 * density).toInt()
+            isEnabled = false
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                (56 * density).toInt()
+            )
+        }
+        bottomBar.addView(saveBtn)
+        root.addView(bottomBar)
+        dialog.setContentView(root)
+        dialog.window?.setLayout(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        )
+        dialog.show()
+        // This window's own selection (independent of the main list).
+        var selectedWebp: ImageCompressor.LevelResult? = null
+        var webpRows: List<ImageCompressor.LevelResult> = emptyList()
+        fun refreshWebpRows() {
+            rowsContainer.removeAllViews()
+            val best = webpRows.minByOrNull { it.size }
+            for (r in webpRows) {
+                rowsContainer.addView(
+                    buildResultRow(
+                        r, r == best, r == selectedWebp,
+                        onPreview = {
+                            selectedWebp = it
+                            refreshWebpRows()
+                            saveBtn.isEnabled = true
+                            openFullPreviewFor(it)
+                        },
+                        onSelect = {
+                            selectedWebp = it
+                            refreshWebpRows()
+                            saveBtn.isEnabled = true
+                        }
+                    )
+                )
+            }
+        }
+        saveBtn.setOnClickListener {
+            selectedWebp?.let {
+                dialog.dismiss()
+                saveSmartResult(it)
+            }
+        }
         Thread {
             try {
                 val results = webpLazyResults ?: ImageCompressor.compressAtQualityWebp(
@@ -1570,34 +1854,14 @@ class ImageToolActivity : AppCompatActivity() {
                     qualityChoice, 10000
                 ).also { webpLazyResults = it }
                 runOnUiThread {
-                    status.text = ""
-                    webpShown = true
-                    val container = findViewById<LinearLayout>(R.id.resultsContainer)
-                    val moreSection = container.findViewWithTag<LinearLayout>("smart_more")
-                    moreSection?.removeAllViews()
                     if (results.isEmpty()) {
-                        moreSection?.addView(TextView(this).apply {
-                            text = "WebP couldn't shrink this photo further."
-                            textSize = 13f
-                            setTextColor(getColor(R.color.hakunaa_text_secondary))
-                            setPadding(16, 16, 16, 8)
-                        })
+                        status.text = "WebP couldn't shrink this photo further."
                     } else {
-                        moreSection?.addView(TextView(this).apply {
-                            text = "WebP — smaller than JPG"
-                            textSize = 14f
-                            setTypeface(null, android.graphics.Typeface.BOLD)
-                            setTextColor(getColor(R.color.hakunaa_text))
-                            setPadding(16, 16, 16, 4)
-                        })
-                        moreSection?.addView(TextView(this).apply {
-                            text = "✓ Works: WhatsApp, Instagram, web\n✗ NOT accepted: Govt forms / portals"
-                            textSize = 13f
-                            setTextColor(getColor(R.color.hakunaa_text_secondary))
-                            setPadding(16, 0, 16, 8)
-                        })
-                        smartDisplayed.addAll(results)
-                        refreshSmartRows()
+                        status.text = ""
+                        webpRows = results.sortedBy { it.size }
+                        selectedWebp = webpRows.minByOrNull { it.size }
+                        saveBtn.isEnabled = true
+                        refreshWebpRows()
                     }
                 }
             } catch (_: Throwable) {
@@ -1606,23 +1870,26 @@ class ImageToolActivity : AppCompatActivity() {
         }.start()
     }
 
-    /** Smart results — SIMPLE and professional (v0.1.121 redesign):
-     *  JPG ONLY by default — WebP is never shown unless the user
-     *  asks for it via "More Compress" (Quality / HD flows) or
-     *  "More Compress with WebP" (Smart flow). Layout: a summary
-     *  header, ONE "Preview — full screen" button (opens the
-     *  zoomable full-screen Preview + top/bottom Compare dialog),
-     *  simple selectable result cards, and a full-width teal
-     *  "Save selected" button. [allowWebp] is true only for the HD
-     *  result screen, whose single result may be WebP (a WebP input
-     *  stays WebP at quality 95). */
+    /** Smart results — SIMPLE and professional (v0.1.121 redesign,
+     *  v0.1.122: per-result Preview, More Compress in its own
+     *  window): JPG ONLY by default — WebP lives in the "More
+     *  Compress" window (Quality / HD flows: "More Compress",
+     *  Smart flow: "More Compress with WebP"). Layout: a summary
+     *  header, simple selectable result cards each with its own
+     *  Preview button on the right, a full-width teal "Save
+     *  selected" button, and the More Compress button BELOW it.
+     *  The HD result screen also carries its own one-line
+     *  explanation, with HD Compress — nowhere else. [allowWebp]
+     *  is true only for the HD result screen, whose single result
+     *  may be WebP (a WebP input stays WebP at quality 95). */
     private fun showSmartResults(
         results: List<ImageCompressor.LevelResult>,
         allowWebp: Boolean = false
     ) {
         val container = findViewById<LinearLayout>(R.id.resultsContainer)
         container.removeAllViews()
-        webpShown = false
+        // A stale "Working…" never lingers under the results.
+        findViewById<TextView>(R.id.tvStatus).text = ""
         val density = resources.displayMetrics.density
         // JPG only — the old `else results` fallback (which showed
         // WebP rows by default) is gone on purpose. (HD passes
@@ -1666,29 +1933,20 @@ class ImageToolActivity : AppCompatActivity() {
             headerCard.addView(headerText)
             container.addView(headerCard)
 
-            // Full-screen Preview (v0.1.121): one clear button
-            // opens the zoomable Preview + top/bottom Compare
-            // dialog for the selected result. No inline preview.
-            val previewBtn = com.google.android.material.button.MaterialButton(this).apply {
-                text = "Preview — full screen"
-                setTextColor(getColor(R.color.hakunaa_teal))
-                backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_surface))
-                strokeColor = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
-                strokeWidth = (2 * density).toInt()
-                cornerRadius = (12 * density).toInt()
-                setIconResource(android.R.drawable.ic_menu_view)
-                iconTint = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
-                val lp = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                lp.topMargin = (12 * density).toInt()
-                layoutParams = lp
+            // HD's own explanation, WITH the HD result — HD
+            // guidance lives on the HD screen, nowhere else.
+            if (mode == MODE_COMPRESS && compressMode == 3) {
+                container.addView(TextView(this).apply {
+                    text = "HD — same photo, same size, 100% quality. " +
+                        "Only the file got smaller."
+                    textSize = 13f
+                    setTextColor(getColor(R.color.hakunaa_text_secondary))
+                    setPadding(0, (12 * density).toInt(), 0, 0)
+                })
             }
-            container.addView(previewBtn)
-            previewBtn.setOnClickListener { openFullPreview() }
 
-            // "Results" section heading, then the selectable cards.
+            // "Results" section heading, then the selectable cards
+            // (each with its own Preview button on the right).
             val rowsLabel = TextView(this).apply {
                 text = "Results"
                 textSize = 14f
@@ -1704,40 +1962,6 @@ class ImageToolActivity : AppCompatActivity() {
             }
             container.addView(rowsContainer)
             refreshSmartRows()
-        }
-
-        // "More Compress" — Quality flow ("More Compress"), HD flow
-        // ("More Compress") and Smart flow ("More Compress with
-        // WebP"). WebP is computed lazily on tap, never up front,
-        // via loadMoreCompressWebp().
-        val showMore = (mode == MODE_COMPRESS && (compressMode == 1 || compressMode == 3)) ||
-            mode == MODE_SMART
-        if (showMore) {
-            val moreSection = LinearLayout(this).apply {
-                tag = "smart_more"
-                orientation = LinearLayout.VERTICAL
-            }
-            val moreBtn = com.google.android.material.button.MaterialButton(this).apply {
-                text = if (mode == MODE_SMART) "More Compress with WebP" else "More Compress"
-                setTextColor(getColor(R.color.hakunaa_teal))
-                backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_surface))
-                strokeColor = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
-                strokeWidth = (2 * density).toInt()
-                cornerRadius = (12 * density).toInt()
-                val lp = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                lp.topMargin = (12 * density).toInt()
-                layoutParams = lp
-            }
-            moreBtn.setOnClickListener {
-                if (webpShown) return@setOnClickListener
-                moreSection.removeView(moreBtn)
-                loadMoreCompressWebp()
-            }
-            moreSection.addView(moreBtn)
-            container.addView(moreSection)
         }
 
         // Prominent teal "Save selected" — saves the selected result.
@@ -1762,6 +1986,32 @@ class ImageToolActivity : AppCompatActivity() {
                 selectedSmartResult?.let { saveSmartResult(it) }
             }
             container.addView(saveBtn)
+        }
+
+        // "More Compress" sits BELOW Save — the secondary action,
+        // not wedged between the results and the primary button.
+        // Quality flow ("More Compress"), HD flow ("More Compress")
+        // and Smart flow ("More Compress with WebP"). Tapping it
+        // opens the WebP window (see showWebpWindow()).
+        val showMore = (mode == MODE_COMPRESS && (compressMode == 1 || compressMode == 3)) ||
+            mode == MODE_SMART
+        if (showMore) {
+            val moreBtn = com.google.android.material.button.MaterialButton(this).apply {
+                text = if (mode == MODE_SMART) "More Compress with WebP" else "More Compress"
+                setTextColor(getColor(R.color.hakunaa_teal))
+                backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_surface))
+                strokeColor = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+                strokeWidth = (2 * density).toInt()
+                cornerRadius = (12 * density).toInt()
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                lp.topMargin = (12 * density).toInt()
+                layoutParams = lp
+            }
+            moreBtn.setOnClickListener { showWebpWindow() }
+            container.addView(moreBtn)
         }
     }
 

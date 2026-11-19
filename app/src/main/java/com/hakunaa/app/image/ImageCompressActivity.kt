@@ -134,7 +134,7 @@ class ImageCompressActivity : AppCompatActivity() {
             ToolDef("Color Correction", "Adjust colors, light & more", R.drawable.ic_markup) {
                 withImage { openEdit() }
             },
-            ToolDef("DP Edit", "Circle & Square", R.drawable.ic_profile) {
+            ToolDef("DP Crop", "Circle & Square", R.drawable.ic_profile) {
                 withImage { openTool(ImageToolActivity.MODE_DP) }
             },
             ToolDef("Image to PDF", "Photo to PDF", R.drawable.ic_doc) {
@@ -148,7 +148,10 @@ class ImageCompressActivity : AppCompatActivity() {
         buildToolGrid()
     }
 
-    /** Build the box grid (2 per row; a full-width card gets its own row). */
+    /** Build the box grid (2 per row; a full-width card gets its own row).
+     *  v0.1.122: every row shares the screen height equally (weight),
+     *  and each card fills its row — the grid FILLS the full screen,
+     *  no empty space at the bottom. */
     private fun buildToolGrid() {
         val container = findViewById<LinearLayout>(R.id.toolsContainer)
         container.removeAllViews()
@@ -156,8 +159,13 @@ class ImageCompressActivity : AppCompatActivity() {
         var i = 0
         while (i < tools.size) {
             val tool = tools[i]
-            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+                )
+            }
+            val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
                 .apply { setMargins(6, 4, 6, 4) }
             row.addView(makeToolCard(tool), lp)
             if (!tool.fullWidth && i + 1 < tools.size && !tools[i + 1].fullWidth) {

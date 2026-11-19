@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- WhatsApp glyph, drawn in code (white on the green badge) —
+     speech bubble with a tail, phone handset inside. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.8"
+        android:pathData="M12,3.5 a7.5,7.5 0 1,0 0,15 a7.5,7.5 0 1,0 0,-15 z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M9.4,17.4 L7.9,21 L11.2,18.8 z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M9.3,8.1 c-0.3,0 -0.6,0.2 -0.7,0.5 c-0.1,0.4 -0.2,0.9 -0.2,1.4 c0,3 2.4,5.4 5.4,5.4 c0.5,0 1,-0.1 1.4,-0.2 c0.3,-0.1 0.5,-0.4 0.5,-0.7 v-1.6 c0,-0.3 -0.2,-0.6 -0.5,-0.7 l-1.8,-0.7 c-0.3,-0.1 -0.6,0 -0.8,0.2 l-0.6,0.6 c-0.9,-0.5 -1.6,-1.2 -2.1,-2.1 l0.6,-0.6 c0.2,-0.2 0.3,-0.5 0.2,-0.8 L10,9.3 c-0.1,-0.3 -0.4,-0.5 -0.7,-0.5 z" />
+</vector>
