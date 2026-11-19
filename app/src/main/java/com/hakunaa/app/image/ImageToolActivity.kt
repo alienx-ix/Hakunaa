@@ -70,6 +70,16 @@ class ImageToolActivity : AppCompatActivity() {
     private var smartDisplayed: MutableList<ImageCompressor.LevelResult> = mutableListOf()
     /** The Smart result currently selected for preview / save. */
     private var selectedSmartResult: ImageCompressor.LevelResult? = null
+    /** v0.1.132 (Batch 16): when true, the "Best" badge is hidden
+     *  on the result cards — Quality / Target / HD only (the user:
+     *  "Best label theva ila.. Smart la matu pothum"). Set by
+     *  showSmartResults from its fixedSizeCards flag. Smart keeps
+     *  its Best / Smaller badges. */
+    private var smartHideBestBadge = false
+    /** v0.1.132 (Batch 16): the Resize-old ScrollView (built at
+     *  runtime by buildResolutionCards) — removed on every
+     *  renderStep so it never lingers on another screen. */
+    private var resizeScrollView: android.widget.ScrollView? = null
     /** v0.1.131 (Batch 15): fixed card height (px) for the 2-box
      *  result screens (Quality / Target / HD) — Smart's normal
      *  ~88dp, so 1–2 cards are normal size and centred instead
@@ -184,6 +194,14 @@ class ImageToolActivity : AppCompatActivity() {
     }
 
     private fun renderStep() {
+        // v0.1.132: the Resize-old ScrollView (if any) is removed
+        // on every step change — it is rebuilt by
+        // buildResolutionCards when Resize is shown again, and
+        // must never linger on another screen.
+        resizeScrollView?.let {
+            findViewById<LinearLayout>(R.id.contentArea).removeView(it)
+        }
+        resizeScrollView = null
         findViewById<TextView>(R.id.tvTitle).text = titleForMode()
         val group = findViewById<RadioGroup>(R.id.rgOptions)
         group.removeAllViews()
@@ -451,14 +469,22 @@ class ImageToolActivity : AppCompatActivity() {
         // user wants its OLD menu back, exactly as in v0.1.128
         // (no bottom room, default clipping). Every other list
         // keeps the fix.
-        lastBoxRoom: Boolean = true
+        lastBoxRoom: Boolean = true,
+        // v0.1.132 (Batch 16): when set, the cards are built into
+        // this container instead of R.id.cardsContainer — Resize
+        // (old menu) builds into its own ScrollView's inner
+        // container. The layout-params block below only applies
+        // to the shared cardsContainer.
+        targetContainer: LinearLayout? = null
     ) {
-        val container = findViewById<LinearLayout>(R.id.cardsContainer)
+        val container = targetContainer ?: findViewById<LinearLayout>(R.id.cardsContainer)
         container.removeAllViews()
         container.visibility = View.VISIBLE
-        (container.layoutParams as LinearLayout.LayoutParams).apply {
-            height = if (weightCards) 0 else LinearLayout.LayoutParams.WRAP_CONTENT
-            weight = if (weightCards) 1f else 0f
+        if (targetContainer == null) {
+            (container.layoutParams as LinearLayout.LayoutParams).apply {
+                height = if (weightCards) 0 else LinearLayout.LayoutParams.WRAP_CONTENT
+                weight = if (weightCards) 1f else 0f
+            }
         }
         val density = resources.displayMetrics.density
         // v0.1.129: a little room BELOW the last card, so its
@@ -651,10 +677,14 @@ class ImageToolActivity : AppCompatActivity() {
             Triple(
                 "Custom: ${inputW}x${inputH}",
                 "Custom: ${inputW}x${inputH}",
-                // No subtitle (v0.1.125): the 12 rows share one
-                // screen by weight (~44dp each) — a second line
-                // would clip. The dialog explains Custom.
-                ""
+                // v0.1.132 (Batch 16): the OLD subtitle is back —
+                // "Enter your own size — for exam forms", exactly
+                // as in v0.1.117–v0.1.124. This is the "for Govt"
+                // the user remembers (exam forms are Govt forms
+                // for him); v0.1.125 removed it for the weight-
+                // shared rows, and the user calls that menu
+                // "very worst" and wants this old UI back.
+                "Enter your own size — for exam forms"
             )
         )
         for (p in listOf(
@@ -662,18 +692,44 @@ class ImageToolActivity : AppCompatActivity() {
             "1024x2276", "1200x2668", "1280x2844", "1152x2560",
             "1440x3200", "3072x6828"
         )) options.add(Triple(p, p, ""))
-        // All 12 rows share ONE screen by weight (v0.1.125):
-        // no scroll, no cut-off, per the no-scroll rule.
+        // v0.1.132 (Batch 16): the OLD menu (v0.1.123) — roomy
+        // WRAP_CONTENT cards (14dp padding, 8dp gaps), NOT the
+        // weight-shared ~44dp compact rows of v0.1.125–v0.1.131.
+        // The old menu scrolled (v0.1.123 had a ScrollView), so
+        // it lives in its own ScrollView — Resize-only, no other
+        // screen uses it, and the no-scroll rule still holds
+        // everywhere else. NOTE: this deliberately overrides the
+        // Batch 9 no-scroll rule for this ONE menu, because the
+        // user explicitly asked for that batch's UI.
+        val contentArea = findViewById<LinearLayout>(R.id.contentArea)
+        val scroll = android.widget.ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            )
+            isVerticalScrollBarEnabled = false
+        }
+        val inner = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            // ScrollView is a FrameLayout — its children use
+            // FrameLayout.LayoutParams (ScrollView has no nested
+            // LayoutParams class of its own).
+            layoutParams = android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        scroll.addView(inner)
+        contentArea.addView(scroll)
+        resizeScrollView = scroll
         buildOptionCards(options, selectedCardTag, onSelect = { tag ->
             selectedCardTag = tag
             renderStep()
             // Tapping Custom selects it AND opens the WxH dialog.
             if (tag.startsWith("Custom")) showCustomSizeDialog()
-        }, weightCards = true, compact = true,
+        }, weightCards = false, compact = false,
         // v0.1.131 (Batch 15): Resize is NOT touched — the OLD
-        // menu (v0.1.128), no 8dp bottom room, no clipToPadding
-        // change. Do not touch it again.
-        lastBoxRoom = false)
+        // menu, no 8dp bottom room, no clipToPadding change.
+        lastBoxRoom = false, targetContainer = inner)
     }
 
     /** Fit / Fit to social media: aspect cards. Tapping one in
@@ -859,7 +915,11 @@ class ImageToolActivity : AppCompatActivity() {
         // below the fold.
         val options = listOf(
             Triple(
-                "jpg", "JPG",
+                // v0.1.132 (Batch 16): the card says "JPEG", not
+                // "JPG" — the user: "JPG -> JPEG idhu matu mathita
+                // best a irkum". The tag stays "jpg" (the format
+                // key) — only the display label changes.
+                "jpg", "JPEG",
                 "Smallest. Great quality. Govt forms OK.\nWorks on: Android, iPhone, Windows, web."
             ),
             Triple(
@@ -898,11 +958,14 @@ class ImageToolActivity : AppCompatActivity() {
     }
 
     /** DP Crop state: the outer area of the DP (v0.1.123).
-     *  Blur is the main/default — the photo's own blurred colours
-     *  fill the corners outside the circle (Circle) or the bands
-     *  around the fitted photo (Square). */
-    private var dpBackground = ImageCompressor.DpBackground.BLUR
-    private var dpBgColor = 0xFFFFFFFF.toInt()
+     *  Color (black) is the default (v0.1.132, user 2026-11-19:
+     *  "Default aa Blur ilama Color layer black Default") — the
+     *  black colour fills the corners outside the circle (Circle)
+     *  or the bands around the fitted photo (Square). This reverses
+     *  the v0.1.124 rule (Blur + White default); the user asked
+     *  for black explicitly. */
+    private var dpBackground = ImageCompressor.DpBackground.COLOR
+    private var dpBgColor = 0xFF111827.toInt()
     private var dpCircleIv: ImageView? = null
     private var dpSquareIv: ImageView? = null
     private var dpCircleCaption: TextView? = null
@@ -911,8 +974,8 @@ class ImageToolActivity : AppCompatActivity() {
     private val dpBgChips = mutableListOf<TextView>()
 
     /** DP Crop — the live previews ARE the actions (v0.1.122),
-     *  plus the NEW outer-area options (v0.1.123): Blur (default),
-     *  Color (pick a colour), Transparent (Circle only). Two LARGE
+     *  plus the NEW outer-area options (v0.1.123): Color black
+     *  (default, v0.1.132), Blur, Transparent (Circle only). Two LARGE
      *  tappable preview cards side by side — Circle and Square —
      *  each with a bold label and its format underneath. Tapping
      *  either opens the professional adjust step (v0.1.124):
@@ -920,11 +983,11 @@ class ImageToolActivity : AppCompatActivity() {
      *  outer area, then Save. The preview content is the actual
      *  input photo. */
     private fun buildDpCards() {
-        // The default is ALWAYS Blur + White (v0.1.124): the screen
-        // was landing on Color + Black, and black must never be the
-        // default outer area.
-        dpBackground = ImageCompressor.DpBackground.BLUR
-        dpBgColor = 0xFFFFFFFF.toInt()
+        // The default is ALWAYS Color + Black (v0.1.132, user
+        // 2026-11-19): "Default aa Blur ilama Color layer black
+        // Default". This reverses v0.1.124 (Blur + White default).
+        dpBackground = ImageCompressor.DpBackground.COLOR
+        dpBgColor = 0xFF111827.toInt()
         val container = findViewById<LinearLayout>(R.id.cardsContainer)
         container.removeAllViews()
         container.visibility = View.VISIBLE
@@ -1123,7 +1186,7 @@ class ImageToolActivity : AppCompatActivity() {
         }
         val tip = TextView(this).apply {
             text = "Tip: Circle works best for WhatsApp & Instagram profile photos.\n" +
-                "Blur is the default outer area — your photo's own colours fill the corners."
+                "Color is the default outer area — black fills the corners."
             textSize = 13f
             setTextColor(getColor(R.color.hakunaa_text_secondary))
             gravity = Gravity.CENTER
@@ -2534,7 +2597,9 @@ class ImageToolActivity : AppCompatActivity() {
         val best = ImageCompressor.balancedBest(smartDisplayed)
         val smallest = smartDisplayed.minByOrNull { it.size }
         return buildResultRow(
-            r, r == best, r == selectedSmartResult,
+            // v0.1.132: no Best badge on the 2-box screens
+            // (Quality / Target / HD) — Smart only.
+            r, !smartHideBestBadge && r == best, r == selectedSmartResult,
             onPreview = { selectSmartResult(it); openFullPreviewFor(it) },
             onSelect = { selectSmartResult(it) },
             showSmaller = r == smallest && r != best,
@@ -2828,7 +2893,8 @@ class ImageToolActivity : AppCompatActivity() {
             // v0.1.131 (Batch 15): the WebP cards are PERFECTLY
             // centred — the group sits in the vertical middle of
             // the window, not pushed to the top. The cards are
-            // fixed height with minimal 6dp gaps (no spacers).
+            // fixed height with 10dp gaps (v0.1.132: a little
+            // space, per user — the tight 6dp was still worst).
             gravity = Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
@@ -2892,11 +2958,18 @@ class ImageToolActivity : AppCompatActivity() {
             // centre-gravity container now (set at creation), with
             // a minimal 6dp gap between them, so the group is
             // perfectly centred and the gaps are minimal.
+            // v0.1.132 (Batch 16): the user still calls it worst
+            // ("Lite a space kotutha ena?") — a LITTLE space now:
+            // 10dp between boxes, not the tight 6dp. The height
+            // cap subtracts the margins, so the last card still
+            // never clips.
+            val marginPx = (10 * density).toInt()
             val wantPx = measureSmartCardHeightPx()
             val availPx = rowsContainer.height -
                 rowsContainer.paddingTop - rowsContainer.paddingBottom
             val cardH = if (availPx > 0 && webpRows.isNotEmpty()) {
-                minOf(wantPx, availPx / webpRows.size)
+                val perCard = (availPx - webpRows.size * marginPx) / webpRows.size
+                if (perCard > 0) minOf(wantPx, perCard) else wantPx
             } else wantPx
             webpCardH = cardH
             for (r in webpRows) {
@@ -2915,7 +2988,7 @@ class ImageToolActivity : AppCompatActivity() {
                     },
                     showSmaller = r == smallest && r != best,
                     fixedHeightPx = cardH,
-                    topMarginDp = 6,
+                    topMarginDp = 10,
                     // Plain container (no MaterialCardView tint),
                     // so the WebP cards are Smart's exact light
                     // colour instead of the darker dialog tint.
@@ -2934,7 +3007,8 @@ class ImageToolActivity : AppCompatActivity() {
                     val avail2 = rowsContainer.height -
                         rowsContainer.paddingTop - rowsContainer.paddingBottom
                     val newH = if (avail2 > 0) {
-                        minOf(wantPx, avail2 / webpRows.size)
+                        val perCard = (avail2 - webpRows.size * marginPx) / webpRows.size
+                        if (perCard > 0) minOf(wantPx, perCard) else wantPx
                     } else wantPx
                     if (newH != webpCardH) refreshWebpRows()
                 }
@@ -3051,9 +3125,29 @@ class ImageToolActivity : AppCompatActivity() {
             }
             .sortedBy { it.size }
             .toMutableList()
+        // v0.1.132 (Batch 16): on the 2-box screens (Quality /
+        // Target / HD) JPEG is FIRST — the user's preference
+        // ("Jpeg ku tha preference.. WebP 2nd than") — and the
+        // "Best" badge is hidden there ("Best label theva ila..
+        // Smart la matu pothum"). Only the display order and the
+        // default selection change; the compression and the saved
+        // sizes are untouched. Smart keeps smallest-first + Best.
+        if (fixedSizeCards) {
+            smartDisplayed.sortBy {
+                if (it.format == ImageCompressor.Format.JPEG) 0 else 1
+            }
+        }
+        smartHideBestBadge = fixedSizeCards
         // Default selection is the BALANCED Best (v0.1.124) — not
-        // the smallest.
-        selectedSmartResult = ImageCompressor.balancedBest(smartDisplayed)
+        // the smallest — except on the 2-box screens, where the
+        // JPEG box is the preferred (default selected) one.
+        selectedSmartResult = if (fixedSizeCards) {
+            smartDisplayed.firstOrNull {
+                it.format == ImageCompressor.Format.JPEG
+            } ?: ImageCompressor.balancedBest(smartDisplayed)
+        } else {
+            ImageCompressor.balancedBest(smartDisplayed)
+        }
         // v0.1.131: the fixed card height for the 2-box screens
         // (Quality / Target / HD). Smart's measured card height
         // (~88dp fallback when the list is not laid out yet) —

@@ -18,8 +18,8 @@ android {
         // Latest: targets Android 16 (API 36), the newest stable Android.
         // Runs on newer Android versions too when they release.
         targetSdk = 36
-        versionCode = 132
-        versionName = "0.1.131"
+        versionCode = 133
+        versionName = "0.1.132"
     }
 
     buildTypes {

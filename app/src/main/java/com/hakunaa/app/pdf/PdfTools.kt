@@ -281,11 +281,22 @@ object PdfTools {
      * combines several scanned photos into a single PDF.
      */
     fun imageToPdf(imageFiles: List<File>, output: File): Boolean {
+        return imageToPdf(imageFiles, output, PDRectangle.A4)
+    }
+
+    /**
+     * Image to PDF (multi-page) with a chosen page size (v0.1.132):
+     * A4 or Letter, portrait or landscape (the caller passes the
+     * rectangle already oriented). Used by Image to PDF's
+     * multi-page screen. Same lossless engine as the A4 version —
+     * one page per image, scaled to fit with a small margin.
+     */
+    fun imageToPdf(imageFiles: List<File>, output: File, pageRect: PDRectangle): Boolean {
         return try {
             PDDocument().use { doc ->
                 for (imageFile in imageFiles) {
                     val bitmap = BitmapFactory.decodeFile(imageFile.absolutePath) ?: return false
-                    val page = PDPage(PDRectangle.A4)
+                    val page = PDPage(pageRect)
                     doc.addPage(page)
                     val image = LosslessFactory.createFromImage(doc, bitmap)
                     PDPageContentStream(doc, page).use { content ->

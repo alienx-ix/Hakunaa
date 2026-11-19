@@ -13,10 +13,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.card.MaterialCardView
 import com.hakunaa.app.R
 import com.hakunaa.app.core.FileUtils
-import com.hakunaa.app.core.MediaStoreSaver
 import com.hakunaa.app.core.StatusBar
-import com.hakunaa.app.pdf.PdfTools
-import java.io.File
 
 /**
  * Image tools hub (v0.1.111) — box-by-box menu, importance order,
@@ -140,7 +137,11 @@ class ImageCompressActivity : AppCompatActivity() {
                 withImage { openTool(ImageToolActivity.MODE_DP) }
             },
             ToolDef("Image to PDF", "Photo to PDF", R.drawable.ic_doc) {
-                withImage { imageToPdf() }
+                // v0.1.132 (Batch 16): multi-page screen — pick
+                // MULTIPLE images, drag to reorder, then Create
+                // PDF. The old single-image flow is gone.
+                launchedTool = true
+                startActivity(Intent(this, ImageToPdfActivity::class.java))
             },
             ToolDef("Remove Metadata", "Strip location & metadata", R.drawable.ic_shield) {
                 withImage { openTool(ImageToolActivity.MODE_METADATA) }
@@ -224,37 +225,4 @@ class ImageCompressActivity : AppCompatActivity() {
         startActivity(intent)
     }
 
-    /** Image to PDF: one A4 page per photo, saved to Documents/Hakunaa. */
-    private fun imageToPdf() {
-        val uri = inputUri ?: run {
-            Toast.makeText(this, getString(R.string.pick_first_image), Toast.LENGTH_SHORT).show()
-            return
-        }
-        Toast.makeText(this, "Making PDF…", Toast.LENGTH_SHORT).show()
-        Thread {
-            try {
-                val input = FileUtils.copyUriToCache(this, uri, "input_image")
-                val out = File(cacheDir, "hakunaa_image_${System.currentTimeMillis()}.pdf")
-                val ok = PdfTools.imageToPdf(input, out)
-                runOnUiThread {
-                    clearPickedPhoto()
-                    if (ok && out.exists()) {
-                        val saved = MediaStoreSaver.save(
-                            this, out, MediaStoreSaver.Kind.DOCUMENT, out.name
-                        )
-                        Toast.makeText(
-                            this,
-                            if (saved != null) "PDF saved to Documents/Hakunaa"
-                            else "Done, but couldn't save — please try again",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    } else {
-                        Toast.makeText(this, "Failed — try another image", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            } catch (_: Throwable) {
-                runOnUiThread { Toast.makeText(this, "Failed — try another image", Toast.LENGTH_SHORT).show() }
-            }
-        }.start()
-    }
 }

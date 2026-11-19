@@ -106,16 +106,30 @@ class DpAdjustActivity : AppCompatActivity() {
         root.addView(topBar)
 
         // The adjust view: as big as the screen allows (square).
-        adjustView = DpAdjustView(this).apply {
+        // v0.1.132 (Batch 16): the square sits CENTRED in its
+        // space (FrameLayout, gravity CENTER) — before, the square
+        // was pinned to the top of its weight-1 slot and left a
+        // ~270dp dead gap above the chips ("worst"). The view
+        // measures itself square (min of offered width/height),
+        // so centring the frame is all it needs.
+        val adjustWrap = android.widget.FrameLayout(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0, 1f
+            )
+        }
+        adjustView = DpAdjustView(this).apply {
+            layoutParams = android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
             ).apply {
                 val m = (16 * density).toInt()
                 setMargins(m, (8 * density).toInt(), m, 0)
+                gravity = Gravity.CENTER
             }
         }
-        root.addView(adjustView)
+        adjustWrap.addView(adjustView)
+        root.addView(adjustWrap)
 
         // Outer-area chips: Blur / Color (+ Transparent for Circle).
         val chipsRow = LinearLayout(this).apply {
