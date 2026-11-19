@@ -46,11 +46,25 @@ object StatusBar {
         // The root layout consumes the status bar inset as
         // padding: content below the bar, background behind
         // it — one seamless screen, no band, no overlap.
+        // (v0.1.133, Batch 17: DpAdjustActivity and
+        // ImageToPdfActivity called this BEFORE setContentView,
+        // so getChildAt(0) was null and the inset was silently
+        // never applied — the header overlapped the status bar.
+        // If the content view is not there yet, retry once it
+        // is attached instead of silently doing nothing.)
         val content = activity.findViewById<ViewGroup>(android.R.id.content)
         val root = content.getChildAt(0)
         if (root != null) {
             root.fitsSystemWindows = true
             ViewCompat.requestApplyInsets(root)
+        } else {
+            content.post {
+                val lateRoot = content.getChildAt(0)
+                if (lateRoot != null) {
+                    lateRoot.fitsSystemWindows = true
+                    ViewCompat.requestApplyInsets(lateRoot)
+                }
+            }
         }
     }
 }

@@ -1489,6 +1489,39 @@ object ImageCompressor {
         }
     }
 
+    /** DP Crop — Square from a CHOSEN square rect (crop tool,
+     *  v0.1.133 Batch 17): crop the [left, top, size] square and
+     *  save it as JPG 92. The cropped region IS the square, so
+     *  there is no outer area to fill (unlike the old fit flow). */
+    fun dpSquareRect(
+        input: File,
+        output: File,
+        left: Int,
+        top: Int,
+        size: Int
+    ): Boolean {
+        return try {
+            val bitmap = FileUtils.decodeBitmapWithExif(input.absolutePath) ?: return false
+            val s = size.coerceIn(1, minOf(bitmap.width, bitmap.height))
+            val l = left.coerceIn(0, bitmap.width - s)
+            val t = top.coerceIn(0, bitmap.height - s)
+            val square = Bitmap.createBitmap(bitmap, l, t, s, s)
+            val ok = try {
+                FileOutputStream(output).use { out ->
+                    square.compress(Bitmap.CompressFormat.JPEG, 92, out)
+                }
+                true
+            } catch (_: Throwable) {
+                false
+            }
+            bitmap.recycle()
+            square.recycle()
+            ok
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     /**
      * DP Crop — from the ADJUST step (v0.1.124): the photo is placed
      * with the user's adjust transform ([userScale] relative to fit,

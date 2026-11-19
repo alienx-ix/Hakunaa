@@ -370,13 +370,27 @@ object PdfTools {
         maxSidePx: Int,
         jpegQuality: Float
     ): Boolean {
+        return imageToPdfQuality(imageFiles, output, maxSidePx, jpegQuality, PDRectangle.A4)
+    }
+
+    /** Same tier engine with a chosen page size (v0.1.133,
+     *  Batch 17): Image to PDF's size chooser builds all three
+     *  tiers on the user's A4/Letter + Portrait/Landscape page,
+     *  so the sizes shown are the real sizes for that page. */
+    fun imageToPdfQuality(
+        imageFiles: List<File>,
+        output: File,
+        maxSidePx: Int,
+        jpegQuality: Float,
+        pageRect: PDRectangle
+    ): Boolean {
         return try {
             PDDocument().use { doc ->
                 for (imageFile in imageFiles) {
                     val original = BitmapFactory.decodeFile(imageFile.absolutePath) ?: return false
                     val bitmap = downscaleForPrint(original, maxSidePx)
                     if (bitmap != original) original.recycle()
-                    val page = PDPage(PDRectangle.A4)
+                    val page = PDPage(pageRect)
                     doc.addPage(page)
                     val image = JPEGFactory.createFromImage(doc, bitmap, jpegQuality)
                     PDPageContentStream(doc, page).use { content ->

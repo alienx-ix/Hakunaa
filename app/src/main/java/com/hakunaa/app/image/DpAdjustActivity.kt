@@ -22,13 +22,15 @@ import com.hakunaa.app.core.StatusBar
 import java.io.File
 
 /**
- * DP Crop — professional adjust step (v0.1.124). Tapping a DP
- * preview no longer saves immediately: this screen opens first,
- * so the user can pinch to zoom, drag to move (double-tap resets)
- * and pick the outer area (Blur / Color / Transparent for Circle)
- * — with the outer area drawn live, exactly as the saved DP will
- * look. Save renders full-res via [ImageCompressor.dpAdjust] and
- * shows the professional Saved popup.
+ * DP Crop — professional adjust step (v0.1.124, crop tool
+ * v0.1.133 Batch 17). Tapping a DP preview opens this screen:
+ * the CROP TOOL itself — drag the circle/square frame to move
+ * it, drag a corner (Square) or the edge (Circle) to resize it
+ * — and pick the outer area (Blur / Color / Transparent for
+ * Circle), drawn live exactly as the saved DP will look. Save
+ * renders full-res via [ImageCompressor.dpCircleRect] /
+ * [ImageCompressor.dpSquareRect] and shows the professional
+ * Saved popup.
  */
 class DpAdjustActivity : AppCompatActivity() {
 
@@ -53,7 +55,6 @@ class DpAdjustActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        StatusBar.setup(this, true)
         val density = resources.displayMetrics.density
         circle = intent.getBooleanExtra(EXTRA_CIRCLE, false)
         dpBackground = try {
@@ -215,7 +216,8 @@ class DpAdjustActivity : AppCompatActivity() {
         root.addView(colorRow)
 
         val hint = TextView(this).apply {
-            text = "Pinch to zoom • Drag to move • Double-tap to reset"
+            text = if (circle) "Drag the circle to move • Drag the edge to resize"
+            else "Drag the frame to move • Drag a corner to resize"
             textSize = 13f
             setTextColor(getColor(R.color.hakunaa_text_secondary))
             gravity = Gravity.CENTER
@@ -270,6 +272,11 @@ class DpAdjustActivity : AppCompatActivity() {
         root.addView(bottomBar)
 
         setContentView(root)
+        // Status bar (v0.1.133, Batch 17): setup AFTER
+        // setContentView — calling it before meant the content
+        // view did not exist yet, so the inset padding was never
+        // applied and the header overlapped the status bar.
+        StatusBar.setup(this, true)
         updateDpChips()
 
         val uriString = intent.getStringExtra(EXTRA_IMAGE_URI)
@@ -388,10 +395,20 @@ class DpAdjustActivity : AppCompatActivity() {
                 val ext =
                     if (circle && dpBackground == ImageCompressor.DpBackground.TRANSPARENT) "png" else "jpg"
                 val outFile = File(cacheDir, "hakunaa_dp_${System.currentTimeMillis()}.$ext")
-                val ok = ImageCompressor.dpAdjust(
-                    input, outFile, circle, dpBackground, dpBgColor,
-                    adjustView.userScale, adjustView.userDx, adjustView.userDy
-                )
+                // Crop tool (v0.1.133, Batch 17): the frame the
+                // user picked, in bitmap pixels — Circle masks it
+                // with the outer area, Square saves the crop.
+                val rect = adjustView.getCropRectPx()
+                val ok = if (circle) {
+                    ImageCompressor.dpCircleRect(
+                        input, outFile, rect.left, rect.top, rect.width(),
+                        dpBackground, dpBgColor
+                    )
+                } else {
+                    ImageCompressor.dpSquareRect(
+                        input, outFile, rect.left, rect.top, rect.width()
+                    )
+                }
                 runOnUiThread {
                     saving = false
                     if (ok && outFile.exists()) {

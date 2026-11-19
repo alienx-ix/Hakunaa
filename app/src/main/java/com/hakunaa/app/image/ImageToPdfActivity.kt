@@ -16,6 +16,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.exifinterface.media.ExifInterface
 import androidx.recyclerview.widget.ItemTouchHelper
@@ -61,6 +62,9 @@ class ImageToPdfActivity : AppCompatActivity() {
     private lateinit var tvEmpty: TextView
     private lateinit var btnCreate: MaterialButton
     private var creating = false
+    private var saving = false
+    /** The 3 built sizes (Normal / Compress / Extreme), for cleanup after save. */
+    private var builtVariants = listOf<File>()
 
     /** Page size: "A4" or "Letter". Orientation: "Portrait" or "Landscape". */
     private var pageSize = "A4"
@@ -76,7 +80,6 @@ class ImageToPdfActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        StatusBar.setup(this, true)
         val density = resources.displayMetrics.density
 
         val root = LinearLayout(this).apply {
@@ -242,6 +245,11 @@ class ImageToPdfActivity : AppCompatActivity() {
         root.addView(bottomBar)
 
         setContentView(root)
+        // Status bar (v0.1.133, Batch 17): setup AFTER
+        // setContentView — calling it before meant the content
+        // view did not exist yet, so the inset padding was never
+        // applied and the header overlapped the status bar.
+        StatusBar.setup(this, true)
         paintChips()
 
         // Restore pages after rotation, else open the picker
@@ -408,12 +416,16 @@ class ImageToPdfActivity : AppCompatActivity() {
         btnCreate.isEnabled = pages.isNotEmpty() && !creating
     }
 
-    /** Build the PDF from the pages, in order, and save it. */
+    /** Create PDF — but do NOT save directly (v0.1.133, Batch
+     *  17). Like the scanner export, build all 3 sizes up front
+     *  (Normal / Compress / Extreme) on the chosen page, show
+     *  each with its real file size, and let the user choose one
+     *  to save. */
     private fun createPdf() {
-        if (creating || pages.isEmpty()) return
+        if (creating || saving || pages.isEmpty()) return
         creating = true
         refreshState()
-        Toast.makeText(this, "Making PDF…", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Preparing sizes…", Toast.LENGTH_SHORT).show()
         val files = pages.map { it.file }
         val base = if (pageSize == "Letter") PDRectangle.LETTER else PDRectangle.A4
         val rect = if (orientation == "Landscape") {
@@ -423,35 +435,146 @@ class ImageToPdfActivity : AppCompatActivity() {
         }
         Thread {
             try {
-                val out = File(cacheDir, "hakunaa_pdf_${System.currentTimeMillis()}.pdf")
-                val ok = PdfTools.imageToPdf(files, out, rect)
+                val stamp = System.currentTimeMillis()
+                val variants = listOf(
+                    "Normal" to File(cacheDir, "hakunaa_pdf_normal_$stamp.pdf"),
+                    "Compress" to File(cacheDir, "hakunaa_pdf_compress_$stamp.pdf"),
+                    "Extreme" to File(cacheDir, "hakunaa_pdf_extreme_$stamp.pdf")
+                )
+                val done = mutableListOf<Pair<String, File>>()
+                for ((name, file) in variants) {
+                    val ok = when (name) {
+                        "Normal" -> PdfTools.imageToPdfQuality(files, file, Int.MAX_VALUE, 0.95f, rect)
+                        "Compress" -> PdfTools.imageToPdfQuality(files, file, 2000, 0.8f, rect)
+                        else -> PdfTools.imageToPdfQuality(files, file, 1200, 0.6f, rect)
+                    }
+                    if (ok && file.exists()) done.add(name to file)
+                }
                 runOnUiThread {
                     creating = false
                     refreshState()
-                    if (ok && out.exists()) {
-                        val saved = MediaStoreSaver.save(
-                            this, out, MediaStoreSaver.Kind.DOCUMENT, out.name
-                        )
-                        if (saved != null) {
-                            Toast.makeText(
-                                this, "PDF saved to Documents/Hakunaa",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                            finish()
-                        } else {
-                            Toast.makeText(
-                                this, "Done, but couldn't save — please try again",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                    } else {
+                    if (done.isEmpty()) {
                         Toast.makeText(this, "Failed — try again", Toast.LENGTH_SHORT).show()
+                        return@runOnUiThread
                     }
+                    builtVariants = done.map { it.second }
+                    showSizeChooser(done)
                 }
             } catch (_: Throwable) {
                 runOnUiThread {
                     creating = false
                     refreshState()
+                    Toast.makeText(this, "Failed — try again", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }.start()
+    }
+
+    /** Size chooser: one row per built size, with its real file
+     *  size — tap a row to save that PDF (scanner export style). */
+    private fun showSizeChooser(built: List<Pair<String, File>>) {
+        val density = resources.displayMetrics.density
+        val notes = mapOf(
+            "Normal" to "Full quality — largest file",
+            "Compress" to "Balanced — crisp at print size",
+            "Extreme" to "Smallest file — for sharing"
+        )
+        val list = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(
+                (20 * density).toInt(), (8 * density).toInt(),
+                (20 * density).toInt(), (8 * density).toInt()
+            )
+        }
+        var dialog: AlertDialog? = null
+        for ((name, file) in built) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(0, (12 * density).toInt(), 0, (12 * density).toInt())
+            }
+            val topRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+            }
+            topRow.addView(TextView(this).apply {
+                text = name
+                textSize = 16f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(getColor(R.color.hakunaa_text))
+                layoutParams = LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+                )
+            })
+            topRow.addView(TextView(this).apply {
+                text = FileUtils.formatSize(file.length())
+                textSize = 15f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(getColor(R.color.hakunaa_teal))
+            })
+            row.addView(topRow)
+            row.addView(TextView(this).apply {
+                text = notes[name] ?: ""
+                textSize = 13f
+                setTextColor(getColor(R.color.hakunaa_text_secondary))
+                setPadding(0, (2 * density).toInt(), 0, 0)
+            })
+            row.setOnClickListener {
+                dialog?.dismiss()
+                saveChosen(file)
+            }
+            list.addView(row)
+            // Divider between rows.
+            if (name != built.last().first) {
+                list.addView(View(this).apply {
+                    setBackgroundColor(getColor(R.color.hakunaa_outline))
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        (1 * density).toInt()
+                    )
+                })
+            }
+        }
+        dialog = AlertDialog.Builder(this)
+            .setTitle("Choose PDF size")
+            .setView(list)
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.show()
+    }
+
+    /** Save the chosen size to Documents (prevents double taps). */
+    private fun saveChosen(chosen: File) {
+        if (saving) return
+        saving = true
+        Toast.makeText(this, "Saving…", Toast.LENGTH_SHORT).show()
+        Thread {
+            try {
+                val saved = MediaStoreSaver.save(
+                    this, chosen, MediaStoreSaver.Kind.DOCUMENT, chosen.name
+                ) != null
+                // Drop the other built sizes (best effort).
+                for (file in builtVariants) {
+                    if (file != chosen) {
+                        try { file.delete() } catch (_: Throwable) { }
+                    }
+                }
+                runOnUiThread {
+                    if (saved) {
+                        Toast.makeText(
+                            this, "PDF saved to Documents/Hakunaa",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        finish()
+                    } else {
+                        saving = false
+                        Toast.makeText(
+                            this, "Done, but couldn't save — please try again",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            } catch (_: Throwable) {
+                runOnUiThread {
+                    saving = false
                     Toast.makeText(this, "Failed — try again", Toast.LENGTH_SHORT).show()
                 }
             }
