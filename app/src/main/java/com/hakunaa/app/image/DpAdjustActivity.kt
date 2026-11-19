@@ -215,6 +215,7 @@ class DpAdjustActivity : AppCompatActivity() {
             setTextColor(getColor(R.color.hakunaa_text))
             gravity = Gravity.CENTER
             setPadding(0, (8 * density).toInt(), 0, 0)
+            visibility = View.GONE
         }
         root.addView(tvStatus)
 
@@ -367,6 +368,7 @@ class DpAdjustActivity : AppCompatActivity() {
         val input = inputFile ?: return
         saving = true
         tvStatus.text = "Saving…"
+        tvStatus.visibility = View.VISIBLE
         Thread {
             try {
                 val ext =
@@ -384,6 +386,7 @@ class DpAdjustActivity : AppCompatActivity() {
                             this, outFile, MediaStoreSaver.Kind.IMAGE, outFile.name, fmt.mime
                         )
                         tvStatus.text = ""
+                        tvStatus.visibility = View.GONE
                         if (saved != null) {
                             SavedDialog.show(
                                 this, outFile, saved, fmt, input,
@@ -391,15 +394,18 @@ class DpAdjustActivity : AppCompatActivity() {
                             )
                         } else {
                             tvStatus.text = "Done, but couldn't save to Pictures — please try again"
+                            tvStatus.visibility = View.VISIBLE
                         }
                     } else {
                         tvStatus.text = "Failed — try another image"
+                        tvStatus.visibility = View.VISIBLE
                     }
                 }
             } catch (_: Throwable) {
                 runOnUiThread {
                     saving = false
                     tvStatus.text = "Failed — try another image"
+                    tvStatus.visibility = View.VISIBLE
                 }
             }
         }.start()

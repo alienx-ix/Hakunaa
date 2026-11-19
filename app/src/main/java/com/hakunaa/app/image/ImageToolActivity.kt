@@ -1381,7 +1381,7 @@ class ImageToolActivity : AppCompatActivity() {
         val container = findViewById<LinearLayout>(R.id.resultsContainer)
         container.removeAllViews()
         container.visibility = View.VISIBLE
-        findViewById<TextView>(R.id.tvStatus).text = ""
+        setStatusText("")
         val density = resources.displayMetrics.density
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1421,8 +1421,7 @@ class ImageToolActivity : AppCompatActivity() {
     /** Smart Compress: try all levels, show every result, user picks one. */
     private fun runSmartCompress() {
         val input = inputFile ?: return
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Working…"
+        setStatusText("Working…")
         showCompressingProgress()
         Thread {
             try {
@@ -1435,7 +1434,7 @@ class ImageToolActivity : AppCompatActivity() {
                 runOnUiThread {
                     if (results.isEmpty()) {
                         hideCompressingProgress()
-                        status.text = "Already optimized — even the strongest settings couldn't shrink this image."
+                        setStatusText("Already optimized — even the strongest settings couldn't shrink this image.")
                     } else {
                         webpLazyResults = null
                         smartResults = results
@@ -1447,7 +1446,7 @@ class ImageToolActivity : AppCompatActivity() {
             } catch (_: Throwable) {
                 runOnUiThread {
                     hideCompressingProgress()
-                    status.text = "Failed — try another image"
+                    setStatusText("Failed — try another image")
                 }
             }
         }.start()
@@ -1455,7 +1454,6 @@ class ImageToolActivity : AppCompatActivity() {
 
     private fun next() {
         val input = inputFile ?: return
-        val status = findViewById<TextView>(R.id.tvStatus)
         if (mode == MODE_METADATA) {
             if (step == 1) finish()
             return
@@ -1475,16 +1473,16 @@ class ImageToolActivity : AppCompatActivity() {
                     val targetBytes = targetSizeBytes()
                     val etTarget = findViewById<android.widget.EditText>(R.id.etTargetSize)
                     if (targetBytes == null || targetBytes <= 0) {
-                        status.text = "Enter a size first (e.g. 500 KB or 2 MB)"
+                        setStatusText("Enter a size first (e.g. 500 KB or 2 MB)")
                         return
                     }
                     if (targetBytes >= inputSize) {
                         etTarget.setBackgroundResource(R.drawable.bg_input_error)
-                        status.text = "Target must be smaller than the original (${com.hakunaa.app.core.FileUtils.formatSize(inputSize)})"
+                        setStatusText("Target must be smaller than the original (${com.hakunaa.app.core.FileUtils.formatSize(inputSize)})")
                         return
                     }
                     etTarget.setBackgroundResource(R.drawable.bg_search)
-                    status.text = "Checking…"
+                    setStatusText("Checking…")
                     val nextBtn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnNext)
                     nextBtn.isEnabled = false
                     Thread {
@@ -1526,10 +1524,10 @@ class ImageToolActivity : AppCompatActivity() {
         }
         // Resize with nothing chosen is an error, never a silent copy.
         if (mode == MODE_RESIZE && (selectedCardTag ?: selectedTag()) == null) {
-            status.text = "Choose a size first"
+            setStatusText("Choose a size first")
             return
         }
-        status.text = "Working…"
+        setStatusText("Working…")
         // Set when an AVIF convert fails because this phone has no AVIF encoder.
         var avifUnavailable = false
         Thread {
@@ -1596,20 +1594,20 @@ class ImageToolActivity : AppCompatActivity() {
                         val saved = MediaStoreSaver.save(
                             this, out, MediaStoreSaver.Kind.IMAGE, out.name, fmt.mime
                         )
-                        findViewById<TextView>(R.id.tvResult).text =
-                            "${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(after)} " +
-                                "(${FileUtils.savedPercent(inputSize, after)})"
-                        status.text = ""
+                        setResultText("${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(after)} (${FileUtils.savedPercent(inputSize, after)})")
+                        setStatusText("")
                         if (saved != null) showSavedDialog(out, saved, fmt)
-                        else status.text = "Done, but couldn't save to Pictures — please try again"
+                        else setStatusText("Done, but couldn't save to Pictures — please try again")
                     } else {
-                        status.text = if (avifUnavailable)
+                        setStatusText(
+                        if (avifUnavailable)
                             "AVIF isn't available on this phone — try another format"
                         else "Failed — try another image"
+                    )
                     }
                 }
             } catch (_: Throwable) {
-                runOnUiThread { status.text = "Failed — try another image" }
+                runOnUiThread { setStatusText("Failed — try another image") }
             }
         }.start()
     }
@@ -1742,8 +1740,7 @@ class ImageToolActivity : AppCompatActivity() {
      *  menus — it NEVER saves silently. */
     private fun runHdCompress() {
         val input = inputFile ?: return
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Working…"
+        setStatusText("Working…")
         showCompressingProgress()
         val nextBtn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnNext)
         nextBtn.isEnabled = false
@@ -1763,21 +1760,21 @@ class ImageToolActivity : AppCompatActivity() {
                         smartResults = results
                         step = 2
                         renderStep()
-                        status.text = "HD done — View, then Save"
+                        setStatusText("HD done — View, then Save")
                         // Result screen (not a silent save): Preview
                         // button + Save selected. allowWebp = true because a
                         // WebP input stays WebP at quality 95.
                         showSmartResults(results, allowWebp = true)
                     } else {
                         hideCompressingProgress()
-                        status.text = "Already optimized — this photo is already small"
+                        setStatusText("Already optimized — this photo is already small")
                     }
                 }
             } catch (_: Throwable) {
                 runOnUiThread {
                     hideCompressingProgress()
                     nextBtn.isEnabled = true
-                    status.text = "Failed — try another image"
+                    setStatusText("Failed — try another image")
                 }
             }
         }.start()
@@ -1786,8 +1783,7 @@ class ImageToolActivity : AppCompatActivity() {
     /** Run the Target-size compress on a background thread. */
     private fun runTargetCompress(targetBytes: Long) {
         val input = inputFile ?: return
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Working…"
+        setStatusText("Working…")
         showCompressingProgress()
         val nextBtn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnNext)
         nextBtn.isEnabled = false
@@ -1815,14 +1811,14 @@ class ImageToolActivity : AppCompatActivity() {
                     } else {
                         hideCompressingProgress()
                         try { outFile.delete() } catch (_: Throwable) { }
-                        status.text = "Could not reach that size — try a bigger target"
+                        setStatusText("Could not reach that size — try a bigger target")
                     }
                 }
             } catch (_: Throwable) {
                 runOnUiThread {
                     hideCompressingProgress()
                     nextBtn.isEnabled = true
-                    status.text = "Failed — try another image"
+                    setStatusText("Failed — try another image")
                 }
             }
         }.start()
@@ -1830,8 +1826,7 @@ class ImageToolActivity : AppCompatActivity() {
 
     /** Target too low: warn FIRST — the photo will look poor. */
     private fun showTooLowWarning(targetBytes: Long, minBytes: Long) {
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "That size is too low — the photo will look poor."
+        setStatusText("That size is too low — the photo will look poor.")
         androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("Very low target?")
             .setMessage("The smallest this photo can be is ${com.hakunaa.app.core.FileUtils.formatSize(minBytes)}. A ${com.hakunaa.app.core.FileUtils.formatSize(targetBytes)} target will look very poor. Continue anyway?")
@@ -1847,8 +1842,7 @@ class ImageToolActivity : AppCompatActivity() {
      *  job, not Quality's. */
     private fun runQualitySmartResults() {
         val input = inputFile ?: return
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Working…"
+        setStatusText("Working…")
         showCompressingProgress()
         val nextBtn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnNext)
         nextBtn.isEnabled = false
@@ -1860,7 +1854,7 @@ class ImageToolActivity : AppCompatActivity() {
                     nextBtn.isEnabled = true
                     if (results.isEmpty()) {
                         hideCompressingProgress()
-                        status.text = "Already optimized — even the strongest settings couldn't shrink this image."
+                        setStatusText("Already optimized — even the strongest settings couldn't shrink this image.")
                     } else {
                         webpLazyResults = null
                         smartResults = results
@@ -1873,7 +1867,7 @@ class ImageToolActivity : AppCompatActivity() {
                 runOnUiThread {
                     hideCompressingProgress()
                     nextBtn.isEnabled = true
-                    status.text = "Failed — try another image"
+                    setStatusText("Failed — try another image")
                 }
             }
         }.start()
@@ -2165,39 +2159,35 @@ class ImageToolActivity : AppCompatActivity() {
     /** Resize to an exact custom size and save. */
     private fun resizeToCustom(w: Int, h: Int) {
         val input = inputFile ?: return
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Working…"
+        setStatusText("Working…")
         Thread {
             try {
                 val outFile = File(cacheDir, "hakunaa_resized_${System.currentTimeMillis()}.jpg")
                 val ok = ImageCompressor.resizeTo(input, outFile, w, h)
                 runOnUiThread {
                     if (ok && outFile.exists()) saveSingleResult(outFile)
-                    else status.text = "Failed — try another image"
+                    else setStatusText("Failed — try another image")
                 }
             } catch (_: Throwable) {
-                runOnUiThread { status.text = "Failed — try another image" }
+                runOnUiThread { setStatusText("Failed — try another image") }
             }
         }.start()
     }
 
     /** Save one finished file to Pictures/Hakunaa and show its sizes. */
     private fun saveSingleResult(outFile: java.io.File) {
-        val status = findViewById<TextView>(R.id.tvStatus)
         val after = outFile.length()
         val saved = MediaStoreSaver.save(
             this, outFile, MediaStoreSaver.Kind.IMAGE, outFile.name,
             ImageCompressor.formatOf(outFile).mime
         )
         if (saved != null) {
-            status.text = ""
+            setStatusText("")
             SavedDialog.show(this, outFile, saved, ImageCompressor.formatOf(outFile), inputFile)
         } else {
-            status.text = "Done, but couldn't save to Pictures — please try again"
+            setStatusText("Done, but couldn't save to Pictures — please try again")
         }
-        findViewById<TextView>(R.id.tvResult).text =
-            "${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(after)} " +
-                "(${FileUtils.savedPercent(inputSize, after)})"
+        setResultText("${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(after)} (${FileUtils.savedPercent(inputSize, after)})")
     }
 
     /** The professional save confirmation — the shared dialog
@@ -2241,8 +2231,8 @@ class ImageToolActivity : AppCompatActivity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(
-                (16 * density).toInt(), (12 * density).toInt(),
-                (16 * density).toInt(), (12 * density).toInt()
+                (16 * density).toInt(), (8 * density).toInt(),
+                (16 * density).toInt(), (8 * density).toInt()
             )
         }
         val textCol = LinearLayout(this).apply {
@@ -2334,12 +2324,20 @@ class ImageToolActivity : AppCompatActivity() {
         inner.addView(previewBtn)
         card.addView(inner)
         card.setOnClickListener { onSelect(r) }
+        // v0.1.128: the cards SHARE the rows' height by weight, so
+        // they fill the screen (no gap above Save) - but NEVER below
+        // their content height (minimumHeight), so the last card can
+        // never be squeezed like v0.1.127's 5th box. The v0.1.127
+        // WRAP_CONTENT cards were measured with the REMAINING space
+        // as AT_MOST by LinearLayout, so the last card got a tiny
+        // spec and measured short (size line gone, View clipped).
         val params = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
+            0, 1f
         )
-        params.topMargin = (8 * density).toInt()
+        params.topMargin = (6 * density).toInt()
         card.layoutParams = params
+        card.minimumHeight = (64 * density).toInt()
         return card
     }
 
@@ -2525,6 +2523,18 @@ class ImageToolActivity : AppCompatActivity() {
             setTextColor(getColor(R.color.hakunaa_text_secondary))
             setPadding(0, (12 * density).toInt(), 0, 0)
         })
+        // "Original → Best" summary (v0.1.128, Batch 12): more
+        // details at the top, as the user asked. Set once the
+        // WebP results arrive (the Best is only known then).
+        val webpSummary = TextView(this).apply {
+            text = ""
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            setPadding(0, (10 * density).toInt(), 0, 0)
+            visibility = View.GONE
+        }
+        content.addView(webpSummary)
         // "Compressing WebP…" animation (v0.1.124) — never an empty
         // screen while WebP computes (it can take ~1 minute on a
         // large photo).
@@ -2561,6 +2571,7 @@ class ImageToolActivity : AppCompatActivity() {
             textSize = 14f
             setTextColor(getColor(R.color.hakunaa_text))
             setPadding(0, (16 * density).toInt(), 0, 0)
+            visibility = View.GONE
         }
         content.addView(status)
         // Rows fill the rest of the window (v0.1.125) — the 4
@@ -2646,11 +2657,17 @@ class ImageToolActivity : AppCompatActivity() {
                     progressBox.visibility = View.GONE
                     if (results.isEmpty()) {
                         status.text = "WebP couldn't shrink this photo further."
+                        status.visibility = View.VISIBLE
                     } else {
                         status.text = ""
+                        status.visibility = View.GONE
                         webpRows = results.sortedBy { it.size }
                         val best = ImageCompressor.balancedBest(webpRows)
                         selectedWebp = best
+                        best?.let {
+                            webpSummary.text = "Original ${FileUtils.formatSize(inputSize)} → Best ${FileUtils.formatSize(it.size)} • saved ${it.savingPercent}%"
+                            webpSummary.visibility = View.VISIBLE
+                        }
                         saveBtn.isEnabled = true
                         refreshWebpRows()
                     }
@@ -2659,6 +2676,7 @@ class ImageToolActivity : AppCompatActivity() {
                 runOnUiThread {
                     progressBox.visibility = View.GONE
                     status.text = "WebP check failed — try again"
+                    status.visibility = View.VISIBLE
                 }
             }
         }.start()
@@ -2679,6 +2697,22 @@ class ImageToolActivity : AppCompatActivity() {
      *  [allowWebp] is true only for the HD result screen, whose
      *  single result may be WebP (a WebP input stays WebP at
      *  quality 95). */
+    /** Status / result lines take NO space when empty (v0.1.128):
+     *  they are GONE instead of an empty visible line, so there is
+     *  never dead white space above the pinned Save button - on
+     *  every result screen, not just Smart. */
+    private fun setStatusText(text: String) {
+        val v = findViewById<TextView>(R.id.tvStatus)
+        v.text = text
+        v.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
+    }
+
+    private fun setResultText(text: String) {
+        val v = findViewById<TextView>(R.id.tvResult)
+        v.text = text
+        v.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
+    }
+
     private fun showSmartResults(
         results: List<ImageCompressor.LevelResult>,
         allowWebp: Boolean = false
@@ -2693,7 +2727,8 @@ class ImageToolActivity : AppCompatActivity() {
             weight = 1f
         }
         // A stale "Working…" never lingers under the results.
-        findViewById<TextView>(R.id.tvStatus).text = ""
+        setStatusText("")
+        setResultText("")
         val density = resources.displayMetrics.density
         // JPG only — the old `else results` fallback (which showed
         // WebP rows by default) is gone on purpose. (HD passes
@@ -2741,7 +2776,7 @@ class ImageToolActivity : AppCompatActivity() {
                 textSize = 14f
                 setTypeface(null, android.graphics.Typeface.BOLD)
                 setTextColor(getColor(R.color.hakunaa_text))
-                setPadding(0, (8 * density).toInt(), 0, (4 * density).toInt())
+                setPadding(0, (4 * density).toInt(), 0, (4 * density).toInt())
             }
             container.addView(rowsLabel)
             // Selectable result cards (v0.1.127): WRAP_CONTENT, so
@@ -2909,8 +2944,7 @@ class ImageToolActivity : AppCompatActivity() {
     /** Strip the metadata, then show the Before/After view. */
     private fun doRemoveMetadata() {
         val input = inputFile ?: return
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Removing metadata…"
+        setStatusText("Removing metadata…")
         Thread {
             try {
                 val removed = mutableListOf<String>()
@@ -2933,21 +2967,20 @@ class ImageToolActivity : AppCompatActivity() {
                             ImageCompressor.formatOf(out).mime
                         )
                         if (saved != null) {
-                            status.text = ""
+                            setStatusText("")
                             SavedDialog.show(this, out, saved, ImageCompressor.formatOf(out), input)
                         } else {
-                            status.text = "Done, but couldn't save to Pictures — please try again"
+                            setStatusText("Done, but couldn't save to Pictures — please try again")
                         }
-                        findViewById<TextView>(R.id.tvResult).text =
-                            "${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(out.length())}"
+                        setResultText("${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(out.length())}")
                         step = 1
                         renderStep()
                     } else {
-                        status.text = "Failed — try another image"
+                        setStatusText("Failed — try another image")
                     }
                 }
             } catch (_: Throwable) {
-                runOnUiThread { status.text = "Failed — try another image" }
+                runOnUiThread { setStatusText("Failed — try another image") }
             }
         }.start()
     }
@@ -3010,13 +3043,11 @@ class ImageToolActivity : AppCompatActivity() {
         if (saved != null) {
             // Professional Saved popup on EVERY save (v0.1.124) —
             // not just Convert.
-            findViewById<TextView>(R.id.tvStatus).text = ""
+            setStatusText("")
             SavedDialog.show(this, r.file, saved, ImageCompressor.formatOf(r.file), inputFile)
         } else {
-            findViewById<TextView>(R.id.tvStatus).text =
-                "Done, but couldn't save to Pictures — please try again"
+            setStatusText("Done, but couldn't save to Pictures — please try again")
         }
-        findViewById<TextView>(R.id.tvResult).text =
-            "${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(r.size)} (${r.savingPercent}% smaller)"
+        setResultText("${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(r.size)} (${r.savingPercent}% smaller)")
     }
 }
