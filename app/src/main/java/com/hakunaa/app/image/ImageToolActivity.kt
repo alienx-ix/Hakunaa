@@ -2479,17 +2479,11 @@ class ImageToolActivity : AppCompatActivity() {
                 (16 * density).toInt(), (8 * density).toInt()
             )
         }
-        // v0.1.139 (Batch 23): WebP cards only (plainCard) — the
-        // row must FILL the tall weight-shared card, so the text
-        // block + View sit vertically centred in it, not at the
-        // top (the user: "Text enga center aa irku??"). Smart
-        // keeps its WRAP_CONTENT row, untouched.
-        if (plainCard) {
-            inner.layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.MATCH_PARENT
-            )
-        }
+        // v0.1.140 (Batch 24): the v0.1.139 MATCH_PARENT row
+        // fill is REVERTED — the user wants the WebP window to
+        // clone Smart's screen exactly, and Smart's row is
+        // WRAP_CONTENT (text top-left in the card). WebP uses
+        // the same row as Smart now.
         val textCol = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
@@ -2498,10 +2492,11 @@ class ImageToolActivity : AppCompatActivity() {
         }
         val line1 = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            // v0.1.139 (Batch 23): WebP cards only — centre the
-            // label + badge horizontally in the text column.
-            // Smart keeps CENTER_VERTICAL (left-aligned), untouched.
-            gravity = if (plainCard) Gravity.CENTER else Gravity.CENTER_VERTICAL
+            // v0.1.140 (Batch 24): LEFT-aligned, like Smart —
+            // the v0.1.139 CENTER gravity is REVERTED (the user:
+            // "Smart inu better a irku la... Idhu mari same try
+            // panalam la" — clone Smart's screen exactly).
+            gravity = Gravity.CENTER_VERTICAL
         }
         val label = TextView(this).apply {
             text = r.label
@@ -2558,9 +2553,8 @@ class ImageToolActivity : AppCompatActivity() {
             text = "${FileUtils.formatSize(r.size)}  •  saved ${r.savingPercent}%"
             textSize = 14f
             setTextColor(getColor(R.color.hakunaa_text_secondary))
-            // v0.1.139 (Batch 23): WebP cards only — centre the
-            // size line horizontally. Smart keeps it left-aligned.
-            if (plainCard) gravity = Gravity.CENTER
+            // v0.1.140 (Batch 24): LEFT-aligned, like Smart —
+            // the v0.1.139 CENTER gravity is REVERTED.
         }
         textCol.addView(line1)
         textCol.addView(line2)
@@ -2841,24 +2835,16 @@ class ImageToolActivity : AppCompatActivity() {
             // shadow at its edge (the v0.1.129 failure).
             clipToPadding = false
         }
-        // Image details card (v0.1.124): the picked photo's
-        // details, big and clear at the top — name, size, format,
+        // Image details (v0.1.124): the picked photo's details,
+        // big and clear at the top — name, size, format,
         // resolution.
-        // v0.1.134 (Batch 18): plain container, not a
-        // MaterialCardView — the dialog's M3 theme tints a
-        // MaterialCardView darker (the v0.1.131 finding), so this
-        // card rendered grey-blue instead of Smart's light colour.
-        // Same #ECF3FB as the result cards, so the whole window
-        // is one consistent light colour.
+        // v0.1.140 (Batch 24): NO card — Smart's file info is a
+        // plain thumbnail + text on the background (user: "Smart
+        // inu better a irku la... Idhu mari same try panalam
+        // la"). The v0.1.134 plain-container card is gone; this
+        // is a plain wrapper now, exactly like Smart's row.
         val imageCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = 12f * density
-                setColor(0xFFECF3FB.toInt())
-            }
-            elevation = 2f * density
-            clipToOutline = true
         }
         val imageRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -3022,16 +3008,29 @@ class ImageToolActivity : AppCompatActivity() {
             visibility = View.GONE
         }
         content.addView(status)
-        // Rows fill the rest of the content (v0.1.138, Batch 22)
-        // — the cards are weight-shared again, EXACTLY like
-        // Smart's rows: the v0.1.136 fixed-height change was my
-        // invention, never asked for (user: "Ila una yaru card
-        // size simple pana sona?"). Smart's cards are
-        // weight-shared (height 0, weight 1, 6dp gaps, TOP
-        // gravity), so weight-shared IS "like Smart". The rows
-        // container is weight-filled (0, 1f) like Smart's, so
-        // the 4 cards share the full-screen height and fill the
-        // window with no gap above Save.
+        // "Results" section heading (v0.1.140, Batch 24) —
+        // EXACTLY like Smart's (same 14sp bold text, same 2dp
+        // padding). Hidden until the WebP results arrive, like
+        // the rows themselves.
+        val webpResultsLabel = TextView(this).apply {
+            text = "Results"
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            setPadding(0, (2 * density).toInt(), 0, (2 * density).toInt())
+            visibility = View.GONE
+        }
+        content.addView(webpResultsLabel)
+        // Rows fill the rest of the content — the cards are
+        // FIXED Smart height now (v0.1.140, Batch 24), via
+        // measureSmartCardHeightPx(), exactly like Smart's
+        // compact cards. The v0.1.138 weight-shared cards are
+        // REVERTED — the user asked for Smart's exact layout
+        // ("Smart inu better a irku la..."). The rows container
+        // stays weight-filled (0, 1f) like Smart's, so with 4
+        // compact cards there may be space below the last card
+        // (the v0.1.136 arithmetic) — reported honestly, not
+        // "fixed" by stretching (the user rejected that).
         val rowsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.TOP
@@ -3095,15 +3094,15 @@ class ImageToolActivity : AppCompatActivity() {
             rowsContainer.removeAllViews()
             val best = ImageCompressor.balancedBest(webpRows)
             val smallest = webpRows.minByOrNull { it.size }
-            // v0.1.138 (Batch 22): weight-shared cards again —
-            // the v0.1.136 fixed-height change is REVERTED. It
-            // was my invention, never asked for (user: "Ila una
-            // yaru card size simple pana sona?" + "Same Old card
-            // la.. Perfect a pani kotu.. Smart mari.."). Smart's
-            // cards are weight-shared (height 0, weight 1), so
-            // these are too — fixedHeightPx is NOT passed (null
-            // default = weight-shared, exactly like
-            // buildSmartResultCard). 6dp gaps, TOP gravity.
+            // v0.1.140 (Batch 24): FIXED Smart-height cards —
+            // the user asked for Smart's exact layout ("Smart
+            // inu better a irku la... Idhu mari same try panalam
+            // la"), so each card is exactly Smart's on-screen
+            // height via measureSmartCardHeightPx() (the v0.1.136
+            // mechanism — authorised by the user this time).
+            // The v0.1.138 weight-shared cards are reverted.
+            // The "Results" heading shows with the rows.
+            webpResultsLabel.visibility = View.VISIBLE
             for (r in webpRows) {
                 val card = buildResultRow(
                     r, r == best, r == selectedWebp,
@@ -3119,6 +3118,9 @@ class ImageToolActivity : AppCompatActivity() {
                         saveBtn.isEnabled = true
                     },
                     showSmaller = r == smallest && r != best,
+                    // v0.1.140 (Batch 24): compact like Smart —
+                    // exactly Smart's on-screen card height.
+                    fixedHeightPx = measureSmartCardHeightPx(),
                     topMarginDp = 6,
                     // Plain container (no MaterialCardView tint),
                     // so the WebP cards are Smart's exact light
