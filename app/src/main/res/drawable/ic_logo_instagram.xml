@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Instagram glyph, drawn in code (white on the pink badge) —
+     rounded-square outline, centre circle, dot top-right. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:pathData="M7,3 h10 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 H7 a4,4 0 0 1 -4,-4 V7 a4,4 0 0 1 4,-4 z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:pathData="M12,8.5 a3.5,3.5 0 1,0 0,7 a3.5,3.5 0 1,0 0,-7 z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M17.2,5.6 a1.2,1.2 0 1,0 0,2.4 a1.2,1.2 0 1,0 0,-2.4 z" />
+</vector>

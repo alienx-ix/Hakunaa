@@ -860,6 +860,53 @@ object ImageCompressor {
         return listOf(LevelResult(label, format, quality, candidate, size, saving))
     }
 
+    /**
+     * HD Compress: full resolution, visually lossless. Tries JPEG 95
+     * then JPEG 90 (WebP 95 then 90 for WebP inputs; JPEG for PNG /
+     * TIFF / BMP / AVIF inputs) and returns the SMALLEST result that
+     * is smaller than the original — one result only.
+     *
+     * The old HD tried JPEG 95 alone, which almost never shrinks an
+     * already-compressed camera photo — so HD always answered
+     * "Already optimized" and looked totally broken. The ladder
+     * gives it a real chance while staying at full resolution.
+     */
+    fun compressHd(input: File, outputBase: File): List<LevelResult> {
+        val inputSize = input.length()
+        val format = when (formatOf(input)) {
+            Format.JPEG -> Format.JPEG
+            Format.WEBP -> Format.WEBP
+            Format.PNG, Format.TIFF, Format.BMP, Format.AVIF -> Format.JPEG
+        }
+        var best: LevelResult? = null
+        for (quality in listOf(95, 90)) {
+            val candidate = File(
+                outputBase.parent,
+                "${outputBase.nameWithoutExtension}_hd_q$quality.${format.extension}"
+            )
+            val ok = compress(input, candidate, quality, format, 10000)
+            if (!ok || !candidate.exists()) {
+                try { candidate.delete() } catch (_: Throwable) { }
+                continue
+            }
+            val size = candidate.length()
+            if (size < inputSize) {
+                val saving = ((inputSize - size) * 100 / inputSize).toInt()
+                val label = if (format == Format.WEBP) "WebP $quality%" else "JPEG $quality%"
+                val r = LevelResult(label, format, quality, candidate, size, saving)
+                if (best == null || size < best.size) {
+                    best?.file?.let { try { it.delete() } catch (_: Throwable) { } }
+                    best = r
+                } else {
+                    try { candidate.delete() } catch (_: Throwable) { }
+                }
+            } else {
+                try { candidate.delete() } catch (_: Throwable) { }
+            }
+        }
+        return best?.let { listOf(it) } ?: emptyList()
+    }
+
     /** Smallest this photo can be (JPEG quality 10, full resolution). */
     fun minPossibleSize(input: File): Long {
         return try {
@@ -1044,24 +1091,197 @@ object ImageCompressor {
     }
 
     /**
-     * Remove Metadata: decode (which applies EXIF orientation, so
-     * the pixels come out the right way up) and re-encode without
-     * any EXIF — location, camera and date are gone. JPEG 95%
-     * (PNG stays PNG). The re-encode at 95% is visually lossless.
+     * Remove Metadata — WITHOUT re-encoding (v0.1.121 fix).
+     *
+     * The old version decoded the photo and re-encoded it at JPEG
+     * 95%, which made most photos BIGGER (a camera JPEG at ~85
+     * re-encoded at 95 grows) — the reported bug. This version
+     * removes the metadata segments from the file bytes and copies
+     * the image data verbatim, so the output is NEVER bigger than
+     * the original — only smaller (by the size of the removed
+     * metadata), or exactly equal when there is none.
+     *
+     * JPEG: drops APP1 segments (EXIF + XMP). PNG: drops eXIf /
+     * tEXt / iTXt / zTXt chunks. WebP: drops the EXIF chunk from
+     * the RIFF container (and clears the VP8X EXIF flag). Anything
+     * else falls back to a re-encode that is only kept when it is
+     * not bigger than the original.
      */
     fun stripMetadata(input: File, output: File): Boolean {
         return try {
-            val bitmap = FileUtils.decodeBitmapWithExif(input.absolutePath) ?: return false
-            val isPng = input.name.lowercase().endsWith(".png")
-            val format = if (isPng) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
-            val quality = if (isPng) 100 else 95
-            FileOutputStream(output).use { out ->
-                bitmap.compress(format, quality, out)
+            val bytes = input.readBytes()
+            val cleaned: ByteArray? = when {
+                isJpegBytes(bytes) -> stripJpegMetadata(bytes)
+                isPngBytes(bytes) -> stripPngMetadata(bytes)
+                isWebPBytes(bytes) -> stripWebPMetadata(bytes)
+                else -> null
             }
-            bitmap.recycle()
-            true
+            if (cleaned != null) {
+                output.writeBytes(cleaned)
+                true
+            } else {
+                stripMetadataReencode(input, output)
+            }
         } catch (_: Throwable) {
             false
         }
+    }
+
+    /** Re-encode without EXIF (fallback for TIFF/BMP/AVIF) — kept
+     *  only when the result is NOT bigger than the original, so
+     *  the compression law is never broken. */
+    private fun stripMetadataReencode(input: File, output: File): Boolean {
+        return try {
+            val bitmap = FileUtils.decodeBitmapWithExif(input.absolutePath) ?: return false
+            val isPng = formatOf(input) == Format.PNG
+            val format = if (isPng) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
+            for (quality in listOf(90, 75)) {
+                val tmp = File(
+                    output.parent,
+                    "hakunaa_clean_tmp_${System.currentTimeMillis()}.jpg"
+                )
+                FileOutputStream(tmp).use { out ->
+                    bitmap.compress(format, if (isPng) 100 else quality, out)
+                }
+                if (tmp.exists() && tmp.length() <= input.length()) {
+                    tmp.copyTo(output, overwrite = true)
+                    try { tmp.delete() } catch (_: Throwable) { }
+                    bitmap.recycle()
+                    return true
+                }
+                try { tmp.delete() } catch (_: Throwable) { }
+            }
+            bitmap.recycle()
+            false
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private fun isJpegBytes(b: ByteArray) =
+        b.size >= 2 && b[0] == 0xFF.toByte() && b[1] == 0xD8.toByte()
+
+    private fun isPngBytes(b: ByteArray) =
+        b.size >= 8 && b[0] == 0x89.toByte() && b[1] == 0x50.toByte() &&
+            b[2] == 0x4E.toByte() && b[3] == 0x47.toByte()
+
+    private fun isWebPBytes(b: ByteArray) =
+        b.size >= 12 && b[0] == 'R'.code.toByte() && b[1] == 'I'.code.toByte() &&
+            b[2] == 'F'.code.toByte() && b[3] == 'F'.code.toByte() &&
+            b[8] == 'W'.code.toByte() && b[9] == 'E'.code.toByte() &&
+            b[10] == 'B'.code.toByte() && b[11] == 'P'.code.toByte()
+
+    /** JPEG: copy every segment verbatim except APP1 (EXIF + XMP).
+     *  Returns null when the file is malformed (caller falls back).
+     *  The scan data after SOS is copied as-is, never parsed. */
+    private fun stripJpegMetadata(bytes: ByteArray): ByteArray? {
+        val out = ByteArrayOutputStream(bytes.size)
+        out.write(bytes, 0, 2) // SOI
+        var pos = 2
+        while (pos + 1 < bytes.size) {
+            if (bytes[pos] != 0xFF.toByte()) return null
+            val marker = bytes[pos + 1].toInt() and 0xFF
+            if (marker == 0xD9) { // EOI — copy the rest and finish.
+                out.write(bytes, pos, bytes.size - pos)
+                return out.toByteArray()
+            }
+            if (marker == 0xDA) { // SOS — scan data follows; copy it all.
+                out.write(bytes, pos, bytes.size - pos)
+                return out.toByteArray()
+            }
+            if (marker == 0x01 || marker in 0xD0..0xD7) {
+                // Standalone markers have no length field.
+                out.write(bytes, pos, 2)
+                pos += 2
+                continue
+            }
+            if (pos + 3 >= bytes.size) return null
+            val len = ((bytes[pos + 2].toInt() and 0xFF) shl 8) or
+                (bytes[pos + 3].toInt() and 0xFF)
+            if (len < 2 || pos + 2 + len > bytes.size) return null
+            val isExif = marker == 0xE1 && len >= 8 &&
+                bytes[pos + 4] == 'E'.code.toByte() &&
+                bytes[pos + 5] == 'x'.code.toByte() &&
+                bytes[pos + 6] == 'i'.code.toByte() &&
+                bytes[pos + 7] == 'f'.code.toByte()
+            val isXmp = marker == 0xE1 && len >= 33 &&
+                startsWithAscii(bytes, pos + 4, "http://ns.adobe.com/xap/1.0/")
+            if (!isExif && !isXmp) {
+                out.write(bytes, pos, 2 + len)
+            }
+            pos += 2 + len
+        }
+        return null
+    }
+
+    private fun startsWithAscii(bytes: ByteArray, pos: Int, prefix: String): Boolean {
+        if (pos + prefix.length > bytes.size) return false
+        for (i in prefix.indices) {
+            if (bytes[pos + i] != prefix[i].code.toByte()) return false
+        }
+        return true
+    }
+
+    /** PNG: copy every chunk verbatim except the metadata chunks
+     *  (eXIf / tEXt / iTXt / zTXt). Returns null when malformed. */
+    private fun stripPngMetadata(bytes: ByteArray): ByteArray? {
+        val out = ByteArrayOutputStream(bytes.size)
+        out.write(bytes, 0, 8) // PNG signature
+        var pos = 8
+        while (pos + 8 <= bytes.size) {
+            val len = ((bytes[pos].toInt() and 0xFF) shl 24) or
+                ((bytes[pos + 1].toInt() and 0xFF) shl 16) or
+                ((bytes[pos + 2].toInt() and 0xFF) shl 8) or
+                (bytes[pos + 3].toInt() and 0xFF)
+            val type = String(bytes, pos + 4, 4, Charsets.US_ASCII)
+            val total = 8 + len + 4
+            if (len < 0 || pos + total > bytes.size) return null
+            if (type !in setOf("eXIf", "tEXt", "iTXt", "zTXt")) {
+                out.write(bytes, pos, total)
+            }
+            pos += total
+            if (type == "IEND") return out.toByteArray()
+        }
+        return null
+    }
+
+    /** WebP: copy every RIFF chunk verbatim except EXIF, and clear
+     *  the VP8X EXIF-present flag so the file stays consistent.
+     *  Returns the input unchanged (same size) when no EXIF chunk
+     *  exists. Returns null when malformed. */
+    private fun stripWebPMetadata(bytes: ByteArray): ByteArray? {
+        val out = ByteArrayOutputStream(bytes.size)
+        out.write(bytes, 0, 12) // RIFF header
+        var pos = 12
+        var removedExif = false
+        while (pos + 8 <= bytes.size) {
+            val type = String(bytes, pos, 4, Charsets.US_ASCII)
+            val size = (bytes[pos + 4].toInt() and 0xFF) or
+                ((bytes[pos + 5].toInt() and 0xFF) shl 8) or
+                ((bytes[pos + 6].toInt() and 0xFF) shl 16) or
+                ((bytes[pos + 7].toInt() and 0xFF) shl 24)
+            val total = 8 + size + (size % 2)
+            if (size < 0 || pos + total > bytes.size) return null
+            if (type == "EXIF") {
+                removedExif = true
+            } else if (type == "VP8X" && size >= 10) {
+                out.write(bytes, pos, 8)
+                // Clear the EXIF-present flag (bit 3 of byte 0).
+                out.write((bytes[pos + 8].toInt() and 0xFF) and 0xF7)
+                out.write(bytes, pos + 9, total - 9)
+            } else {
+                out.write(bytes, pos, total)
+            }
+            pos += total
+        }
+        if (!removedExif) return bytes.copyOf()
+        val result = out.toByteArray()
+        // Fix the RIFF size field (file size - 8, little-endian).
+        val riffSize = result.size - 8
+        result[4] = (riffSize and 0xFF).toByte()
+        result[5] = ((riffSize shr 8) and 0xFF).toByte()
+        result[6] = ((riffSize shr 16) and 0xFF).toByte()
+        result[7] = ((riffSize shr 24) and 0xFF).toByte()
+        return result
     }
 }

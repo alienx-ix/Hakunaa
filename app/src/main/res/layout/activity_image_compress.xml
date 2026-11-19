@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Image Tools menu (v0.1.111): box-by-box grid, importance order,
-     professional look like the approved mockup. Pick an image first,
-     then tap a tool. Search filters the cards by name. -->
+<!-- Image Tools menu (v0.1.121): box-by-box grid, importance order,
+     professional look. Pick an image first, then tap a tool. No
+     search bar, no status card — all 10 tools fit one screen. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -22,67 +22,19 @@
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:padding="16dp">
+        android:padding="12dp">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-            <EditText
-                android:id="@+id/etSearch"
-                android:layout_width="match_parent"
-                android:layout_height="48dp"
-                android:layout_marginTop="16dp"
-                android:background="@drawable/bg_search"
-                android:hint="Search tools..."
-                android:imeOptions="actionSearch"
-                android:inputType="text"
-                android:paddingStart="20dp"
-                android:paddingEnd="20dp"
-                android:textColor="@color/hakunaa_text"
-                android:textColorHint="@color/hakunaa_text_secondary"
-                android:textSize="15sp" />
-
             <!-- Tool boxes, built in code (importance order). -->
             <LinearLayout
                 android:id="@+id/toolsContainer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
                 android:orientation="vertical" />
-
-            <com.google.android.material.card.MaterialCardView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:layout_marginBottom="8dp"
-                app:cardCornerRadius="12dp"
-                app:cardElevation="2dp">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="16dp">
-
-                    <TextView
-                        android:id="@+id/tvStatus"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/ready"
-                        android:textColor="@color/hakunaa_text"
-                        android:textSize="14sp" />
-
-                    <TextView
-                        android:id="@+id/tvResult"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:textColor="@color/hakunaa_success"
-                        android:textSize="14sp" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
         </LinearLayout>
     </ScrollView>
 </LinearLayout>

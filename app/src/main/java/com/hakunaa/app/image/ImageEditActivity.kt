@@ -19,7 +19,7 @@ import java.io.File
 import com.hakunaa.app.core.StatusBar
 
 /**
- * Edit image — full professional Adjust panel (v0.1.117).
+ * Color Correction — full professional Adjust panel (v0.1.117).
  *
  * A row of tools (Auto, Exposure, Brightness, Contrast, Highlights,
  * Shade, Saturation, Vibrance, Color temp, Tone, Sharpness, Fading,

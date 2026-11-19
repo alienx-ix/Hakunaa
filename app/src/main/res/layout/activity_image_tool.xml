@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/hakunaa_background"
@@ -216,28 +217,37 @@
         android:textColor="@color/hakunaa_success"
         android:textSize="14sp" />
 
-    <!-- Bottom bar: Back / Next -->
+    <!-- Bottom bar: Back / Next — matching theme buttons, same
+         size and shape (v0.1.121 fix: Back was a plain TextView
+         and looked nothing like Next). -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:padding="16dp">
 
-        <TextView
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnBack"
             android:layout_width="0dp"
             android:layout_height="56dp"
+            android:layout_marginEnd="6dp"
             android:layout_weight="1"
-            android:gravity="center"
             android:text="Back"
-            android:textColor="@color/hakunaa_text"
-            android:textSize="16sp" />
+            android:textColor="@color/hakunaa_teal"
+            app:backgroundTint="@color/hakunaa_surface"
+            app:cornerRadius="12dp"
+            app:strokeColor="@color/hakunaa_teal"
+            app:strokeWidth="2dp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnNext"
             android:layout_width="0dp"
             android:layout_height="56dp"
+            android:layout_marginStart="6dp"
             android:layout_weight="1"
-            android:text="Next" />
+            android:text="Next"
+            android:textColor="@android:color/white"
+            app:backgroundTint="@color/hakunaa_teal"
+            app:cornerRadius="12dp" />
     </LinearLayout>
 </LinearLayout>
