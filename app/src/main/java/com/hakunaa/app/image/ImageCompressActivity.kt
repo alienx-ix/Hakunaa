@@ -31,7 +31,6 @@ import java.io.File
  *   level's real size, tap one to save (Smart results).
  * - Quick squish: one tap, just make the image smaller (best
  *   compression — tries every level, keeps the smallest).
- * - Photo Enhance: one-tap auto enhance (auto-levels + saturation).
  * - Crop: remove unwanted parts of the photo.
  * - Resize: change photo resolution.
  * - Social Media Crop: 1:1, 9:16, 4:5 (Instagram / TikTok / FB).
@@ -40,7 +39,6 @@ import java.io.File
  *   saturation, rotate).
  * - DP Edit: Circle or Square profile photo.
  * - Image to PDF: one A4 page per photo.
- * - Collage Maker: combine 2–4 photos into one image.
  * - Remove Metadata: strip location / camera / date (EXIF).
  *   (Target Size lives inside Compress — no separate card.)
  *
@@ -124,9 +122,6 @@ class ImageCompressActivity : AppCompatActivity() {
             ToolDef("Smart Compress", "Try all levels, pick the best", R.drawable.ic_bolt) {
                 withImage { openTool(ImageToolActivity.MODE_SMART) }
             },
-            ToolDef("Photo Enhance", "One-tap auto enhance", R.drawable.ic_sparkle) {
-                withImage { photoEnhance() }
-            },
             ToolDef("Crop", "Remove unwanted parts", R.drawable.ic_crop) {
                 withImage { openCrop() }
             },
@@ -147,9 +142,6 @@ class ImageCompressActivity : AppCompatActivity() {
             },
             ToolDef("Image to PDF", "Photo to PDF", R.drawable.ic_doc) {
                 withImage { imageToPdf() }
-            },
-            ToolDef("Collage", "Up to 4 photos", R.drawable.ic_collage) {
-                startActivity(Intent(this, CollageActivity::class.java))
             },
             ToolDef("Remove Metadata", "Strip location & metadata", R.drawable.ic_shield) {
                 withImage { openTool(ImageToolActivity.MODE_METADATA) }
@@ -240,39 +232,6 @@ class ImageCompressActivity : AppCompatActivity() {
         val intent = Intent(this, ImageCropActivity::class.java)
         intent.putExtra(ImageCropActivity.EXTRA_IMAGE_URI, inputUri.toString())
         startActivity(intent)
-    }
-
-    /** Photo Enhance: one tap — auto-levels + saturation, then save. */
-    private fun photoEnhance() {
-        val uri = inputUri ?: run {
-            Toast.makeText(this, getString(R.string.pick_first_image), Toast.LENGTH_SHORT).show()
-            return
-        }
-        val status = findViewById<TextView>(R.id.tvStatus)
-        val result = findViewById<TextView>(R.id.tvResult)
-        status.text = "Enhancing…"
-        Thread {
-            try {
-                val input = FileUtils.copyUriToCache(this, uri, "input_image")
-                val out = File(cacheDir, "hakunaa_enhanced_${System.currentTimeMillis()}.jpg")
-                val ok = ImageCompressor.autoEnhance(input, out)
-                runOnUiThread {
-                    clearPickedPhoto()
-                    if (ok && out.exists()) {
-                        val saved = MediaStoreSaver.save(
-                            this, out, MediaStoreSaver.Kind.IMAGE, out.name
-                        )
-                        status.text = if (saved != null) "Done — saved to Pictures/Hakunaa"
-                        else "Done, but couldn't save to Pictures — please try again"
-                        result.text = "${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(out.length())}"
-                    } else {
-                        status.text = "Failed — try another image"
-                    }
-                }
-            } catch (_: Throwable) {
-                runOnUiThread { status.text = "Failed — try another image" }
-            }
-        }.start()
     }
 
     /** Image to PDF: one A4 page per photo, saved to Documents/Hakunaa. */

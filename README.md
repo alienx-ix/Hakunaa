@@ -655,6 +655,12 @@ Image: JPEG 85% is visually lossless for photos. WebP is
 - **Video tools menu** agreed (user idea, 2026-11-15): Standard Compress (basic), Smart Compress (multiple results at once, user picks), Advanced (full manual control), Convert (13 formats), Rotate, Color (grading), Video to Audio, Video Cutter.
 - **Same quality, smaller size (visually lossless)** clarified (2026-11-15): quality looks the same to the eye, only the size reduces — this is what the CRF ladder already does (CRF 23-28, 40-60% smaller). Mathematical lossless (CRF 0) makes the file bigger — not wanted; true 0% loss with no size change is Quick Remux.
 
+## v0.1.120 — Removals only: Collage removed entirely, Photo Enhance removed (on v0.1.119)
+
+- **Collage REMOVED entirely** — user rated it 0% satisfied (crashed live on v0.1.118). The Collage card is gone from the Image Tools menu, CollageActivity + CollagePreviewView + activity_collage.xml + ic_collage.xml are deleted, and the activity is removed from AndroidManifest. Nothing else in Image Tools changed.
+- **Photo Enhance REMOVED** — the Photo Enhance card is gone from the Image Tools menu and its photoEnhance() entry point is deleted. ImageCompressor.autoEnhance stays — it is still used by Edit Image. ic_sparkle.xml (used only by the removed card) is deleted.
+- Nothing else changed in this build — scanner, Enhance, Book, compress, and all other tools untouched.
+
 ## v0.1.119 — ALL 10 batch-3 fixes in one build, more professional: Crop refinements, Preview button + fully zoomable, HD one-tap + result screen, Resize Custom not pre-selected, Fit-to-social pro, Collage crash fixed + FULL rework, Smart WebP + stronger Save (on v0.1.118)
 
 - **Crop refinements (user: "Super")** — bottom menus more professional: aspect chips are proper pill buttons (teal fill + white bold text when selected, dark surface + clear border when not), tidy rotation row with bold angle label (teal when ≠ 0°); top Restore moved to the CENTRE of the bar, far from the ✓ — no more mistouch. Crop frame/rotation/aspect logic untouched.
