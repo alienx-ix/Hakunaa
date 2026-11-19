@@ -105,7 +105,7 @@ class FullPreviewDialog(
         }
         close.setOnClickListener { dismiss() }
         titleView = TextView(context).apply {
-            text = "Preview"
+            text = "View"
             textSize = 18f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.WHITE)
@@ -211,7 +211,7 @@ class FullPreviewDialog(
         zv.setImageFile(result.file)
         contentHolder.addView(zv)
         toggleBtn.text = "Compare"
-        titleView.text = "Preview"
+        titleView.text = "View"
         infoLine.text = afterInfo
         infoLine.visibility = View.VISIBLE
     }
@@ -229,7 +229,7 @@ class FullPreviewDialog(
             )
         })
         contentHolder.addView(compareHalf(result.file, afterInfo))
-        toggleBtn.text = "Preview"
+        toggleBtn.text = "View"
         titleView.text = "Compare"
         infoLine.visibility = View.GONE
     }

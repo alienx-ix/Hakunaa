@@ -75,20 +75,21 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Options -->
-    <ScrollView
-        android:id="@+id/scrollContent"
+    <!-- Content — NOT a ScrollView (v0.1.125): NOTHING scrolls.
+         The content area fills the remaining height (weight 1);
+         each screen's cards share that height by weight, so every
+         screen fits ONE screen on any phone — no cut-off, no gap.
+         (v0.1.124 put the same weight-1 containers inside a
+         ScrollView, where weights never expand — that is why the
+         Compress rows left a gap and Convert/Social still scrolled.) -->
+    <LinearLayout
+        android:id="@+id/contentArea"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:fillViewport="true">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp">
+        android:orientation="vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
 
             <TextView
                 android:id="@+id/tvSubtitle"
@@ -201,8 +202,7 @@
                 android:layout_marginTop="8dp"
                 android:orientation="vertical"
                 android:visibility="gone" />
-        </LinearLayout>
-    </ScrollView>
+    </LinearLayout>
 
     <TextView
         android:id="@+id/tvStatus"
@@ -258,7 +258,10 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="16dp">
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="16dp">
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnBack"

@@ -113,11 +113,13 @@ class ImageCompressActivity : AppCompatActivity() {
             .setNavigationOnClickListener { finish() }
 
         toolDefs = listOf(
-            ToolDef("Compress", "Reduce file size", R.drawable.ic_arrow_right, 90f) {
-                withImage { openTool(ImageToolActivity.MODE_COMPRESS) }
-            },
+            // Smart Compress FIRST (v0.1.125) — top-left, ahead
+            // of Compress.
             ToolDef("Smart Compress", "Try all levels, pick the best", R.drawable.ic_bolt) {
                 withImage { openTool(ImageToolActivity.MODE_SMART) }
+            },
+            ToolDef("Compress", "Reduce file size", R.drawable.ic_arrow_right, 90f) {
+                withImage { openTool(ImageToolActivity.MODE_COMPRESS) }
             },
             ToolDef("Crop", "Remove unwanted parts", R.drawable.ic_crop) {
                 withImage { openCrop() }
