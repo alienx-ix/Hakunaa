@@ -438,6 +438,10 @@ class ImageToolActivity : AppCompatActivity() {
             weight = if (weightCards) 1f else 0f
         }
         val density = resources.displayMetrics.density
+        // v0.1.129: a little room BELOW the last card, so its
+        // shadow is never clipped — the last box in every list
+        // gets the same treatment.
+        container.setPadding(0, 0, 0, (8 * density).toInt())
         val gapPx = (8 * density).toInt()
         for ((index, opt) in options.withIndex()) {
             val (tag, title, subtitle) = opt
@@ -1644,6 +1648,10 @@ class ImageToolActivity : AppCompatActivity() {
             weight = 0f
         }
         val density = resources.displayMetrics.density
+        // v0.1.129: a little room BELOW the last row, so its
+        // shadow is never clipped — the last box in every list
+        // gets the same treatment.
+        container.setPadding(0, 0, 0, (8 * density).toInt())
         val gapPx = (8 * density).toInt()
         val modes = listOf(
             Triple(R.drawable.ic_tune, "Quality", "Choose a quality %") to 1,
@@ -1915,6 +1923,10 @@ class ImageToolActivity : AppCompatActivity() {
             weight = 1f
         }
         val density = resources.displayMetrics.density
+        // v0.1.129: a little room BELOW the last row, so its
+        // shadow is never clipped — the last box in every list
+        // gets the same treatment.
+        container.setPadding(0, 0, 0, (8 * density).toInt())
         val gapPx = (8 * density).toInt()
         val rowHeightPx = (48 * density).toInt()
         val qualities = listOf(
@@ -2215,7 +2227,9 @@ class ImageToolActivity : AppCompatActivity() {
         isSelected: Boolean,
         onPreview: (ImageCompressor.LevelResult) -> Unit,
         onSelect: (ImageCompressor.LevelResult) -> Unit,
-        showSmaller: Boolean = false
+        showSmaller: Boolean = false,
+        fixedHeightPx: Int? = null,
+        topMarginDp: Int = 6
     ): View {
         val density = resources.displayMetrics.density
         val card = com.google.android.material.card.MaterialCardView(this).apply {
@@ -2331,13 +2345,28 @@ class ImageToolActivity : AppCompatActivity() {
         // WRAP_CONTENT cards were measured with the REMAINING space
         // as AT_MOST by LinearLayout, so the last card got a tiny
         // spec and measured short (size line gone, View clipped).
-        val params = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            0, 1f
-        )
-        params.topMargin = (6 * density).toInt()
+        // v0.1.129: WebP cards are a FIXED normal height
+        // (fixedHeightPx) instead of sharing the rows' height —
+        // the shared weight stretched 4 cards to ~173dp each.
+        // Smart keeps the shared weight (its 5 cards look right).
+        val params = if (fixedHeightPx != null) {
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                fixedHeightPx
+            )
+        } else {
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0, 1f
+            )
+        }
+        params.topMargin = (topMarginDp * density).toInt()
         card.layoutParams = params
-        card.minimumHeight = (64 * density).toInt()
+        card.minimumHeight = if (fixedHeightPx != null) {
+            minOf((64 * density).toInt(), fixedHeightPx)
+        } else {
+            (64 * density).toInt()
+        }
         return card
     }
 
@@ -2513,16 +2542,7 @@ class ImageToolActivity : AppCompatActivity() {
         imageRow.addView(webpImageText)
         imageCard.addView(imageRow)
         content.addView(imageCard)
-        // One short line — the whole WebP story (v0.1.125). The
-        // v0.1.124 facts card + Works/NOT lines + Best balance
-        // line made the page feel complex; the Best badge on the
-        // result card already shows the pick. Clean and simple.
-        content.addView(TextView(this).apply {
-            text = "WebP — 25–35% smaller than JPG, same quality • NOT for Govt forms"
-            textSize = 13f
-            setTextColor(getColor(R.color.hakunaa_text_secondary))
-            setPadding(0, (12 * density).toInt(), 0, 0)
-        })
+
         // "Original → Best" summary (v0.1.128, Batch 12): more
         // details at the top, as the user asked. Set once the
         // WebP results arrive (the Best is only known then).
@@ -2535,6 +2555,41 @@ class ImageToolActivity : AppCompatActivity() {
             visibility = View.GONE
         }
         content.addView(webpSummary)
+        // ONE box explaining WebP a little (v0.1.129, Batch 13):
+        // the result cards are normal size now, so the WebP facts
+        // get their own card instead of a bare line. Same facts as
+        // the old line — nothing new invented.
+        val webpInfoCard = com.google.android.material.card.MaterialCardView(this).apply {
+            radius = 12f * density
+            cardElevation = 2f * density
+            setCardBackgroundColor(getColor(R.color.hakunaa_surface))
+        }
+        val webpInfoInner = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(
+                (16 * density).toInt(), (12 * density).toInt(),
+                (16 * density).toInt(), (12 * density).toInt()
+            )
+        }
+        webpInfoInner.addView(TextView(this).apply {
+            text = "WebP — smaller files, same quality"
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+        })
+        webpInfoInner.addView(TextView(this).apply {
+            text = "25–35% smaller than JPG  •  NOT for Govt forms"
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            setPadding(0, (4 * density).toInt(), 0, 0)
+        })
+        webpInfoCard.addView(webpInfoInner)
+        val webpInfoParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        webpInfoParams.topMargin = (12 * density).toInt()
+        content.addView(webpInfoCard, webpInfoParams)
         // "Compressing WebP…" animation (v0.1.124) — never an empty
         // screen while WebP computes (it can take ~1 minute on a
         // large photo).
@@ -2618,6 +2673,26 @@ class ImageToolActivity : AppCompatActivity() {
             rowsContainer.removeAllViews()
             val best = ImageCompressor.balancedBest(webpRows)
             val smallest = webpRows.minByOrNull { it.size }
+            // Normal-size cards (v0.1.129): a FIXED height instead
+            // of the shared weight that stretched them to ~173dp.
+            // Capped by the space actually available, so a small
+            // phone never clips the last card. Even weight-1
+            // spacers between the cards take the slack, so the
+            // last card always has a little space (and shadow
+            // room) above Save.
+            val cardH = run {
+                val availPx = rowsContainer.height
+                val wantPx = (112 * density).toInt()
+                if (availPx > 0 && webpRows.isNotEmpty()) {
+                    minOf(wantPx, availPx / webpRows.size)
+                } else wantPx
+            }
+            fun spacer(): View = View(this@ImageToolActivity).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+                )
+            }
+            rowsContainer.addView(spacer())
             for (r in webpRows) {
                 val card = buildResultRow(
                     r, r == best, r == selectedWebp,
@@ -2632,13 +2707,18 @@ class ImageToolActivity : AppCompatActivity() {
                         refreshWebpRows()
                         saveBtn.isEnabled = true
                     },
-                    showSmaller = r == smallest && r != best
+                    showSmaller = r == smallest && r != best,
+                    fixedHeightPx = cardH,
+                    topMarginDp = 0
                 )
-                // WRAP_CONTENT (v0.1.127): the weight-1 cards
-                // stretched and pushed the 95% card below the
-                // fold (cut off). A card exactly as tall as its
-                // content can never be cut off.
                 rowsContainer.addView(card)
+                rowsContainer.addView(spacer())
+            }
+            // If the window was not laid out yet, the cap above
+            // used the 112dp want — re-run once laid out so the
+            // cap is exact (never clips on a small phone).
+            if (rowsContainer.height <= 0 && webpRows.isNotEmpty()) {
+                rowsContainer.post { if (rowsContainer.height > 0) refreshWebpRows() }
             }
         }
         saveBtn.setOnClickListener {
@@ -2776,7 +2856,7 @@ class ImageToolActivity : AppCompatActivity() {
                 textSize = 14f
                 setTypeface(null, android.graphics.Typeface.BOLD)
                 setTextColor(getColor(R.color.hakunaa_text))
-                setPadding(0, (4 * density).toInt(), 0, (4 * density).toInt())
+                setPadding(0, (2 * density).toInt(), 0, (2 * density).toInt())
             }
             container.addView(rowsLabel)
             // Selectable result cards (v0.1.127): WRAP_CONTENT, so
@@ -2788,6 +2868,11 @@ class ImageToolActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
                 )
+                // v0.1.129: a little room BELOW the last card, so
+                // its shadow is never clipped (the last box always
+                // had a broken shadow) — and a little space above
+                // Save, not zero, not the big gap of before.
+                setPadding(0, 0, 0, (8 * density).toInt())
             }
             container.addView(rowsContainer)
             refreshSmartRows()
