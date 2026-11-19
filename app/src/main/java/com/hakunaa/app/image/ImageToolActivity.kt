@@ -2479,6 +2479,17 @@ class ImageToolActivity : AppCompatActivity() {
                 (16 * density).toInt(), (8 * density).toInt()
             )
         }
+        // v0.1.139 (Batch 23): WebP cards only (plainCard) — the
+        // row must FILL the tall weight-shared card, so the text
+        // block + View sit vertically centred in it, not at the
+        // top (the user: "Text enga center aa irku??"). Smart
+        // keeps its WRAP_CONTENT row, untouched.
+        if (plainCard) {
+            inner.layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.MATCH_PARENT
+            )
+        }
         val textCol = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
@@ -2487,7 +2498,10 @@ class ImageToolActivity : AppCompatActivity() {
         }
         val line1 = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+            // v0.1.139 (Batch 23): WebP cards only — centre the
+            // label + badge horizontally in the text column.
+            // Smart keeps CENTER_VERTICAL (left-aligned), untouched.
+            gravity = if (plainCard) Gravity.CENTER else Gravity.CENTER_VERTICAL
         }
         val label = TextView(this).apply {
             text = r.label
@@ -2544,6 +2558,9 @@ class ImageToolActivity : AppCompatActivity() {
             text = "${FileUtils.formatSize(r.size)}  •  saved ${r.savingPercent}%"
             textSize = 14f
             setTextColor(getColor(R.color.hakunaa_text_secondary))
+            // v0.1.139 (Batch 23): WebP cards only — centre the
+            // size line horizontally. Smart keeps it left-aligned.
+            if (plainCard) gravity = Gravity.CENTER
         }
         textCol.addView(line1)
         textCol.addView(line2)
