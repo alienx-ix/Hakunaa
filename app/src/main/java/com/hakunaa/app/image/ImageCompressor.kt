@@ -938,7 +938,10 @@ object ImageCompressor {
                 outputBase.parent,
                 "${outputBase.nameWithoutExtension}_webp_q$quality.webp"
             )
-            val ok = compress(input, candidate, quality, Format.WEBP, 10000)
+            // Downscale like Smart (v0.1.127): the old build's
+            // small files. Full-res WebP (v0.1.124-126) gave
+            // 664 KB at 60% while Smart JPEG gave 97 KB.
+            val ok = compress(input, candidate, quality, Format.WEBP, 2048)
             if (!ok || !candidate.exists()) {
                 try { candidate.delete() } catch (_: Throwable) { }
                 continue

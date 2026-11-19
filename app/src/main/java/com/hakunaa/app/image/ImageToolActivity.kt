@@ -1426,27 +1426,18 @@ class ImageToolActivity : AppCompatActivity() {
         showCompressingProgress()
         Thread {
             try {
-                // BOTH resolution variations (v0.1.126): the small-file
-                // ladder (downscaled 2048 — the old build's super
-                // results, shown by default) and the full-size ladder
-                // (10000). Small encodes are fast (1 MP); the full
-                // ladder is the same work v0.1.125 already did.
-                val smallBase = File(cacheDir, "hakunaa_smart_s_${System.currentTimeMillis()}")
-                val fullBase = File(cacheDir, "hakunaa_smart_f_${System.currentTimeMillis()}")
-                val smallResults = ImageCompressor.compressAllLevels(input, smallBase, 2048)
-                val fullResults = ImageCompressor.compressAllLevels(input, fullBase, 10000)
-                // The small ladder is the default view; if it is empty
-                // (photo already tiny) fall back to the full ladder.
-                val results = if (smallResults.isNotEmpty()) smallResults else fullResults
+                // ONE ladder only (v0.1.127): the downscale ladder
+                // (2048 — the old build's super results). No switch,
+                // no second variation — the user asked for the old
+                // UI + old function, nothing invented.
+                val results = ImageCompressor.compressAllLevels(
+                    input, File(cacheDir, "hakunaa_smart_${System.currentTimeMillis()}"), 2048)
                 runOnUiThread {
                     if (results.isEmpty()) {
                         hideCompressingProgress()
                         status.text = "Already optimized — even the strongest settings couldn't shrink this image."
                     } else {
                         webpLazyResults = null
-                        smartSmallResults = smallResults
-                        smartFullResults = fullResults
-                        smartSizeSmall = smallResults.isNotEmpty()
                         smartResults = results
                         step = 1
                         renderStep()
@@ -1624,13 +1615,6 @@ class ImageToolActivity : AppCompatActivity() {
     }
 
     private var smartResults: List<ImageCompressor.LevelResult> = emptyList()
-    /** Smart's two resolution variations (v0.1.126): the small-file
-     *  ladder (downscaled — the old build's super results) and the
-     *  full-size ladder. The switch above the results flips between
-     *  them; Small file is the default. */
-    private var smartSmallResults: List<ImageCompressor.LevelResult> = emptyList()
-    private var smartFullResults: List<ImageCompressor.LevelResult> = emptyList()
-    private var smartSizeSmall: Boolean = true
     private var qualityChoice = 85
     /** The format the Convert flow just saved (for the save popup). */
     private var convertFormatUsed: ImageCompressor.Format = ImageCompressor.Format.JPEG
@@ -2375,22 +2359,20 @@ class ImageToolActivity : AppCompatActivity() {
         )
     }
 
-    /** Rebuild the result cards from [smartDisplayed]. The cards
-     *  SHARE the rows height equally (v0.1.125, weight 1 each):
-     *  the rows fill the screen, so no card is ever cut off and
-     *  there is no empty gap below the last one. */
+    /** Rebuild the result cards from [smartDisplayed]. Cards are
+     *  WRAP_CONTENT (v0.1.123 style): a card is exactly as tall
+     *  as its content, so the size line can NEVER be cut off and
+     *  the View button always renders as a proper rounded
+     *  rectangle. The v0.1.125/126 weight-1 cards squeezed below
+     *  content height on the user's phone and clipped the size
+     *  line — that is why v0.1.126 looked 'worst'. */
     private fun refreshSmartRows() {
-        val density = resources.displayMetrics.density
         val container = findViewById<LinearLayout>(R.id.resultsContainer)
         val rowsContainer = container.findViewWithTag<LinearLayout>("smart_rows")
             ?: return
         rowsContainer.removeAllViews()
         for (r in smartDisplayed) {
-            val card = buildSmartResultCard(r)
-            card.layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
-            ).apply { topMargin = (8 * density).toInt() }
-            rowsContainer.addView(card)
+            rowsContainer.addView(buildSmartResultCard(r))
         }
     }
 
@@ -2468,7 +2450,8 @@ class ImageToolActivity : AppCompatActivity() {
         topBar.addView(title)
         root.addView(topBar)
         // Content — NOT a ScrollView (v0.1.125): the window fills
-        // one screen; the 4 result cards share the space by weight.
+        // one screen; the cards are WRAP_CONTENT (v0.1.127), so
+        // nothing is ever cut off.
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
@@ -2581,7 +2564,8 @@ class ImageToolActivity : AppCompatActivity() {
         }
         content.addView(status)
         // Rows fill the rest of the window (v0.1.125) — the 4
-        // cards share the height, no scroll, no gap above Save.
+        // WRAP_CONTENT cards sit at the top (v0.1.127), no scroll,
+        // no cut-off.
         val rowsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
@@ -2639,10 +2623,10 @@ class ImageToolActivity : AppCompatActivity() {
                     },
                     showSmaller = r == smallest && r != best
                 )
-                // Cards share the rows height equally (v0.1.125).
-                card.layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
-                ).apply { topMargin = (8 * density).toInt() }
+                // WRAP_CONTENT (v0.1.127): the weight-1 cards
+                // stretched and pushed the 95% card below the
+                // fold (cut off). A card exactly as tall as its
+                // content can never be cut off.
                 rowsContainer.addView(card)
             }
         }
@@ -2750,77 +2734,6 @@ class ImageToolActivity : AppCompatActivity() {
                 })
             }
 
-            // Resolution switch — Smart ONLY (v0.1.126): "Small file"
-            // (downscaled — the old build's super results, default)
-            // vs "Full size". One compact 40dp row, so the 5 cards
-            // still share the rest of the screen by weight — no
-            // scroll. Quality / HD / Target reuse this screen but
-            // have no second variation, so they get no switch.
-            if (mode == MODE_SMART && smartFullResults.isNotEmpty()) {
-                val switchRow = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        (40 * density).toInt()
-                    ).apply { topMargin = (8 * density).toInt() }
-                }
-                val smallChip = com.google.android.material.button.MaterialButton(this).apply {
-                    text = "Small file"
-                    textSize = 13f
-                    setTypeface(null, android.graphics.Typeface.BOLD)
-                    cornerRadius = (20 * density).toInt()
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply {
-                        marginEnd = (4 * density).toInt()
-                    }
-                    if (smartSizeSmall) {
-                        setTextColor(getColor(android.R.color.white))
-                        backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
-                        strokeWidth = 0
-                    } else {
-                        setTextColor(getColor(R.color.hakunaa_teal))
-                        backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_surface))
-                        strokeColor = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
-                        strokeWidth = (2 * density).toInt()
-                    }
-                }
-                val fullChip = com.google.android.material.button.MaterialButton(this).apply {
-                    text = "Full size"
-                    textSize = 13f
-                    setTypeface(null, android.graphics.Typeface.BOLD)
-                    cornerRadius = (20 * density).toInt()
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply {
-                        marginStart = (4 * density).toInt()
-                    }
-                    if (!smartSizeSmall) {
-                        setTextColor(getColor(android.R.color.white))
-                        backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
-                        strokeWidth = 0
-                    } else {
-                        setTextColor(getColor(R.color.hakunaa_teal))
-                        backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_surface))
-                        strokeColor = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
-                        strokeWidth = (2 * density).toInt()
-                    }
-                }
-                smallChip.setOnClickListener {
-                    if (!smartSizeSmall && smartSmallResults.isNotEmpty()) {
-                        smartSizeSmall = true
-                        smartResults = smartSmallResults
-                        showSmartResults(smartResults)
-                    }
-                }
-                fullChip.setOnClickListener {
-                    if (smartSizeSmall && smartFullResults.isNotEmpty()) {
-                        smartSizeSmall = false
-                        smartResults = smartFullResults
-                        showSmartResults(smartResults)
-                    }
-                }
-                switchRow.addView(smallChip)
-                switchRow.addView(fullChip)
-                container.addView(switchRow)
-            }
-
             // "Results" section heading, then the selectable cards
             // (each with its own Preview button on the right).
             val rowsLabel = TextView(this).apply {
@@ -2831,8 +2744,9 @@ class ImageToolActivity : AppCompatActivity() {
                 setPadding(0, (8 * density).toInt(), 0, (4 * density).toInt())
             }
             container.addView(rowsLabel)
-            // Selectable result cards — fill the rest of the list
-            // height (v0.1.125), shared equally by the cards.
+            // Selectable result cards (v0.1.127): WRAP_CONTENT, so
+            // a card is exactly as tall as its content — never cut
+            // off. The rows container fills the rest of the list.
             val rowsContainer = LinearLayout(this).apply {
                 tag = "smart_rows"
                 orientation = LinearLayout.VERTICAL
