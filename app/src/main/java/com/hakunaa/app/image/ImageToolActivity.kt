@@ -11,6 +11,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
+import android.view.WindowManager
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.RadioButton
@@ -2620,6 +2621,22 @@ class ImageToolActivity : AppCompatActivity() {
                 textSize = 13f
                 setTextColor(getColor(R.color.hakunaa_teal))
                 backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_surface))
+                // v0.1.144 (Batch 28): WHITE fill, like the WebP
+                // View pill — JUST a colour fix, nothing else
+                // changes (same size, outline, text, position).
+                // The backgroundTintList was ALREADY white, but
+                // the button rendered light BLUE-GREY on the
+                // phone (user, 2026-11-20): Material3 composites
+                // an elevation overlay — the PRIMARY colour
+                // (#0B57D0 blue) at an alpha set by elevation —
+                // over the fill, and the default 2dp elevation
+                // tinted the white blue. Elevation 0 (and no
+                // press-lift animator, so it never re-tints on
+                // press) removes the overlay, so the white tint
+                // renders as pure white. The ripple press
+                // feedback is untouched.
+                elevation = 0f
+                stateListAnimator = null
                 strokeColor = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
                 strokeWidth = (1 * density).toInt()
                 cornerRadius = (10 * density).toInt()
@@ -3150,11 +3167,35 @@ class ImageToolActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT
         )
         dialog.window?.let { w ->
+            // v0.1.144 (Batch 28): REAL root cause of the still-
+            // blackish bar — v0.1.143 set statusBarColor =
+            // TRANSPARENT on this dialog window, but that call
+            // is a NO-OP unless the window has
+            // FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS, and the default
+            // dialog theme never sets it (grep: the flag appears
+            // NOWHERE in the app). So the transparent colour was
+            // silently ignored and the system painted its default
+            // dark scrim. The flag below makes the dialog's own
+            // transparent colour take effect (white content
+            // behind the bar).
+            w.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
             WindowCompat.setDecorFitsSystemWindows(w, false)
             w.statusBarColor = Color.TRANSPARENT
             WindowInsetsControllerCompat(w, w.decorView)
                 .isAppearanceLightStatusBars = true
         }
+        // v0.1.144 (Batch 28): belt-and-braces — the ACTIVITY
+        // window is the one PROVEN to paint the bar (Smart is
+        // white via StatusBar.setup on this same window). While
+        // the WebP window is up, paint the activity's bar solid
+        // white too, so the bar is white even if the dialog
+        // window's flag path fails on some device. Restored on
+        // dismiss — every dismiss path (X, back, programmatic)
+        // fires OnDismissListener, so Smart's bar is untouched
+        // after the window closes.
+        val activityStatusBarColor = window.statusBarColor
+        window.statusBarColor = getColor(R.color.hakunaa_surface)
+        dialog.setOnDismissListener { window.statusBarColor = activityStatusBarColor }
         root.fitsSystemWindows = true
         ViewCompat.requestApplyInsets(root)
         dialog.show()
