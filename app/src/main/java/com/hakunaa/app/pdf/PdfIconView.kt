@@ -48,6 +48,7 @@ class PdfIconView @JvmOverloads constructor(
     private val blue = Color.parseColor("#508CDC")
     private val red = Color.parseColor("#E85A46")
     private val red2 = Color.parseColor("#F4826E")
+    private val peach = Color.parseColor("#FBDCD2")
     private val yellow = Color.parseColor("#FAC83C")
     private val purple = Color.parseColor("#AA5AA0")
     private val tealDk = Color.parseColor("#009682")
@@ -129,54 +130,63 @@ class PdfIconView @JvmOverloads constructor(
         }
     }
 
-    /** Reorder pages, iLovePDF style (v0.1.156, Fix #43 — the
-     * grip-dots + lines did not read as "reorder"): a red
-     * vertical bar with white up/down chevrons, next to two
-     * blocks marked A (top) and B (bottom) — the pages being
-     * moved. Redrawn from the iLovePDF reference, not copied. */
+    /** Reorder pages, FAITHFUL to iLovePDF (v0.1.157, Fix #49 —
+     * the v0.1.156 version had it backwards: coloured blocks
+     * with white letters, no centre dot. iLovePDF has a red
+     * pill with white chevrons + a white dot, next to LIGHT
+     * peach blocks with RED letters. Redrawn from the iLovePDF
+     * reference, not copied. */
     private fun Canvas.organize() {
-        // Red bar with up/down chevrons.
+        // Red pill with up/down chevrons + centre dot.
         fill.color = red
-        drawRoundRect(RectF(10f, 8f, 30f, 92f), 8f, 8f, fill)
+        drawRoundRect(RectF(12f, 8f, 32f, 92f), 8f, 8f, fill)
         stroke.color = Color.WHITE
-        stroke.strokeWidth = 5f
-        drawLine(20f, 22f, 15f, 29f, stroke)
-        drawLine(20f, 22f, 25f, 29f, stroke)
-        drawLine(20f, 78f, 15f, 71f, stroke)
-        drawLine(20f, 78f, 25f, 71f, stroke)
-        // A block (top) and B block (bottom).
-        rr(38f, 8f, 44f, red2, 8f)
-        rr(38f, 56f, 44f, red, 8f)
-        textPaint.textSize = 22f
-        drawText("A", 60f, 38f, textPaint)
-        drawText("B", 60f, 86f, textPaint)
+        stroke.strokeWidth = 4.5f
+        drawLine(22f, 20f, 16f, 28f, stroke)
+        drawLine(22f, 20f, 28f, 28f, stroke)
+        drawLine(22f, 80f, 16f, 72f, stroke)
+        drawLine(22f, 80f, 28f, 72f, stroke)
+        fill.color = Color.WHITE
+        drawCircle(22f, 50f, 4f, fill)
+        // A block (top) and B block (bottom): LIGHT peach + RED letters.
+        rr(40f, 10f, 44f, peach, 8f)
+        rr(40f, 54f, 44f, peach, 8f)
+        textPaint.color = red
+        textPaint.textSize = 24f
+        drawText("A", 62f, 38f, textPaint)
+        drawText("B", 62f, 82f, textPaint)
+        textPaint.color = Color.WHITE
     }
 
-    /** Pen nib on a blue square, iLovePDF style (v0.1.156,
-     * Fix #43 — the teal nib + flourish was redrawn twice and
-     * still did not read as "sign" at a glance. iLovePDF's blue
-     * square with a white nib is unmistakable.) */
+    /** Pen nib on a blue square, FAITHFUL to iLovePDF (v0.1.157,
+     * Fix #49 — the v0.1.156 nib was a thin dagger with a big
+     * floating barrel. iLovePDF's nib is a compact pentagon
+     * with wide shoulders, plus a SMALL barrel piece just above
+     * it, tip pointing down-left. Redrawn from the reference. */
     private fun Canvas.sign() {
         rr(14f, 14f, 72f, blue, 10f)
-        // White nib, tilted 45 degrees.
         save()
         rotate(45f, 50f, 50f)
         fill.color = Color.WHITE
+        // Small barrel piece above the nib.
+        drawRoundRect(RectF(43f, 20f, 57f, 30f), 3f, 3f, fill)
+        // Compact nib: flat top, wide shoulders, tip down.
         val nib = android.graphics.Path().apply {
-            moveTo(50f, 20f)
-            quadTo(66f, 28f, 66f, 48f)
-            lineTo(50f, 80f)
-            lineTo(34f, 48f)
-            quadTo(34f, 28f, 50f, 20f)
+            moveTo(37f, 38f)
+            lineTo(63f, 38f)
+            quadTo(64f, 54f, 58f, 64f)
+            lineTo(50f, 78f)
+            lineTo(42f, 64f)
+            quadTo(36f, 54f, 37f, 38f)
             close()
         }
         drawPath(nib, fill)
         // Slit + breather hole in blue.
         stroke.color = blue
         stroke.strokeWidth = 3.5f
-        drawLine(50f, 78f, 50f, 52f, stroke)
+        drawLine(50f, 76f, 50f, 58f, stroke)
         fill.color = blue
-        drawCircle(50f, 42f, 4.5f, fill)
+        drawCircle(50f, 50f, 4.5f, fill)
         restore()
     }
 
@@ -196,20 +206,26 @@ class PdfIconView @JvmOverloads constructor(
         drawText("JPG", 50f, 62f, textPaint)
     }
 
-    /** Padlock on a blue square, iLovePDF style (v0.1.156,
-     * Fix #43 — the bare padlock did not read as "lock/unlock"
-     * next to iLovePDF's blue Unlock/Protect icons. Closed
-     * shackle = locked; the "Lock / Unlock" tool name covers
-     * the unlock half.) */
+    /** OPEN padlock on a blue square, FAITHFUL to iLovePDF
+     * Unlock (v0.1.157, Fix #49 — the v0.1.156 closed padlock
+     * was not the reference: iLovePDF's Unlock has the shackle
+     * OPEN on the right, wider arch, taller shackle. The open
+     * padlock reads as lock AND unlock, which fits the combined
+     * "Lock / Unlock" tool.) */
     private fun Canvas.lock() {
         rr(14f, 14f, 72f, blue, 10f)
         stroke.color = Color.WHITE
-        stroke.strokeWidth = 7f
-        drawArc(RectF(35f, 26f, 65f, 56f), 180f, 180f, false, stroke)
-        rr(29f, 48f, 42f, Color.WHITE, 8f)
+        stroke.strokeWidth = 7.5f
+        // Shackle: arch open on the right side.
+        drawArc(RectF(35f, 24f, 65f, 54f), 180f, 145f, false, stroke)
+        drawLine(62.3f, 30.4f, 62f, 42f, stroke)
+        drawLine(35f, 39f, 35f, 52f, stroke)
+        // Body + keyhole.
+        fill.color = Color.WHITE
+        drawRoundRect(RectF(30f, 50f, 70f, 86f), 7f, 7f, fill)
         fill.color = blue
-        drawCircle(50f, 63f, 6f, fill)
-        drawRoundRect(RectF(47f, 65f, 53f, 76f), 3f, 3f, fill)
+        drawCircle(50f, 63f, 5f, fill)
+        drawRoundRect(RectF(47.5f, 65f, 52.5f, 75f), 2.5f, 2.5f, fill)
     }
 
 /** Open padlock on a blue square, iLovePDF Unlock style
@@ -227,42 +243,46 @@ class PdfIconView @JvmOverloads constructor(
         drawRoundRect(RectF(47f, 65f, 53f, 76f), 3f, 3f, fill)
     }
 
-    /** Crossed wrench + screwdriver on a green square, iLovePDF
-     * style (v0.1.156, Fix #43 — the v0.1.155 claw hammer is
-     * GONE: the user pointed at iLovePDF's green crossed
-     * wrench + screwdriver instead. Both tools are white on
-     * green, crossed like an X — unmistakably "repair".) */
+    /** Crossed wrench + screwdriver on a green square, FAITHFUL
+     * to iLovePDF (v0.1.157, Fix #49 — the v0.1.156 pair was
+     * MIRRORED (wrench jaw top-right, screwdriver handle
+     * top-left) and the screwdriver handle was a near-square
+     * that read as a diamond. iLovePDF: wrench jaw TOP-LEFT
+     * with a C-opening, round holed handle-end BOTTOM-RIGHT;
+     * screwdriver LONG narrow handle TOP-RIGHT, flat tip
+     * BOTTOM-LEFT. Redrawn from the reference, verified in a
+     * PIL preview before building.) */
     private fun Canvas.repair() {
         rr(14f, 14f, 72f, green, 10f)
-        // Wrench, tilted +45 degrees: handle + open jaw.
+        // Screwdriver FIRST (under the wrench): rotated +45 deg
+        // so its handle lands top-right and its tip bottom-left.
         save()
         rotate(45f, 50f, 50f)
         fill.color = Color.WHITE
-        drawRoundRect(RectF(44f, 42f, 56f, 84f), 6f, 6f, fill)
-        drawCircle(50f, 30f, 12f, fill)
-        // Open mouth: cut a wedge out of the jaw with green.
-        fill.color = green
-        val mouth = android.graphics.Path().apply {
-            moveTo(50f, 12f)
-            lineTo(62f, 32f)
-            lineTo(38f, 32f)
-            close()
-        }
-        drawPath(mouth, fill)
+        drawRoundRect(RectF(45f, 14f, 55f, 36f), 5f, 5f, fill)
+        drawRect(RectF(47f, 36f, 53f, 68f), fill)
+        drawRect(RectF(45f, 68f, 55f, 78f), fill)
         restore()
-        // Screwdriver, tilted -45 degrees: handle + shaft + tip.
+        // Wrench SECOND (on top): rotated -45 deg so its jaw
+        // lands top-left and its handle-end bottom-right.
         save()
         rotate(-45f, 50f, 50f)
         fill.color = Color.WHITE
-        drawRoundRect(RectF(42f, 14f, 58f, 40f), 7f, 7f, fill)
-        drawRect(RectF(46f, 40f, 54f, 74f), fill)
-        val tip = android.graphics.Path().apply {
-            moveTo(46f, 74f)
-            lineTo(54f, 74f)
-            lineTo(50f, 84f)
+        drawCircle(50f, 26f, 13f, fill)
+        // C-opening: 70-degree wedge cut, apex at the jaw centre.
+        fill.color = green
+        val mouth = android.graphics.Path().apply {
+            moveTo(50f, 26f)
+            lineTo(40f, 12f)
+            lineTo(60f, 12f)
             close()
         }
-        drawPath(tip, fill)
+        drawPath(mouth, fill)
+        fill.color = Color.WHITE
+        drawRoundRect(RectF(44.5f, 40f, 55.5f, 72f), 6f, 6f, fill)
+        drawCircle(50f, 74f, 9.5f, fill)
+        fill.color = green
+        drawCircle(50f, 74f, 4f, fill)
         restore()
     }
 
@@ -279,37 +299,29 @@ class PdfIconView @JvmOverloads constructor(
         }
     }
 
-    /** Rotate a page (v0.1.155, Fix #38 — the bare circular arrow
-     * read as "refresh", not "rotate a PDF"): a document page in
-     * the centre with a BOLD circular arrow sweeping around it,
-     * so the action is unmistakably "rotate this page". */
+    /** Dashed circular arrow on a purple square, FAITHFUL to
+     * iLovePDF Rotate (v0.1.157, Fix #50 — the v0.1.155/156
+     * "page + bold arrow" was my invention: iLovePDF has NO
+     * page, just a dashed circle with an arrowhead at the top.
+     * Solid arc on the left/bottom, three dashes on the right,
+     * arrowhead attached to the arc end pointing up-right.) */
     private fun Canvas.rotate() {
-        // Page in the middle.
-        stroke.color = purple
-        stroke.strokeWidth = 5f
-        val doc = android.graphics.Path().apply {
-            moveTo(34f, 30f)
-            lineTo(58f, 30f)
-            lineTo(66f, 38f)
-            lineTo(66f, 70f)
-            lineTo(34f, 70f)
-            close()
-        }
-        drawPath(doc, stroke)
-        drawLine(58f, 30f, 58f, 38f, stroke)
-        drawLine(58f, 38f, 66f, 38f, stroke)
-        stroke.strokeWidth = 4f
-        drawLine(40f, 48f, 60f, 48f, stroke)
-        drawLine(40f, 57f, 60f, 57f, stroke)
-        // Bold circular arrow around the page.
-        stroke.color = purple
-        stroke.strokeWidth = 9f
-        drawArc(RectF(14f, 14f, 86f, 86f), 40f, 280f, false, stroke)
-        fill.color = purple
+        rr(14f, 14f, 72f, purple, 10f)
+        stroke.color = Color.WHITE
+        stroke.strokeWidth = 6f
+        // Solid arc: 60 deg sweeping 240 deg clockwise (ends at 300 deg).
+        drawArc(RectF(27f, 29f, 73f, 75f), 60f, 240f, false, stroke)
+        // Three dashes on the right side.
+        stroke.strokeWidth = 7f
+        drawArc(RectF(27f, 29f, 73f, 75f), 292f, 20f, false, stroke)
+        drawArc(RectF(27f, 29f, 73f, 75f), 352f, 20f, false, stroke)
+        drawArc(RectF(27f, 29f, 73f, 75f), 22f, 20f, false, stroke)
+        // Arrowhead attached to the arc end (61.5, 32.1).
+        fill.color = Color.WHITE
         val head = android.graphics.Path().apply {
-            moveTo(78f, 18f)
-            lineTo(96f, 42f)
-            lineTo(60f, 38f)
+            moveTo(67.5f, 21.7f)
+            lineTo(65.6f, 39.1f)
+            lineTo(53.4f, 32.1f)
             close()
         }
         drawPath(head, fill)
@@ -344,13 +356,13 @@ class PdfIconView @JvmOverloads constructor(
         textPaint.color = Color.WHITE
     }
 
-    /** An image pulled OUT of a PDF page (v0.1.156, Fix #43 —
-     * refined from the v0.1.155 version against professional
-     * extract icons: the page now has a folded corner like a
-     * real PDF page, the image card is bigger and slides out
-     * diagonally, and the outward arrow is longer and bolder —
-     * the "extract" action reads at a glance and the icon
-     * stays clearly different from Image to PDF.) */
+    /** An image pulled OUT of a PDF page (v0.1.157, Fix #49 —
+     * the v0.1.156 arrowhead was a splayed blob and the text
+     * lines inside the page added clutter at small size. Now:
+     * clean page outline (no text lines), bigger image card,
+     * and a proper filled-triangle arrowhead pointing
+     * up-right. The "extract" action reads at a glance and
+     * the icon stays clearly different from Image to PDF.) */
     private fun Canvas.imageExtract() {
         // The PDF page behind, left side, with a folded corner.
         stroke.color = tealDk
@@ -367,25 +379,31 @@ class PdfIconView @JvmOverloads constructor(
         stroke.strokeWidth = 5f
         drawLine(42f, 10f, 42f, 24f, stroke)
         drawLine(42f, 24f, 56f, 24f, stroke)
-        stroke.color = tealDk
-        stroke.strokeWidth = 4f
-        drawLine(20f, 44f, 48f, 44f, stroke)
-        drawLine(20f, 56f, 48f, 56f, stroke)
-        // The image sliding out to the right, bigger than before.
-        rr(48f, 42f, 44f, green, 8f)
+        // The image sliding out to the right.
+        rr(46f, 42f, 46f, green, 8f)
         fill.color = Color.WHITE
         val mountain = android.graphics.Path().apply {
-            moveTo(52f, 80f)
-            lineTo(64f, 60f)
-            lineTo(72f, 70f)
-            lineTo(78f, 62f)
+            moveTo(50f, 80f)
+            lineTo(62f, 60f)
+            lineTo(70f, 70f)
+            lineTo(76f, 62f)
             lineTo(88f, 80f)
             close()
         }
         drawPath(mountain, fill)
-        drawCircle(61f, 54f, 5f, fill)
-        // Long bold outward arrow: the image is coming OUT.
-        arrow(74f, 40f, 20f, -20f, green, 8f)
+        drawCircle(59f, 54f, 5f, fill)
+        // Clean outward arrow: shaft + filled triangle head.
+        stroke.color = green
+        stroke.strokeWidth = 7f
+        drawLine(74f, 42f, 88f, 28f, stroke)
+        fill.color = green
+        val head = android.graphics.Path().apply {
+            moveTo(96f, 20f)
+            lineTo(91.7f, 32.7f)
+            lineTo(83.3f, 24.3f)
+            close()
+        }
+        drawPath(head, fill)
     }
 
     /** Big teal "T" + text lines (extract text). */
@@ -422,26 +440,31 @@ class PdfIconView @JvmOverloads constructor(
         drawLine(83f, 69f, 69f, 83f, stroke)
     }
 
-    /** Rubber stamp on a purple square, iLovePDF style (v0.1.156,
-     * Fix #43 — the diagonal "W" band did not read as a stamp.
-     * iLovePDF's purple square with a white stamp is the
-     * professional reference: knob handle, neck, flat base.) */
+    /** Rubber stamp on a purple square, FAITHFUL to iLovePDF
+     * (v0.1.157, Fix #49 — the v0.1.156 stamp was a separate
+     * circle + trapezoid neck, so the head/neck seam showed.
+     * iLovePDF's handle is ONE pawn-shaped silhouette: round
+     * head, gentle waist, flared foot — then a wide flat base
+     * and a thin stamped line under it.) */
     private fun Canvas.watermark() {
         rr(14f, 14f, 72f, purple, 10f)
         fill.color = Color.WHITE
-        // Handle knob + neck.
-        drawCircle(50f, 30f, 9f, fill)
-        val neck = android.graphics.Path().apply {
-            moveTo(44f, 36f)
-            lineTo(56f, 36f)
-            lineTo(60f, 52f)
-            lineTo(40f, 52f)
+        // Pawn-shaped handle: one continuous path.
+        val handle = android.graphics.Path().apply {
+            moveTo(50f, 20f)
+            quadTo(62f, 20f, 62f, 32f)
+            quadTo(62f, 40f, 56f, 46f)
+            quadTo(61f, 52f, 63f, 58f)
+            lineTo(37f, 58f)
+            quadTo(39f, 52f, 44f, 46f)
+            quadTo(38f, 40f, 38f, 32f)
+            quadTo(38f, 20f, 50f, 20f)
             close()
         }
-        drawPath(neck, fill)
+        drawPath(handle, fill)
         // Flat base + the stamped line under it.
-        drawRoundRect(RectF(24f, 52f, 76f, 68f), 6f, 6f, fill)
-        drawRoundRect(RectF(28f, 72f, 72f, 78f), 3f, 3f, fill)
+        drawRoundRect(RectF(24f, 62f, 76f, 76f), 5f, 5f, fill)
+        drawRoundRect(RectF(30f, 80f, 70f, 85f), 2.5f, 2.5f, fill)
     }
 
     /** Four bold arrows pointing outwards (resize / expand). */
