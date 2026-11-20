@@ -657,12 +657,21 @@ class PdfToolsActivity : AppCompatActivity() {
         // v0.1.152, Fix #12: icon sits in a tinted circle — the
         // plain icon on white looked bare; the circle makes the
         // popup feel finished and professional.
+        // v0.1.154, Fix #33: Smart is the flagship — its popup gets
+        // a premium gold treatment (gold-tinted circle + gold
+        // "★ PREMIUM" badge below). Other tools keep teal.
+        val isPremiumSmart = tool.kind == PdfIconView.Kind.SMART
         val iconWrap = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(0xFFE0F2F1.toInt())
+                if (isPremiumSmart) {
+                    setColor(0xFFFFF3D6.toInt())
+                    setStroke((2 * resources.displayMetrics.density).toInt(), Color.parseColor("#E8C15A"))
+                } else {
+                    setColor(0xFFE0F2F1.toInt())
+                }
             }
             layoutParams = LinearLayout.LayoutParams(dp(76), dp(76)).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
@@ -674,6 +683,30 @@ class PdfToolsActivity : AppCompatActivity() {
         }
         iconWrap.addView(icon)
         card.addView(iconWrap)
+        if (isPremiumSmart) {
+            val badge = TextView(this).apply {
+                text = "★ PREMIUM"
+                textSize = 11f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(Color.parseColor("#8A6D1B"))
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 10f * resources.displayMetrics.density
+                    setColor(0xFFFFF3D6.toInt())
+                    setStroke((1 * resources.displayMetrics.density).toInt(), Color.parseColor("#E8C15A"))
+                }
+                setPadding(dp(10), dp(4), dp(10), dp(4))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    topMargin = dp(12)
+                }
+            }
+            card.addView(badge)
+        }
         val title = TextView(this).apply {
             text = tool.name
             textSize = 18f
@@ -2633,9 +2666,26 @@ class PdfToolsActivity : AppCompatActivity() {
                             resultBox.addView(buildLosslessResultCard(out, before))
                         }
                         savedBytes == 0L -> {
-                            val tvAlready = TextView(this).apply {
-                                text = "Already optimized — this PDF is as small as it gets without losing quality. Try Smart Compress for a smaller file."
-                                textSize = 14f
+                            // v0.1.154, Fix #30: explain WHY nothing
+                            // could be saved. compressLossless found
+                            // no unfiltered streams to pack and the
+                            // metadata strip saved nothing — this PDF
+                            // really is already fully compressed, so
+                            // the result is honest, not a shrug.
+                            // Fix #31: one tap takes the same file
+                            // straight to Smart Compress.
+                            val alreadyBox = LinearLayout(this).apply {
+                                orientation = LinearLayout.VERTICAL
+                                gravity = Gravity.CENTER
+                                layoutParams = LinearLayout.LayoutParams(
+                                    LinearLayout.LayoutParams.MATCH_PARENT,
+                                    LinearLayout.LayoutParams.WRAP_CONTENT
+                                )
+                            }
+                            val tvTitle = TextView(this).apply {
+                                text = "Already optimized"
+                                textSize = 17f
+                                setTypeface(null, android.graphics.Typeface.BOLD)
                                 setTextColor(getColor(R.color.hakunaa_text))
                                 gravity = Gravity.CENTER
                                 layoutParams = LinearLayout.LayoutParams(
@@ -2643,7 +2693,45 @@ class PdfToolsActivity : AppCompatActivity() {
                                     LinearLayout.LayoutParams.WRAP_CONTENT
                                 )
                             }
-                            resultBox.addView(tvAlready)
+                            alreadyBox.addView(tvTitle)
+                            val tvWhy = TextView(this).apply {
+                                text = "Lossless checked this PDF and found nothing left to squeeze:"
+                                textSize = 13f
+                                setTextColor(getColor(R.color.hakunaa_text_secondary))
+                                gravity = Gravity.CENTER
+                                layoutParams = LinearLayout.LayoutParams(
+                                    LinearLayout.LayoutParams.MATCH_PARENT,
+                                    LinearLayout.LayoutParams.WRAP_CONTENT
+                                ).apply { topMargin = dp(10) }
+                            }
+                            alreadyBox.addView(tvWhy)
+                            val tvBullets = TextView(this).apply {
+                                text = "• Images already compressed\n• Content streams already packed\n• Metadata already minimal"
+                                textSize = 13f
+                                setTextColor(getColor(R.color.hakunaa_text))
+                                gravity = Gravity.START
+                                layoutParams = LinearLayout.LayoutParams(
+                                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                                    LinearLayout.LayoutParams.WRAP_CONTENT
+                                ).apply {
+                                    gravity = Gravity.CENTER_HORIZONTAL
+                                    topMargin = dp(8)
+                                }
+                            }
+                            alreadyBox.addView(tvBullets)
+                            val btnTrySmart = MaterialButton(this).apply {
+                                text = "Try with Smart Compress"
+                                layoutParams = LinearLayout.LayoutParams(
+                                    LinearLayout.LayoutParams.MATCH_PARENT, dp(56)
+                                ).apply { topMargin = dp(20) }
+                                setOnClickListener {
+                                    dismissLosslessOverlay()
+                                    showSmartResults(input)
+                                }
+                            }
+                            styleFilledButton(btnTrySmart)
+                            alreadyBox.addView(btnTrySmart)
+                            resultBox.addView(alreadyBox)
                         }
                         else -> {
                             tvStatus.text = "Compress failed — check the file and try again"
@@ -4264,6 +4352,10 @@ private fun deletePagesPdf() {
         root.addView(header)
 
         // v0.1.150: TOP PREVIEW (first page) like Image Smart.
+        // v0.1.154, Fix #29: 170dp was far too tall — a portrait
+        // page thumb is narrow, so most of the area was empty grey
+        // and the 5 result rows were pushed into a scroll. 100dp
+        // keeps the preview recognisable and reclaims the space.
         ivSmartPreview = ImageView(this).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
             background = GradientDrawable().apply {
@@ -4272,8 +4364,8 @@ private fun deletePagesPdf() {
                 setColor(Color.parseColor("#F1F3F4"))
             }
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(170)
-            ).apply { topMargin = dp(12) }
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(100)
+            ).apply { topMargin = dp(10) }
         }
         root.addView(ivSmartPreview)
 
@@ -4283,7 +4375,7 @@ private fun deletePagesPdf() {
             setTextColor(getColor(R.color.hakunaa_text_secondary))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(10) }
+            ).apply { topMargin = dp(8) }
         }
         root.addView(fileLine)
 
@@ -4294,7 +4386,7 @@ private fun deletePagesPdf() {
             setTextColor(getColor(R.color.hakunaa_text))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(12) }
+            ).apply { topMargin = dp(8) }
         }
         root.addView(resultsLabel)
 
@@ -4309,24 +4401,20 @@ private fun deletePagesPdf() {
         }
         root.addView(tvSmartComputing)
 
-        // Results scroll (weight 1) — the bottom buttons stay
-        // pinned below, like Image Smart.
-        val scroll = android.widget.ScrollView(this).apply {
+        // v0.1.154, Fix #29: NO SCROLL — the old ScrollView let
+        // the 5 result rows hide below the fold. The rows now
+        // share this weight-1 box by weight (height 0, weight 1
+        // in buildSmartResultRow), so all 5 always fit on one
+        // screen on any phone. The bottom buttons stay pinned.
+        smartResultsBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            clipToPadding = false
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
             ).apply { topMargin = dp(8) }
-            clipToPadding = false
             setPadding(0, 0, 0, dp(8))
         }
-        smartResultsBox = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        }
-        scroll.addView(smartResultsBox)
-        root.addView(scroll)
+        root.addView(smartResultsBox)
 
         // Bottom buttons, top to bottom (v0.1.150, like Image
         // Smart): Save selected → Custom size → Close + Done.
@@ -4334,7 +4422,7 @@ private fun deletePagesPdf() {
             text = "Save selected"
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(56)
-            ).apply { topMargin = dp(12) }
+            ).apply { topMargin = dp(10) }
             setOnClickListener { saveSmartSelected() }
         }
         styleFilledButton(btnSave)
@@ -4344,7 +4432,7 @@ private fun deletePagesPdf() {
             text = "Custom size"
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(56)
-            ).apply { topMargin = dp(8) }
+            ).apply { topMargin = dp(6) }
             setOnClickListener { showSmartCustomSizePopup() }
         }
         styleOutlineButton(btnCustom)
@@ -4355,7 +4443,7 @@ private fun deletePagesPdf() {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(8) }
+            ).apply { topMargin = dp(6) }
         }
         val btnClose = MaterialButton(this).apply {
             text = "Close"
@@ -4427,11 +4515,13 @@ private fun deletePagesPdf() {
                 setColor(Color.WHITE)
                 setStroke((1 * density).toInt(), Color.parseColor("#CFD8DC"))
             }
+            // v0.1.154, Fix #29: height 0 + weight 1 — the 5 rows
+            // share the results box height exactly, so nothing
+            // scrolls and nothing hides below the fold.
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
             ).apply { topMargin = dp(4); bottomMargin = dp(4) }
-            setPadding(dp(12), dp(10), dp(12), dp(10))
+            setPadding(dp(12), dp(8), dp(12), dp(8))
             isClickable = true
             isFocusable = true
             val outValue = TypedValue()

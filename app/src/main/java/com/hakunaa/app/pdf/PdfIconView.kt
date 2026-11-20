@@ -143,37 +143,40 @@ class PdfIconView @JvmOverloads constructor(
         }
     }
 
-    /** Pen + flowing signature squiggle. */
-    /** Fountain pen, drawn bold so it reads as a pen at a
-     * glance: thick diagonal barrel, clear nib with a slit, and a
-     * flowing signature flourish underneath. (v0.1.153, Fix #19 —
-     * the old pen + squiggle did not read as a signature pen.) */
+    /** Fountain-pen NIB + signature flourish (v0.1.154,
+     * Fix #32 — the v0.1.153 pen + squiggle still did not read
+     * as a signature pen: the triangle nib looked like an
+     * arrowhead. A bold nib silhouette with a slit and breather
+     * hole is unmistakable at a glance, with a flowing signature
+     * line underneath.) */
     private fun Canvas.sign() {
-        // Signature flourish first (behind the pen).
-        stroke.color = tealDk
-        stroke.strokeWidth = 6f
-        val sig = android.graphics.Path().apply {
-            moveTo(12f, 82f)
-            cubicTo(22f, 64f, 30f, 92f, 42f, 76f)
-            cubicTo(50f, 64f, 56f, 90f, 68f, 74f)
-            cubicTo(74f, 66f, 80f, 80f, 88f, 76f)
-        }
-        drawPath(sig, stroke)
-        // Pen barrel: thick diagonal line, nib end at top-right.
-        stroke.strokeWidth = 11f
-        drawLine(26f, 58f, 58f, 26f, stroke)
-        // Nib: filled triangle + slit line.
+        // Nib: rounded shoulders tapering to a sharp point.
         fill.color = tealDk
         val nib = android.graphics.Path().apply {
-            moveTo(58f, 26f)
-            lineTo(88f, 10f)
-            lineTo(76f, 42f)
+            moveTo(50f, 8f)
+            quadTo(74f, 14f, 76f, 40f)
+            lineTo(50f, 76f)
+            lineTo(24f, 40f)
+            quadTo(26f, 14f, 50f, 8f)
             close()
         }
         drawPath(nib, fill)
+        // Slit + breather hole (white, so they read as the nib).
         stroke.color = Color.WHITE
-        stroke.strokeWidth = 3f
-        drawLine(66f, 30f, 78f, 20f, stroke)
+        stroke.strokeWidth = 3.5f
+        drawLine(50f, 74f, 50f, 48f, stroke)
+        fill.color = Color.WHITE
+        drawCircle(50f, 38f, 4.5f, fill)
+        // Signature flourish underneath.
+        stroke.color = tealDk
+        stroke.strokeWidth = 6f
+        val sig = android.graphics.Path().apply {
+            moveTo(12f, 90f)
+            cubicTo(24f, 82f, 32f, 94f, 44f, 88f)
+            cubicTo(54f, 83f, 62f, 94f, 74f, 88f)
+            cubicTo(80f, 85f, 84f, 89f, 88f, 88f)
+        }
+        drawPath(sig, stroke)
     }
 
 
@@ -216,23 +219,23 @@ class PdfIconView @JvmOverloads constructor(
         drawRoundRect(RectF(46f, 64f, 54f, 76f), 3f, 3f, fill)
     }
 
-    /** Wrench: open jaw crescent + thick handle. */
-    /** Real open-jaw wrench (v0.1.153, Fix #19 — the old arc +
-     * line did not read as a wrench): a ring with the jaw open at
-     * the top-right, two jaw flats, and a thick handle running
-     * down to the bottom-left. */
+    /** Real open-jaw wrench (v0.1.154, Fix #32 — the v0.1.153
+     * arc still read as a magnifier / G-shape): a THICK C-head
+     * with a WIDE open mouth (130° gap at the top-right) and two
+     * flat jaw faces, plus a thick handle. The wide mouth is what
+     * makes it read as a wrench at a glance. */
     private fun Canvas.repair() {
         stroke.color = tealDk
-        stroke.strokeWidth = 10f
-        // Jaw ring: 270° arc, gap at the top-right.
-        drawArc(RectF(42f, 6f, 94f, 58f), 20f, 270f, false, stroke)
-        // Jaw flats: short lines from the arc ends toward the centre.
-        stroke.strokeWidth = 9f
-        drawLine(85f, 15f, 74f, 26f, stroke)
-        drawLine(90f, 40f, 78f, 37f, stroke)
+        stroke.strokeWidth = 13f
+        // Jaw ring: 230° arc, 130° mouth open at the top-right.
+        drawArc(RectF(42f, 8f, 90f, 56f), 25f, 230f, false, stroke)
+        // Jaw flats: from each arc end toward the centre.
+        stroke.strokeWidth = 11f
+        drawLine(88f, 42f, 77f, 37f, stroke)
+        drawLine(60f, 9f, 63f, 20f, stroke)
         // Handle.
-        stroke.strokeWidth = 12f
-        drawLine(50f, 50f, 16f, 84f, stroke)
+        stroke.strokeWidth = 13f
+        drawLine(52f, 48f, 16f, 84f, stroke)
     }
 
 
