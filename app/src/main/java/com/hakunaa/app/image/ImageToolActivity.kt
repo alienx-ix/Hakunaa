@@ -2639,32 +2639,26 @@ class ImageToolActivity : AppCompatActivity() {
                 text = "View"
                 textSize = 13f
                 setTextColor(getColor(R.color.hakunaa_teal))
-                // v0.1.146 (Batch 30): WHITE fill, like the WebP
-                // View pill — SAME button, colour only (user,
-                // 2026-11-20: "same button la white color venum
-                // same as better la irkua mari (Note onnly
-                // color)"). The backgroundTintList-white +
-                // elevation-0 approach FAILED twice on the phone
-                // (v0.1.144, v0.1.145 — v0.1.145 IS installed
-                // and the buttons are STILL card-colour): the
-                // tint never renders white. So the button now
-                // draws its background EXACTLY like the WebP
-                // pill (plain white fill, teal stroke, 10dp
-                // corners) — the button REMAINS a
-                // MaterialButton, same size, text, position;
-                // only the fill renders white. Set LAST, and
-                // the tint/stroke/corner helper calls are gone
-                // (the drawable carries them), so no helper
-                // call can replace it. No ripple, like the
-                // WebP pill — the button still taps the same.
+                backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_surface))
+                // v0.1.147 (Batch 31): OLD button + ONLY white
+                // background (user, 2026-11-20, approved mockup:
+                // "White background matu change, No other
+                // changes"). v0.1.146's plain GradientDrawable
+                // background turned the buttons SOLID BLUE on the
+                // phone — the theme's default primary-blue tint
+                // overrode the white drawable — so it is reverted:
+                // this is the v0.1.145 button setup byte-for-byte,
+                // plus ONLY setBackgroundColor(WHITE), which sets
+                // the MaterialShapeDrawable fill directly to opaque
+                // white (the tint alone left the fill transparent,
+                // so the card colour showed through). Same size,
+                // outline, text, position — colour only.
                 elevation = 0f
                 stateListAnimator = null
-                background = GradientDrawable().apply {
-                    shape = GradientDrawable.RECTANGLE
-                    cornerRadius = 10f * density
-                    setColor(getColor(R.color.hakunaa_surface))
-                    setStroke((1 * density).toInt(), getColor(R.color.hakunaa_teal))
-                }
+                strokeColor = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+                strokeWidth = (1 * density).toInt()
+                cornerRadius = (10 * density).toInt()
+                setBackgroundColor(getColor(R.color.hakunaa_surface))
                 setPadding((12 * density).toInt(), 0, (12 * density).toInt(), 0)
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
