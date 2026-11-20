@@ -43,6 +43,7 @@ import com.hakunaa.app.core.MediaStoreSaver
 import com.hakunaa.app.core.StatusBar
 import com.hakunaa.app.image.ImageCompressor
 import com.hakunaa.app.image.ImageToPdfActivity
+import com.hakunaa.app.image.SavedDialog
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import java.io.File
 import java.io.FileOutputStream
@@ -95,7 +96,6 @@ class PdfToolsActivity : AppCompatActivity() {
     private var signPageW = 0f
     private var signPageH = 0f
     private var signPageBitmap: Bitmap? = null
-    private var signSigBitmap: Bitmap? = null
     private var signSigColor = 0xFF111827.toInt()
     private var signArchive = false
 
@@ -294,7 +294,6 @@ class PdfToolsActivity : AppCompatActivity() {
         genericOverlayBitmaps = mutableListOf()
         signInput = null
         signPageBitmap = null
-        signSigBitmap = null
     }
 
     /** Dismiss whichever PDF tool overlay is open (same priority
@@ -3443,48 +3442,182 @@ class PdfToolsActivity : AppCompatActivity() {
 
     // Extract Images — in-screen (v0.1.153, priority #1): the old
     // flow did everything with just a toast, no screen at all.
+    // Extract Images — REWORKED (v0.1.156, Fix #45): the v0.1.153
+    // flow saved ALL images straight to Pictures on tap ("Done —
+    // 13 image(s) saved"). Now the screen extracts on open, shows
+    // every image as a thumbnail in a grid, the user ticks the
+    // ones they want, and only the selected ones are saved —
+    // same selection pattern as Image to PDF (Fix #20). After
+    // save, the professional Saved dialog (not a toast).
     private fun showExtractImagesScreen(input: File, total: Int) {
         val root = newToolOverlay("Extract Images")
         root.addView(toolFileLine("${input.name} • $total page(s)"))
         val preview = toolPreviewBox()
         root.addView(preview)
         loadToolPreview(preview, input)
-        root.addView(toolExplain("Save every photo inside your PDF. Each image is saved on its own in Pictures/Hakunaa."))
-        val scroll = ScrollView(this).apply {
+        root.addView(toolExplain("Tick the images you want, then save only those to Pictures/Hakunaa."))
+        val status = toolStatusLine("Extracting images…")
+        root.addView(status)
+        data class ExtractedImage(val file: File, val bitmap: Bitmap, var selected: Boolean = true)
+        val extracted = mutableListOf<ExtractedImage>()
+        // Save button, declared up front so its label can follow
+        // the selection count ("Save 13 images" → "Save 5 images").
+        var btnSave: TextView? = null
+        fun updateSaveButton() {
+            val n = extracted.count { it.selected }
+            btnSave?.text = if (extracted.isEmpty()) "Save images" else "Save $n image${if (n == 1) "" else "s"}"
+        }
+        // Grid adapter (same tap-to-toggle + check-badge pattern as
+        // the Organize / Delete Pages thumbnail grids).
+        val adapter = object : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+            override fun getItemCount() = extracted.size
+            override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+                val cell = FrameLayout(parent.context).apply {
+                    layoutParams = RecyclerView.LayoutParams(
+                        RecyclerView.LayoutParams.MATCH_PARENT, dp(120)
+                    ).apply { setMargins(dp(4), dp(4), dp(4), dp(4)) }
+                }
+                val iv = ImageView(parent.context).apply {
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    layoutParams = FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                    )
+                }
+                val badge = TextView(parent.context).apply {
+                    text = "✓"
+                    textSize = 16f
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    gravity = Gravity.CENTER
+                    setTextColor(Color.WHITE)
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
+                        setColor(parent.context.getColor(R.color.hakunaa_teal))
+                    }
+                    layoutParams = FrameLayout.LayoutParams(dp(28), dp(28)).apply {
+                        gravity = Gravity.END or Gravity.TOP
+                        setMargins(0, dp(6), dp(6), 0)
+                    }
+                }
+                cell.addView(iv)
+                cell.addView(badge)
+                return object : RecyclerView.ViewHolder(cell) {}
+            }
+            override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+                val item = extracted[position]
+                val cell = holder.itemView as FrameLayout
+                val iv = cell.getChildAt(0) as ImageView
+                val badge = cell.getChildAt(1) as TextView
+                iv.setImageBitmap(item.bitmap)
+                iv.alpha = if (item.selected) 1f else 0.45f
+                badge.visibility = if (item.selected) View.VISIBLE else View.GONE
+                cell.background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(10).toFloat()
+                    if (item.selected) setStroke(dp(2), cell.context.getColor(R.color.hakunaa_teal))
+                    else setStroke(dp(1), Color.parseColor("#CFD8DC"))
+                }
+                cell.setOnClickListener {
+                    item.selected = !item.selected
+                    notifyItemChanged(position)
+                    updateSaveButton()
+                }
+            }
+        }
+        val grid = RecyclerView(this).apply {
+            layoutManager = GridLayoutManager(this@PdfToolsActivity, 3)
+            clipToPadding = false
+            setPadding(dp(4), dp(4), dp(4), dp(4))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
-            )
-            isFillViewport = true
+            ).apply { topMargin = dp(8) }
         }
-        val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        scroll.addView(body)
-        root.addView(scroll)
-        val status = toolStatusLine("")
-        body.addView(status)
-        root.addView(toolBottomRow("Extract") {
-            status.text = "Extracting images…"
+        grid.adapter = adapter
+        root.addView(grid)
+        // Bottom row: Back (with the leave dialog) + Save selected.
+        val bottomRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(16) }
+        }
+        val btnBack = popupPillButton("Back", false) { attemptLeavePdf { dismissGenericOverlay() } }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginEnd = dp(8) }
+        }
+        btnSave = popupPillButton("Save images", true) {
+            val chosen = extracted.filter { it.selected }
+            if (chosen.isEmpty()) {
+                toast("Tick at least one image to save")
+                return@popupPillButton
+            }
+            status.text = "Saving ${chosen.size} image(s)…"
             Thread {
                 try {
-                    val outDir = File(hakunaaCacheDir(), "images_${System.currentTimeMillis()}").apply { mkdirs() }
-                    val created = PdfTools.extractImages(input, outDir)
+                    var firstFile: File? = null
+                    var firstUri: Uri? = null
                     var published = 0
-                    for (file in created) {
-                        if (MediaStoreSaver.save(this, file, MediaStoreSaver.Kind.IMAGE, file.name, ImageCompressor.formatOf(file).mime) != null) {
+                    for (item in chosen) {
+                        val uri = MediaStoreSaver.save(this, item.file, MediaStoreSaver.Kind.IMAGE, item.file.name, ImageCompressor.formatOf(item.file).mime)
+                        if (uri != null) {
+                            if (firstUri == null) {
+                                firstUri = uri
+                                firstFile = item.file
+                            }
                             published++
                         }
                     }
                     runOnUiThread {
-                        status.text = when {
-                            published > 0 -> "Done — $published image(s) saved to Pictures/Hakunaa"
-                            created.isEmpty() -> "No images found in this PDF"
-                            else -> "Extract failed — check the file and try again"
+                        if (published > 0 && firstUri != null && firstFile != null) {
+                            dismissGenericOverlay()
+                            SavedDialog.show(this@PdfToolsActivity, firstFile, firstUri, ImageCompressor.formatOf(firstFile))
+                        } else {
+                            status.text = "Save failed — check the file and try again"
                         }
                     }
                 } catch (_: Throwable) {
-                    runOnUiThread { status.text = "Extract failed — check the file and try again" }
+                    runOnUiThread { status.text = "Save failed — check the file and try again" }
                 }
             }.start()
-        })
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginStart = dp(8) }
+        }
+        bottomRow.addView(btnBack)
+        bottomRow.addView(btnSave)
+        root.addView(bottomRow)
+        // Extract on open, then fill the grid (all selected).
+        Thread {
+            try {
+                val outDir = File(hakunaaCacheDir(), "images_${System.currentTimeMillis()}").apply { mkdirs() }
+                val created = PdfTools.extractImages(input, outDir)
+                val items = mutableListOf<ExtractedImage>()
+                for (file in created) {
+                    try {
+                        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        android.graphics.BitmapFactory.decodeFile(file.absolutePath, bounds)
+                        val smaller = if (bounds.outWidth < bounds.outHeight) bounds.outWidth else bounds.outHeight
+                        val sample = (smaller / 240).coerceAtLeast(1)
+                        val bmpOpts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+                        val bmp = android.graphics.BitmapFactory.decodeFile(file.absolutePath, bmpOpts)
+                        if (bmp != null) {
+                            genericOverlayBitmaps.add(bmp)
+                            items.add(ExtractedImage(file, bmp))
+                        }
+                    } catch (_: Throwable) { }
+                }
+                runOnUiThread {
+                    extracted.addAll(items)
+                    adapter.notifyDataSetChanged()
+                    updateSaveButton()
+                    status.text = when {
+                        extracted.isEmpty() -> "No images found in this PDF"
+                        else -> "${extracted.size} image(s) found — tick the ones to save"
+                    }
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "Extract failed — check the file and try again" }
+            }
+        }.start()
     }
 
 
@@ -4199,16 +4332,67 @@ private fun deletePagesPdf() {
         }
     }
 
+    // Resize Pages — REWORKED (v0.1.156, Fix #44): the v0.1.153
+    // in-screen flow kept the OLD static preview (the original
+    // page) and a "Resize" button that closed the screen before
+    // saving. Now the preview is LIVE: the page is shown at the
+    // NEW size — its frame aspect follows the picked size and
+    // orientation, with the new dimensions labelled — and the
+    // bottom button is a clear "Resize & Save" that resizes,
+    // then shows the professional Saved dialog. Same 9 sizes,
+    // orientation and fit options (user-approved).
     private fun showResizeScreen(input: File, total: Int) {
         var selectedSize = 0 // A4
         var landscape = false
         var fitContent = true
         val root = newToolOverlay("Resize Pages")
         root.addView(toolFileLine("${input.name} • $total page(s)"))
-        val preview = toolPreviewBox()
-        root.addView(preview)
-        loadToolPreview(preview, input)
+        // Live preview: the first page rendered once, shown inside
+        // a frame whose aspect matches the TARGET size. Changing
+        // size / orientation / custom dimensions re-frames the same
+        // page bitmap — what the resized page will look like
+        // (content fitted, vector stays vector).
+        val previewWrap = FrameLayout(this).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 12f * resources.displayMetrics.density
+                setColor(Color.parseColor("#F1F3F4"))
+            }
+            clipToOutline = true
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(200)
+            ).apply { topMargin = dp(12) }
+        }
+        val previewImg = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            ).apply { gravity = Gravity.CENTER }
+        }
+        previewWrap.addView(previewImg)
+        root.addView(previewWrap)
+        val previewLabel = TextView(this).apply {
+            textSize = 13f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setTextColor(getColor(R.color.hakunaa_text))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+        root.addView(previewLabel)
         root.addView(toolExplain("Change every page to a new size. Vector and text content stays vector — nothing is rasterised."))
+        // Original page size (for the before/after label).
+        var origW = 0f
+        var origH = 0f
+        // Refreshes the live preview when any option changes.
+        // Assigned after the option views exist (it reads the
+        // custom size fields); the chip handlers below call it
+        // through this variable.
+        var refreshResizePreview: () -> Unit = {}
+
         val scroll = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
@@ -4225,173 +4409,281 @@ private fun deletePagesPdf() {
         scroll.addView(card)
         root.addView(scroll)
 
-            fun sectionLabel(text: String): TextView {
-                return TextView(this).apply {
-                    this.text = text
-                    textSize = 14f
-                    setTypeface(null, android.graphics.Typeface.BOLD)
-                    setTextColor(getColor(R.color.hakunaa_text))
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply { topMargin = dp(16) }
-                }
-            }
-            fun chipRow(chips: List<TextView>): LinearLayout {
-                return LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply { topMargin = dp(8) }
-                    for ((i, chip) in chips.withIndex()) {
-                        chip.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                            if (i > 0) marginStart = dp(8)
-                        }
-                        addView(chip)
-                    }
-                }
-            }
-
-            card.addView(sectionLabel("Page size"))
-            val sizeChips = mutableListOf<TextView>()
-            val customBox = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                visibility = View.GONE
+        fun sectionLabel(text: String): TextView {
+            return TextView(this).apply {
+                this.text = text
+                textSize = 13f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(Color.parseColor("#78909C"))
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = dp(8) }
+                ).apply {
+                    topMargin = dp(12)
+                    bottomMargin = dp(4)
+                }
             }
-            val etCustomW = EditText(this).apply {
-                hint = "Width (mm)"
+        }
+        fun chipRow(chips: List<TextView>): LinearLayout {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp(2) }
+            }
+            for ((i, chip) in chips.withIndex()) {
+                chip.layoutParams = LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+                ).apply {
+                    if (i > 0) marginStart = dp(6)
+                }
+                row.addView(chip)
+            }
+            return row
+        }
+
+        card.addView(sectionLabel("Page size"))
+        val sizeChips = mutableListOf<TextView>()
+        val customBox = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dp(6)
+                bottomMargin = dp(2)
+            }
+        }
+        fun customEdit(hint: String): EditText {
+            return EditText(this).apply {
+                this.hint = hint
+                inputType = InputType.TYPE_CLASS_NUMBER
                 textSize = 14f
-                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-                background = inputBoxBackground()
-                setPadding(dp(12), dp(10), dp(12), dp(10))
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-            val etCustomH = EditText(this).apply {
-                hint = "Height (mm)"
-                textSize = 14f
-                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-                background = inputBoxBackground()
-                setPadding(dp(12), dp(10), dp(12), dp(10))
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    marginStart = dp(8)
+                setTextColor(getColor(R.color.hakunaa_text))
+                setHintTextColor(Color.parseColor("#90A4AE"))
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(8).toFloat()
+                    setColor(Color.WHITE)
+                    setStroke(dp(1), Color.parseColor("#CFD8DC"))
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    0, dp(44), 1f
+                ).apply {
+                    if (hint == "Height") marginStart = dp(8)
                 }
             }
-            customBox.addView(etCustomW)
-            customBox.addView(etCustomH)
-            fun refreshSizeChips() {
-                for (i in sizeChips.indices) {
-                    val chip = sizeChips[i]
-                    val sel = i == selectedSize
-                    chip.background = GradientDrawable().apply {
-                        shape = GradientDrawable.RECTANGLE
-                        cornerRadius = dp(10).toFloat()
-                        if (sel) setColor(getColor(R.color.hakunaa_teal)) else {
-                            setColor(Color.WHITE)
-                            setStroke(dp(1), Color.parseColor("#CFD8DC"))
-                        }
+        }
+        val etCustomW = customEdit("Width")
+        val etCustomH = customEdit("Height")
+        customBox.addView(etCustomW)
+        customBox.addView(etCustomH)
+        fun refreshSizeChips() {
+            for (i in sizeChips.indices) {
+                val chip = sizeChips[i]
+                val selected = i == selectedSize
+                chip.background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(10).toFloat()
+                    if (selected) {
+                        setColor(getColor(R.color.hakunaa_teal))
+                    } else {
+                        setColor(Color.WHITE)
+                        setStroke(dp(1), Color.parseColor("#CFD8DC"))
                     }
-                    chip.setTextColor(if (sel) Color.WHITE else getColor(R.color.hakunaa_text))
                 }
-                customBox.visibility =
-                    if (resizeSizes[selectedSize].name == "Custom") View.VISIBLE else View.GONE
+                chip.setTextColor(if (selected) Color.WHITE else getColor(R.color.hakunaa_text))
             }
-            for (i in resizeSizes.indices) {
-                sizeChips.add(resizeChip(resizeSizes[i].name, i == selectedSize) {
-                    selectedSize = i
-                    refreshSizeChips()
-                })
-            }
-            for (row in sizeChips.chunked(3)) card.addView(chipRow(row))
-            card.addView(customBox)
-
-            card.addView(sectionLabel("Orientation"))
-            val orientChips = mutableListOf<TextView>()
-            fun refreshOrientChips() {
-                for (i in orientChips.indices) {
-                    val sel = (i == 1) == landscape
-                    orientChips[i].background = GradientDrawable().apply {
-                        shape = GradientDrawable.RECTANGLE
-                        cornerRadius = dp(10).toFloat()
-                        if (sel) setColor(getColor(R.color.hakunaa_teal)) else {
-                            setColor(Color.WHITE)
-                            setStroke(dp(1), Color.parseColor("#CFD8DC"))
-                        }
-                    }
-                    orientChips[i].setTextColor(if (sel) Color.WHITE else getColor(R.color.hakunaa_text))
-                }
-            }
-            orientChips.add(resizeChip("Portrait", true) { landscape = false; refreshOrientChips() })
-            orientChips.add(resizeChip("Landscape", false) { landscape = true; refreshOrientChips() })
-            card.addView(chipRow(orientChips))
-
-            card.addView(sectionLabel("Content"))
-            val fitChips = mutableListOf<TextView>()
-            fun refreshFitChips() {
-                for (i in fitChips.indices) {
-                    val sel = (i == 0) == fitContent
-                    fitChips[i].background = GradientDrawable().apply {
-                        shape = GradientDrawable.RECTANGLE
-                        cornerRadius = dp(10).toFloat()
-                        if (sel) setColor(getColor(R.color.hakunaa_teal)) else {
-                            setColor(Color.WHITE)
-                            setStroke(dp(1), Color.parseColor("#CFD8DC"))
-                        }
-                    }
-                    fitChips[i].setTextColor(if (sel) Color.WHITE else getColor(R.color.hakunaa_text))
-                }
-            }
-            fitChips.add(resizeChip("Fit to page", true) { fitContent = true; refreshFitChips() })
-            fitChips.add(resizeChip("Keep size", false) { fitContent = false; refreshFitChips() })
-            card.addView(chipRow(fitChips))
-
-            val status = toolStatusLine("")
-            card.addView(status)
-            root.addView(toolBottomRow("Resize") {
-                val size = resizeSizes[selectedSize]
-                val wPt: Float
-                val hPt: Float
-                val label: String
-                if (size.name == "Custom") {
-                    val wMm = etCustomW.text.toString().trim().toFloatOrNull()
-                    val hMm = etCustomH.text.toString().trim().toFloatOrNull()
-                    if (wMm == null || hMm == null || wMm < 10f || hMm < 10f || wMm > 1000f || hMm > 1000f) {
-                        toast("Enter a valid width and height (10–1000 mm)")
-                        return@toolBottomRow
-                    }
-                    wPt = wMm * 72f / 25.4f
-                    hPt = hMm * 72f / 25.4f
-                    label = "Custom ${wMm.toInt()}×${hMm.toInt()}mm"
-                } else {
-                    wPt = size.wPt
-                    hPt = size.hPt
-                    label = size.name
-                }
-                val target = if (landscape) PDRectangle(hPt, wPt) else PDRectangle(wPt, hPt)
-                dismissGenericOverlay()
-                runResize(input, target, label, fitContent)
+            customBox.visibility = if (resizeSizes[selectedSize].name == "Custom") View.VISIBLE else View.GONE
+        }
+        for (i in resizeSizes.indices) {
+            sizeChips.add(resizeChip(resizeSizes[i].name, i == selectedSize) {
+                selectedSize = i
+                refreshSizeChips()
+                refreshResizePreview()
             })
-    }
+        }
+        for (rowStart in 0 until sizeChips.size step 3) {
+            card.addView(chipRow(sizeChips.subList(rowStart, minOf(rowStart + 3, sizeChips.size))))
+        }
+        card.addView(customBox)
 
-    private fun runResize(input: File, target: PDRectangle, label: String, fit: Boolean = true) {
-        toast("Resizing pages to $label…")
+        card.addView(sectionLabel("Orientation"))
+        val orientChips = mutableListOf<TextView>()
+        fun refreshOrientChips() {
+            val chips = listOf("Portrait" to !landscape, "Landscape" to landscape)
+            for (i in chips.indices) {
+                val chip = orientChips[i]
+                val selected = chips[i].second
+                chip.background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(10).toFloat()
+                    if (selected) {
+                        setColor(getColor(R.color.hakunaa_teal))
+                    } else {
+                        setColor(Color.WHITE)
+                        setStroke(dp(1), Color.parseColor("#CFD8DC"))
+                    }
+                }
+                chip.setTextColor(if (selected) Color.WHITE else getColor(R.color.hakunaa_text))
+            }
+        }
+        orientChips.add(resizeChip("Portrait", true) {
+            landscape = false
+            refreshOrientChips()
+            refreshResizePreview()
+        })
+        orientChips.add(resizeChip("Landscape", false) {
+            landscape = true
+            refreshOrientChips()
+            refreshResizePreview()
+        })
+        card.addView(chipRow(orientChips))
+
+        card.addView(sectionLabel("Content"))
+        val fitChips = mutableListOf<TextView>()
+        fun refreshFitChips() {
+            val chips = listOf("Fit to page" to fitContent, "Keep size" to !fitContent)
+            for (i in chips.indices) {
+                val chip = fitChips[i]
+                val selected = chips[i].second
+                chip.background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(10).toFloat()
+                    if (selected) {
+                        setColor(getColor(R.color.hakunaa_teal))
+                    } else {
+                        setColor(Color.WHITE)
+                        setStroke(dp(1), Color.parseColor("#CFD8DC"))
+                    }
+                }
+                chip.setTextColor(if (selected) Color.WHITE else getColor(R.color.hakunaa_text))
+            }
+        }
+        fitChips.add(resizeChip("Fit to page", true) {
+            fitContent = true
+            refreshFitChips()
+            refreshResizePreview()
+        })
+        fitChips.add(resizeChip("Keep size", false) {
+            fitContent = false
+            refreshFitChips()
+            refreshResizePreview()
+        })
+        card.addView(chipRow(fitChips))
+        val status = toolStatusLine("")
+        card.addView(status)
+
+        /** Target page rectangle from the current options, or null
+         * when Custom has an invalid size (10–1000 mm each side). */
+        fun currentTarget(): PDRectangle? {
+            val size = resizeSizes[selectedSize]
+            if (size.name == "Custom") {
+                val wMm = etCustomW.text.toString().trim().toFloatOrNull()
+                val hMm = etCustomH.text.toString().trim().toFloatOrNull()
+                if (wMm == null || hMm == null || wMm < 10f || hMm < 10f || wMm > 1000f || hMm > 1000f) return null
+                val wPt = wMm * 72f / 25.4f
+                val hPt = hMm * 72f / 25.4f
+                return if (landscape) PDRectangle(hPt, wPt) else PDRectangle(wPt, hPt)
+            }
+            return if (landscape) PDRectangle(size.hPt, size.wPt) else PDRectangle(size.wPt, size.hPt)
+        }
+        refreshResizePreview = {
+            val target = currentTarget()
+            if (target == null) {
+                previewLabel.text = "Enter a valid width and height (10–1000 mm)"
+            } else {
+                val aspect = target.width / target.height
+                val wrapW = resources.displayMetrics.widthPixels - dp(32)
+                val maxH = dp(200)
+                var pw = wrapW
+                var ph = (pw / aspect).toInt()
+                if (ph > maxH) {
+                    ph = maxH
+                    pw = (ph * aspect).toInt()
+                }
+                previewImg.layoutParams = FrameLayout.LayoutParams(pw, ph).apply {
+                    gravity = Gravity.CENTER
+                }
+                previewImg.requestLayout()
+                val wMm = (target.width * 25.4f / 72f).toInt()
+                val hMm = (target.height * 25.4f / 72f).toInt()
+                val name = resizeSizes[selectedSize].name
+                val orient = if (landscape) "Landscape" else "Portrait"
+                val fit = if (fitContent) "Fit to page" else "Keep size"
+                val orig = if (origW > 0f && origH > 0f) {
+                    "\nOriginal: ${(origW * 25.4f / 72f).toInt()} × ${(origH * 25.4f / 72f).toInt()} mm"
+                } else ""
+                previewLabel.text = "New size: $name • $wMm × $hMm mm • $orient • $fit$orig"
+            }
+        }
+        val sizeWatcher = object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: android.text.Editable?) { refreshResizePreview() }
+        }
+        etCustomW.addTextChangedListener(sizeWatcher)
+        etCustomH.addTextChangedListener(sizeWatcher)
+        refreshResizePreview()
+        // Render the first page once; the live preview re-frames
+        // the same bitmap for every option change.
         Thread {
             try {
-                val out = File(hakunaaCacheDir(), "hakunaa_resized_${System.currentTimeMillis()}.pdf")
-                val ok = PdfTools.resizePages(input, out, target, fit)
-                val savedUri = if (ok) publishPdfUri(out) else null
+                val info = PdfTools.pageInfo(input, 0)
+                val thumb = PdfTools.renderFirstPageThumb(input, 720)
                 runOnUiThread {
-                    if (ok && savedUri != null) showSavedPdfDialog(out, savedUri)
-                    else toast("Resize failed — check the file and try again")
+                    if (info != null) {
+                        origW = info.second
+                        origH = info.third
+                    }
+                    if (thumb != null && genericOverlay != null) {
+                        genericOverlayBitmaps.add(thumb)
+                        previewImg.setImageBitmap(thumb)
+                    }
+                    refreshResizePreview()
                 }
-            } catch (_: Throwable) {
-                runOnUiThread { toast("Resize failed — check the file and try again") }
-            }
+            } catch (_: Throwable) { }
         }.start()
+
+        // "Resize & Save": resize in a worker thread, then the
+        // professional Saved dialog. The screen stays up with a
+        // status line while it runs (the old runResize closed the
+        // screen first and only toasted on failure).
+        root.addView(toolBottomRow("Resize & Save") {
+            val target = currentTarget()
+            if (target == null) {
+                toast("Enter a valid width and height (10–1000 mm)")
+                return@toolBottomRow
+            }
+            val size = resizeSizes[selectedSize]
+            val label = if (size.name == "Custom") {
+                val wMm = etCustomW.text.toString().trim().toFloatOrNull() ?: 0f
+                val hMm = etCustomH.text.toString().trim().toFloatOrNull() ?: 0f
+                "Custom ${wMm.toInt()}×${hMm.toInt()}mm"
+            } else size.name
+            status.text = "Resizing to $label…"
+            Thread {
+                try {
+                    val out = File(hakunaaCacheDir(), "hakunaa_resized_${System.currentTimeMillis()}.pdf")
+                    val ok = PdfTools.resizePages(input, out, target, fitContent)
+                    val savedUri = if (ok) publishPdfUri(out) else null
+                    runOnUiThread {
+                        if (ok && savedUri != null) {
+                            dismissGenericOverlay()
+                            showSavedPdfDialog(out, savedUri)
+                        } else {
+                            status.text = "Resize failed — check the file and try again"
+                        }
+                    }
+                } catch (_: Throwable) {
+                    runOnUiThread { status.text = "Resize failed — check the file and try again" }
+                }
+            }.start()
+        })
     }
 
     // ------------------------------------------------------------------
@@ -5048,13 +5340,16 @@ private fun deletePagesPdf() {
         signInput = input
         signPageIndex = 0
         signPageTotal = total
-        signSigBitmap = null
         signArchive = false
         val root = newToolOverlay("Sign PDF")
         root.addView(toolFileLine("${input.name} • $total page(s)"))
         // btnSign is used by the pad Done handler, created before
         // the bottom row — declare it up front (nullable local).
         var btnSign: TextView? = null
+        // seekSize is created with the slider, after the stage —
+        // the signature-overlay helpers above it need the reference
+        // up front (nullable local, same pattern as btnSign).
+        var seekSize: SeekBar? = null
 
         // Page stage: the page preview (exact aspect) with the
         // signature overlaid on top of it, draggable.
@@ -5080,66 +5375,240 @@ private fun deletePagesPdf() {
             )
         }
         pageFrame.addView(pageIv)
-        val sigIv = ImageView(this).apply {
-            scaleType = ImageView.ScaleType.FIT_XY
-            visibility = View.GONE
-        }
-        pageFrame.addView(sigIv)
+        // Placed signatures (v0.1.156, Fix #46 + #47): MULTIPLE
+        // signatures, each with geometry in PDF points on its own
+        // page. Points survive page switches and give the slider
+        // and the stamp one true size. The old single-signature
+        // frame-pixel state (sigX/sigY/sigW/sigH + one sigIv) is
+        // gone: it kept the slider and the stamp disagreeing —
+        // the v0.1.155 signature came out huge and the slider
+        // could not shrink it (Fix #46).
+        data class PlacedSig(
+            val bitmap: Bitmap,
+            val page: Int,
+            val pageW: Float,
+            val pageH: Float,
+            var xPt: Float, // from left, PDF points
+            var yPt: Float, // from bottom, PDF points
+            var wPt: Float,
+            var hPt: Float,
+            var view: ImageView? = null,
+            var handle: View? = null
+        )
+        val placedSigs = mutableListOf<PlacedSig>()
+        var selectedSig: PlacedSig? = null
+        var syncingSlider = false
         // Signature geometry, in pageFrame pixels.
         var frameW = 0
         var frameH = 0
-        var sigX = 0f
-        var sigY = 0f
-        var sigW = 0f
-        var sigH = 0f
-        fun placeSig() {
-            if (signSigBitmap == null || frameW <= 0) return
-            val bmp = signSigBitmap!!
-            val aspect = bmp.height.toFloat() / bmp.width.toFloat()
-            if (sigW <= 0f) {
-                sigW = (frameW * 0.45f).coerceAtLeast(dp(60).toFloat())
-                sigH = sigW * aspect
-                sigX = (frameW - sigW - dp(12)).toFloat()
-                sigY = (frameH - sigH - dp(12)).toFloat()
-            }
-            sigX = sigX.coerceIn(0f, (frameW - sigW).coerceAtLeast(0f))
-            sigY = sigY.coerceIn(0f, (frameH - sigH).coerceAtLeast(0f))
-            sigIv.layoutParams = FrameLayout.LayoutParams(
-                sigW.toInt(), sigH.toInt()
-            ).apply {
-                leftMargin = sigX.toInt()
-                topMargin = sigY.toInt()
-            }
-            sigIv.setImageBitmap(bmp)
-            sigIv.visibility = View.VISIBLE
+
+        /** Points -> frame pixels for a signature on the current page. */
+        fun sigFrameRect(sig: PlacedSig): android.graphics.RectF {
+            val sx = frameW / sig.pageW
+            val sy = frameH / sig.pageH
+            val x = sig.xPt * sx
+            val w = sig.wPt * sx
+            val h = sig.hPt * sy
+            val y = frameH - (sig.yPt + sig.hPt) * sy
+            return android.graphics.RectF(x, y, x + w, y + h)
         }
-        fun setSigBitmap(bmp: Bitmap?) {
-            signSigBitmap = bmp
-            sigW = 0f
-            placeSig()
+
+        /** Teal outline marking the selected signature. */
+        fun selectedSigBorder(): GradientDrawable {
+            return GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setStroke(dp(2), getColor(R.color.hakunaa_teal))
+            }
         }
-        // Drag the signature anywhere on the page.
-        sigIv.setOnTouchListener { _, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    sigIv.tag = Pair(event.x, event.y)
-                    true
-                }
+
+        /** Move the size slider to match the selected signature
+         * (programmatic change — guarded so it does not resize). */
+        fun syncSizeSlider() {
+            val sb = seekSize ?: return
+            val sig = selectedSig ?: return
+            syncingSlider = true
+            sb.progress = (((sig.wPt / sig.pageW) - 0.10f) / 0.80f * 150f).toInt().coerceIn(0, 150)
+            syncingSlider = false
+        }
+
+        /** Drag the resize handle (bottom-right corner of the
+         * selected signature): grows/shrinks it, keeping its
+         * aspect, inside the page. */
+        fun resizeSig(sig: PlacedSig, handle: View, event: MotionEvent): Boolean {
+            return when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> true
                 MotionEvent.ACTION_MOVE -> {
-                    val off = sigIv.tag as? Pair<Float, Float> ?: return@setOnTouchListener true
-                    sigX = (sigX + event.x - off.first).coerceIn(0f, (frameW - sigW).coerceAtLeast(0f))
-                    sigY = (sigY + event.y - off.second).coerceIn(0f, (frameH - sigH).coerceAtLeast(0f))
-                    val params = sigIv.layoutParams as FrameLayout.LayoutParams
-                    params.leftMargin = sigX.toInt()
-                    params.topMargin = sigY.toInt()
-                    sigIv.layoutParams = params
+                    val iv = sig.view ?: return true
+                    val params = iv.layoutParams as FrameLayout.LayoutParams
+                    val hp = handle.layoutParams as FrameLayout.LayoutParams
+                    val aspect = sig.bitmap.height.toFloat() / sig.bitmap.width.toFloat()
+                    val frameX = hp.leftMargin + dp(14) + event.x
+                    var newW = (frameX - params.leftMargin).coerceIn(dp(40).toFloat(), frameW.toFloat())
+                    var newH = newW * aspect
+                    if (params.topMargin + newH > frameH) {
+                        newH = (frameH - params.topMargin).toFloat().coerceAtLeast(1f)
+                        newW = newH / aspect
+                    }
+                    params.width = newW.toInt()
+                    params.height = newH.toInt()
+                    iv.layoutParams = params
+                    val sx = frameW / sig.pageW
+                    val sy = frameH / sig.pageH
+                    sig.wPt = newW / sx
+                    sig.hPt = newH / sy
+                    hp.leftMargin = (params.leftMargin + newW - dp(14)).toInt()
+                    hp.topMargin = (params.topMargin + newH - dp(14)).toInt()
+                    handle.layoutParams = hp
+                    syncSizeSlider()
                     true
                 }
                 else -> true
             }
         }
+
+        /** Little corner handle on the selected signature. */
+        fun addResizeHandle(sig: PlacedSig) {
+            val iv = sig.view ?: return
+            val params = iv.layoutParams as FrameLayout.LayoutParams
+            val handle = TextView(this).apply {
+                text = "↘"
+                textSize = 14f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setTextColor(Color.WHITE)
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(getColor(R.color.hakunaa_teal))
+                }
+            }
+            handle.layoutParams = FrameLayout.LayoutParams(dp(28), dp(28)).apply {
+                leftMargin = (params.leftMargin + params.width - dp(14)).toInt()
+                topMargin = (params.topMargin + params.height - dp(14)).toInt()
+            }
+            handle.setOnTouchListener { _, event -> resizeSig(sig, handle, event) }
+            pageFrame.addView(handle)
+            sig.handle = handle
+        }
+
+        /** Select a signature (light update: border + handle only —
+         * never rebuilds the views mid-drag). */
+        fun selectSig(sig: PlacedSig?) {
+            selectedSig = sig
+            for (s in placedSigs) {
+                if (s.page != signPageIndex) continue
+                val iv = s.view ?: continue
+                iv.background = if (s == sig) selectedSigBorder() else null
+                if (s == sig) {
+                    if (s.handle == null) addResizeHandle(s)
+                } else {
+                    s.handle?.let { pageFrame.removeView(it) }
+                    s.handle = null
+                }
+            }
+            syncSizeSlider()
+        }
+
+        /** Drag a placed signature anywhere on the page. Tapping
+         * one also selects it (so the slider resizes that one). */
+        fun dragSig(sig: PlacedSig, iv: ImageView, event: MotionEvent): Boolean {
+            return when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    selectSig(sig)
+                    iv.tag = Pair(event.x, event.y)
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val off = iv.tag as? Pair<Float, Float> ?: return true
+                    val params = iv.layoutParams as FrameLayout.LayoutParams
+                    val newX = (params.leftMargin + event.x - off.first).coerceIn(0f, (frameW - params.width).toFloat().coerceAtLeast(0f))
+                    val newY = (params.topMargin + event.y - off.second).coerceIn(0f, (frameH - params.height).toFloat().coerceAtLeast(0f))
+                    params.leftMargin = newX.toInt()
+                    params.topMargin = newY.toInt()
+                    iv.layoutParams = params
+                    val sx = frameW / sig.pageW
+                    val sy = frameH / sig.pageH
+                    sig.xPt = newX / sx
+                    sig.yPt = (frameH - (newY + params.height)) / sy
+                    sig.handle?.let { h ->
+                        val hp = h.layoutParams as FrameLayout.LayoutParams
+                        hp.leftMargin = (newX + params.width - dp(14)).toInt()
+                        hp.topMargin = (newY + params.height - dp(14)).toInt()
+                        h.layoutParams = hp
+                    }
+                    true
+                }
+                else -> true
+            }
+        }
+
+        /** Rebuild the signature overlays on the current page:
+         * one draggable ImageView per placed signature on this
+         * page, teal border + resize handle on the selected one. */
+        fun refreshSignOverlays() {
+            for (sig in placedSigs) {
+                sig.view?.let { pageFrame.removeView(it) }
+                sig.handle?.let { pageFrame.removeView(it) }
+                sig.view = null
+                sig.handle = null
+            }
+            if (frameW <= 0) return
+            for (sig in placedSigs) {
+                if (sig.page != signPageIndex) continue
+                val r = sigFrameRect(sig)
+                val iv = ImageView(this).apply {
+                    scaleType = ImageView.ScaleType.FIT_XY
+                    setImageBitmap(sig.bitmap)
+                }
+                iv.layoutParams = FrameLayout.LayoutParams(
+                    r.width().toInt().coerceAtLeast(1),
+                    r.height().toInt().coerceAtLeast(1)
+                ).apply {
+                    leftMargin = r.left.toInt()
+                    topMargin = r.top.toInt()
+                }
+                iv.background = if (sig == selectedSig) selectedSigBorder() else null
+                iv.setOnTouchListener { _, event -> dragSig(sig, iv, event) }
+                pageFrame.addView(iv)
+                sig.view = iv
+                if (sig == selectedSig) addResizeHandle(sig)
+            }
+            syncSizeSlider()
+        }
+
+        /** "Sign PDF" before the first signature, "Add signature"
+         * after — so adding another one is obvious (Fix #47). */
+        fun updateSignButton() {
+            btnSign?.text = if (placedSigs.isEmpty()) "Sign PDF" else "Add signature"
+        }
+
+        /** Place a freshly drawn (or saved) signature on the
+         * current page. Default size is 30% of the page width
+         * (the old 45% came out huge, Fix #46); each extra
+         * signature is offset so they never stack exactly. */
+        fun addSignature(bmp: Bitmap?) {
+            if (bmp == null) return
+            val aspect = bmp.height.toFloat() / bmp.width.toFloat()
+            val wPt = signPageW * 0.30f
+            val hPt = wPt * aspect
+            val n = placedSigs.count { it.page == signPageIndex }
+            val offPt = (n * 24f).coerceAtMost(signPageW * 0.3f)
+            val sig = PlacedSig(
+                bitmap = bmp, page = signPageIndex,
+                pageW = signPageW, pageH = signPageH,
+                xPt = signPageW - wPt - 12f - offPt,
+                yPt = 12f + offPt,
+                wPt = wPt, hPt = hPt
+            )
+            placedSigs.add(sig)
+            selectedSig = sig
+            refreshSignOverlays()
+            updateSignButton()
+        }
         fun loadPage(index: Int) {
             signPageIndex = index
+            // Switching pages selects the first signature on that
+            // page (or none) — signatures on other pages stay put.
+            selectedSig = placedSigs.firstOrNull { it.page == index }
             val info = PdfTools.pageInfo(input, index) ?: return
             signPageW = info.second
             signPageH = info.third
@@ -5157,6 +5626,7 @@ private fun deletePagesPdf() {
                 gravity = Gravity.CENTER
             }
             pageFrame.requestLayout()
+            refreshSignOverlays()
             Thread {
                 try {
                     val bmp = PdfTools.renderPageThumb(input, index, 720)
@@ -5166,7 +5636,7 @@ private fun deletePagesPdf() {
                             signPageBitmap = bmp
                             genericOverlayBitmaps.add(bmp)
                             pageIv.setImageBitmap(bmp)
-                            placeSig()
+                            refreshSignOverlays()
                         }
                     }
                 } catch (_: Throwable) { }
@@ -5184,31 +5654,42 @@ private fun deletePagesPdf() {
             ).apply { topMargin = dp(12) }
         }
         root.addView(sizeLabel)
-        val seekSize = SeekBar(this).apply {
+        // Signature size slider (v0.1.156, Fix #46): maps 0..150 to
+        // 10%..90% of the page width, so the signature can actually
+        // be made small (the old 22%..90% range bottomed out too
+        // big). Resizes the SELECTED signature live, centred, in
+        // PDF points — the stamp uses exactly that size.
+        val sbSize = SeekBar(this).apply {
             max = 150
-            progress = 50
+            progress = 40
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
         }
-        seekSize.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+        seekSize = sbSize
+        sbSize.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                if (signSigBitmap == null || frameW <= 0) return
-                val bmp = signSigBitmap!!
-                val aspect = bmp.height.toFloat() / bmp.width.toFloat()
-                val centreX = sigX + sigW / 2f
-                val centreY = sigY + sigH / 2f
-                sigW = (frameW * 0.45f * (0.5f + progress / 100f)).coerceIn(dp(40).toFloat(), frameW.toFloat())
-                sigH = sigW * aspect
-                sigX = centreX - sigW / 2f
-                sigY = centreY - sigH / 2f
-                placeSig()
+                if (syncingSlider || !fromUser) return
+                val sig = selectedSig ?: return
+                if (frameW <= 0) return
+                val aspect = sig.bitmap.height.toFloat() / sig.bitmap.width.toFloat()
+                val centreX = sig.xPt + sig.wPt / 2f
+                val centreY = sig.yPt + sig.hPt / 2f
+                sig.wPt = (sig.pageW * (0.10f + progress / 150f * 0.80f)).coerceIn(12f, sig.pageW)
+                sig.hPt = sig.wPt * aspect
+                if (sig.hPt > sig.pageH) {
+                    sig.hPt = sig.pageH
+                    sig.wPt = sig.hPt / aspect
+                }
+                sig.xPt = (centreX - sig.wPt / 2f).coerceIn(0f, (sig.pageW - sig.wPt).coerceAtLeast(0f))
+                sig.yPt = (centreY - sig.hPt / 2f).coerceIn(0f, (sig.pageH - sig.hPt).coerceAtLeast(0f))
+                refreshSignOverlays()
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
             override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
         })
-        root.addView(seekSize)
+        root.addView(sbSize)
 
         // Page thumbnail strip (multi-page PDFs).
         val strip = HorizontalScrollView(this).apply {
@@ -5295,6 +5776,81 @@ private fun deletePagesPdf() {
             ).apply { topMargin = dp(8) }
         }
         padBox.addView(pad)
+        // Editor tools for the pad (v0.1.156, Fix #48): pen
+        // boldness (Thin / Medium / Bold), Eraser, Undo — small
+        // pills in one slim row, so the pad stays clean.
+        val padTools = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) }
+        }
+        fun toolPill(text: String): TextView {
+            return TextView(this).apply {
+                this.text = text
+                textSize = 12f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setPadding(dp(12), dp(7), dp(12), dp(7))
+                isClickable = true
+                isFocusable = true
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginEnd = dp(8) }
+            }
+        }
+        fun paintToolPill(pill: TextView, active: Boolean, enabled: Boolean = true) {
+            pill.background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(8).toFloat()
+                if (active) setColor(getColor(R.color.hakunaa_teal))
+                else {
+                    setColor(Color.WHITE)
+                    setStroke(dp(1), Color.parseColor("#CFD8DC"))
+                }
+            }
+            pill.setTextColor(if (active) Color.WHITE else getColor(R.color.hakunaa_text))
+            pill.alpha = if (enabled) 1f else 0.4f
+        }
+        lateinit var widthPills: List<TextView>
+        lateinit var eraserPill: TextView
+        lateinit var undoPill: TextView
+        fun paintPadTools() {
+            val widths = listOf(4f, 7f, 12f)
+            for (i in widthPills.indices) {
+                paintToolPill(widthPills[i], !pad.isErasing() && pad.currentWidth() == widths[i])
+            }
+            paintToolPill(eraserPill, pad.isErasing())
+            paintToolPill(undoPill, false, pad.canUndo())
+        }
+        widthPills = listOf("Thin" to 4f, "Medium" to 7f, "Bold" to 12f).map { (label, w) ->
+            toolPill(label).apply {
+                setOnClickListener {
+                    pad.setStrokeWidth(w)
+                    paintPadTools()
+                }
+                padTools.addView(this)
+            }
+        }
+        eraserPill = toolPill("Eraser").apply {
+            setOnClickListener {
+                pad.setEraser(!pad.isErasing())
+                paintPadTools()
+            }
+            padTools.addView(this)
+        }
+        undoPill = toolPill("Undo").apply {
+            setOnClickListener {
+                if (pad.undo()) paintPadTools()
+            }
+            padTools.addView(this)
+        }
+        pad.onStrokeEnd = { paintPadTools() }
+        paintPadTools()
+        padBox.addView(padTools)
         val padRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -5328,6 +5884,7 @@ private fun deletePagesPdf() {
                 signSigColor = color
                 pad.setInkColor(color)
                 paintDots()
+                paintPadTools()
             }
             colorDots.add(dot)
             padRow.addView(dot)
@@ -5366,7 +5923,7 @@ private fun deletePagesPdf() {
             isClickable = true
             isFocusable = true
         }
-        tvPadDelete.setOnClickListener { pad.clear() }
+        tvPadDelete.setOnClickListener { pad.clear(); paintPadTools() }
         padBottom.addView(tvPadDelete)
         val btnPadDone = popupPillButton("Done", true) {
             if (pad.isEmpty()) {
@@ -5391,10 +5948,10 @@ private fun deletePagesPdf() {
             padBox.visibility = View.GONE
             stageOuter.visibility = View.VISIBLE
             sizeLabel.visibility = View.VISIBLE
-            seekSize.visibility = View.VISIBLE
+            seekSize?.visibility = View.VISIBLE
             strip.visibility = View.VISIBLE
             btnSign?.visibility = View.VISIBLE
-            setSigBitmap(bmp)
+            addSignature(bmp)
         }.apply {
             layoutParams = LinearLayout.LayoutParams(dp(110), dp(48)).apply {
                 marginStart = dp(8)
@@ -5415,7 +5972,7 @@ private fun deletePagesPdf() {
         btnSign = popupPillButton("Sign PDF", false) {
             stageOuter.visibility = View.GONE
             sizeLabel.visibility = View.GONE
-            seekSize.visibility = View.GONE
+            seekSize?.visibility = View.GONE
             strip.visibility = View.GONE
             bottomRow.visibility = View.GONE
             padBox.visibility = View.VISIBLE
@@ -5425,27 +5982,22 @@ private fun deletePagesPdf() {
             }
         }
         val btnSave = popupPillButton("Save signed PDF", true) {
-            if (signSigBitmap == null) {
+            if (placedSigs.isEmpty()) {
                 toast("Tap Sign PDF and draw your signature first")
                 return@popupPillButton
             }
-            if (frameW <= 0 || signPageW <= 0f) {
+            if (frameW <= 0) {
                 toast("Still loading the page — try again in a second")
                 return@popupPillButton
             }
-            val scale = signPageW / frameW
-            val xPt = sigX * scale
-            val yPt = signPageH - (sigY + sigH) * scale
-            val wPt = sigW * scale
-            val hPt = sigH * scale
+            // Stamp EVERY placed signature in one pass (Fix #47).
+            val placements = placedSigs.map { sig ->
+                PdfTools.SignPlacement(sig.bitmap, sig.page, sig.xPt, sig.yPt, sig.wPt, sig.hPt)
+            }
             Thread {
                 try {
-                    val sigFile = File(hakunaaCacheDir(), "signature_${System.currentTimeMillis()}.png")
-                    FileOutputStream(sigFile).use { out ->
-                        signSigBitmap!!.compress(Bitmap.CompressFormat.PNG, 100, out)
-                    }
                     val out = File(hakunaaCacheDir(), "hakunaa_signed_${System.currentTimeMillis()}.pdf")
-                    val ok = PdfTools.signPdf(input, out, sigFile, signPageIndex, xPt, yPt, wPt, hPt)
+                    val ok = PdfTools.signMultiple(input, out, placements)
                     val savedUri = if (ok) publishPdfUri(out) else null
                     runOnUiThread {
                         if (ok && savedUri != null) {
@@ -5490,7 +6042,7 @@ private fun deletePagesPdf() {
                     try {
                         val bmp = android.graphics.BitmapFactory.decodeFile(archived.absolutePath)
                         runOnUiThread {
-                            if (bmp != null) setSigBitmap(bmp)
+                            if (bmp != null) addSignature(bmp)
                             else toast("Saved signature could not be read")
                         }
                     } catch (_: Throwable) {

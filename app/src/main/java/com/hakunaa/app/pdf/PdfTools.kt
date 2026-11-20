@@ -1169,6 +1169,46 @@ object PdfTools {
         }
     }
 
+    /** One placed signature for [signMultiple]: [x]/[y] are PDF
+     * points from the bottom-left corner of [page]. */
+    data class SignPlacement(
+        val bitmap: Bitmap,
+        val page: Int,
+        val x: Float,
+        val y: Float,
+        val w: Float,
+        val h: Float
+    )
+
+    /**
+     * Sign PDF with MULTIPLE signatures (v0.1.156, Fix #47):
+     * stamps every placement in ONE pass — one document load,
+     * one save — so adding a second signature costs no extra
+     * re-encode. Placements on out-of-range pages are skipped.
+     * Returns true on success.
+     */
+    fun signMultiple(input: File, output: File, placements: List<SignPlacement>): Boolean {
+        return try {
+            PDDocument.load(input).use { doc ->
+                for (p in placements) {
+                    if (p.page !in 0 until doc.numberOfPages) continue
+                    val page = doc.getPage(p.page)
+                    val img = LosslessFactory.createFromImage(doc, p.bitmap)
+                    PDPageContentStream(
+                        doc, page,
+                        PDPageContentStream.AppendMode.APPEND, true, true
+                    ).use { cs ->
+                        cs.drawImage(img, p.x, p.y, p.w, p.h)
+                    }
+                }
+                doc.save(output)
+            }
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     /**
      * First-page thumbnail (v0.1.150, for the Smart / Lossless
      * preview at the top of the result screens): renders page 0
