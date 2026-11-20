@@ -1022,4 +1022,25 @@ object PdfTools {
             false
         }
     }
+
+    /**
+     * First-page thumbnail (v0.1.150, for the Smart / Lossless
+     * preview at the top of the result screens): renders page 0
+     * at a DPI chosen so the width is about [maxWidthPx]. Returns
+     * the bitmap, or null on failure. Call off the UI thread —
+     * rendering a page takes a moment.
+     */
+    fun renderFirstPageThumb(input: File, maxWidthPx: Int): Bitmap? {
+        return try {
+            PDDocument.load(input).use { doc ->
+                if (doc.numberOfPages < 1) return null
+                val pageW = doc.getPage(0).mediaBox.width
+                if (pageW <= 0) return null
+                val dpi = (72f * maxWidthPx / pageW).coerceIn(36f, 150f)
+                PDFRenderer(doc).renderImageWithDPI(0, dpi)
+            }
+        } catch (_: Throwable) {
+            null
+        }
+    }
 }

@@ -1,19 +1,23 @@
 package com.hakunaa.app.pdf
 
 import android.app.AlertDialog
+import android.app.Dialog
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
@@ -22,6 +26,10 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.ItemTouchHelper
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import java.util.Collections
 import com.google.android.material.button.MaterialButton
 import com.hakunaa.app.R
 import com.hakunaa.app.core.FileUtils
@@ -111,6 +119,39 @@ class PdfToolsActivity : AppCompatActivity() {
     private var smartResultsBox: LinearLayout? = null
     private var tvSmartCustomResult: TextView? = null
     private var etSmartCustomKb: EditText? = null
+    private var ivSmartPreview: ImageView? = null
+    private var smartPreviewBitmap: Bitmap? = null
+
+    // View (open PDF in the default viewer) publishes the cache
+    // file to Documents/Hakunaa once via MediaStore and reuses
+    // that URI — so View + Save never create duplicate copies.
+    private val publishedUris = mutableMapOf<File, Uri>()
+
+    // Lossless Compress center result card state (v0.1.150).
+    private var losslessOverlay: View? = null
+    private var losslessResultFile: File? = null
+    private var losslessPreviewBitmap: Bitmap? = null
+
+    // Merge PDF overlay state (v0.1.150): drag-reorder list,
+    // then a 3-size result page with rename.
+    private var mergeOverlay: View? = null
+    private var mergeFiles = mutableListOf<File>()
+    private var mergeAdapter: MergeAdapter? = null
+    private var mergeTouchHelper: ItemTouchHelper? = null
+    private var mergeResultFiles = mutableListOf<File>()
+    private var mergeResultRows = mutableListOf<LinearLayout>()
+    private var mergeResultSelected = -1
+    private var mergeOriginalSize = 0L
+    private var etMergeName: EditText? = null
+
+    // Split PDF overlay state (v0.1.150).
+    private var splitOverlay: View? = null
+    private var splitInput: File? = null
+    private var splitPageCount = 0
+    private var splitOption = 0 // 0 range, 1 every N, 2 single pages
+    private var etSplitRange: EditText? = null
+    private var etSplitEvery: EditText? = null
+    private var splitResultFiles = mutableListOf<File>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -131,6 +172,9 @@ class PdfToolsActivity : AppCompatActivity() {
                 when {
                     signOverlay != null -> dismissSignOverlay()
                     smartOverlay != null -> dismissSmartOverlay()
+                    losslessOverlay != null -> dismissLosslessOverlay()
+                    mergeOverlay != null -> dismissMergeOverlay()
+                    splitOverlay != null -> dismissSplitOverlay()
                     else -> {
                         isEnabled = false
                         onBackPressedDispatcher.onBackPressed()
@@ -160,6 +204,8 @@ class PdfToolsActivity : AppCompatActivity() {
         val subtitle: String?,
         val kind: PdfIconView.Kind,
         val featured: Boolean,
+        val explain: String,
+        val pickLabel: String = "Pick PDF",
         val action: () -> Unit
     )
 
@@ -167,34 +213,50 @@ class PdfToolsActivity : AppCompatActivity() {
         val area = findViewById<LinearLayout>(R.id.contentArea)
         val featured = listOf(
             listOf(
-                Tool("Smart Compress", "Best size", PdfIconView.Kind.SMART, true) { compressSmartPdf() },
-                Tool("Lossless Compress", "No quality loss", PdfIconView.Kind.LOSSLESS, true) { compressPdf() }
+                Tool("Smart Compress", "Best size", PdfIconView.Kind.SMART, true,
+                    "Shrink your PDF the smart way — 5 quality levels to pick from, plus a custom target size. Smaller file, same look.") { compressSmartPdf() },
+                Tool("Lossless Compress", "No quality loss", PdfIconView.Kind.LOSSLESS, true,
+                    "Squeeze out wasted space without touching quality — no image is re-compressed, every pixel stays exactly the same.") { compressPdf() }
             ),
             listOf(
-                Tool("Merge PDF", "PDF a serkardhu", PdfIconView.Kind.MERGE, true) { mergePdfs() },
-                Tool("Split PDF", "Pages pirikardhu", PdfIconView.Kind.SPLIT, true) { splitPdf() }
+                Tool("Merge PDF", "PDF a serkardhu", PdfIconView.Kind.MERGE, true,
+                    "Combine many PDFs into one — pick files, drag them into any order, then merge.") { mergePdfs() },
+                Tool("Split PDF", "Pages pirikardhu", PdfIconView.Kind.SPLIT, true,
+                    "Cut one PDF into smaller PDFs — by page ranges, every N pages, or single pages.") { splitPdf() }
             )
         )
         val grid = listOf(
             listOf(
-                Tool("Organize PDF", null, PdfIconView.Kind.ORGANIZE, false) { organizePdf() },
-                Tool("Sign PDF", null, PdfIconView.Kind.SIGN, false) { showSignOverlay() },
-                Tool("PDF to JPG", null, PdfIconView.Kind.JPG, false) { pdfToJpg() }
+                Tool("Organize PDF", null, PdfIconView.Kind.ORGANIZE, false,
+                    "Reorder the pages of your PDF — put them in any order you like.") { organizePdf() },
+                Tool("Sign PDF", null, PdfIconView.Kind.SIGN, false,
+                    "Draw your signature and stamp it on any page of your PDF.") { showSignOverlay() },
+                Tool("PDF to JPG", null, PdfIconView.Kind.JPG, false,
+                    "Turn every page of your PDF into a JPG image.") { pdfToJpg() }
             ),
             listOf(
-                Tool("Protect / Unlock", null, PdfIconView.Kind.LOCK, false) { protectUnlockPdf() },
-                Tool("Repair PDF", null, PdfIconView.Kind.REPAIR, false) { repairPdf() },
-                Tool("Page Numbers", null, PdfIconView.Kind.PAGE_NO, false) { pageNumbersPdf() }
+                Tool("Protect / Unlock", null, PdfIconView.Kind.LOCK, false,
+                    "Lock your PDF with a password — or unlock one you already know the password for.") { protectUnlockPdf() },
+                Tool("Repair PDF", null, PdfIconView.Kind.REPAIR, false,
+                    "Fix a PDF that won't open — rebuilds the broken file structure and saves a clean copy.") { repairPdf() },
+                Tool("Page Numbers", null, PdfIconView.Kind.PAGE_NO, false,
+                    "Add page numbers to every page of your PDF.") { pageNumbersPdf() }
             ),
             listOf(
-                Tool("Rotate PDF", null, PdfIconView.Kind.ROTATE, false) { rotatePdf() },
-                Tool("Image to PDF", null, PdfIconView.Kind.IMG_PDF, false) { pickImageForPdf.launch("image/*") },
-                Tool("Extract Text", null, PdfIconView.Kind.TEXT, false) { extractTextPdf() }
+                Tool("Rotate PDF", null, PdfIconView.Kind.ROTATE, false,
+                    "Rotate all pages of your PDF by 90°, 180° or 270°.") { rotatePdf() },
+                Tool("Image to PDF", null, PdfIconView.Kind.IMG_PDF, false,
+                    "Turn your photos into a PDF — pick images, reorder them, choose the page size.", "Pick Image") { pickImageForPdf.launch("image/*") },
+                Tool("Extract Text", null, PdfIconView.Kind.TEXT, false,
+                    "Pull all the text out of your PDF into a plain text file.") { extractTextPdf() }
             ),
             listOf(
-                Tool("Watermark", null, PdfIconView.Kind.WATERMARK, false) { watermarkPdf() },
-                Tool("Extract Images", null, PdfIconView.Kind.IMG_EXTRACT, false) { extractImagesPdf() },
-                Tool("Resize Pages", null, PdfIconView.Kind.RESIZE, false) { resizePdf() }
+                Tool("Watermark", null, PdfIconView.Kind.WATERMARK, false,
+                    "Stamp your own text across every page of your PDF.") { watermarkPdf() },
+                Tool("Extract Images", null, PdfIconView.Kind.IMG_EXTRACT, false,
+                    "Save every photo inside your PDF as its own image file.") { extractImagesPdf() },
+                Tool("Resize Pages", null, PdfIconView.Kind.RESIZE, false,
+                    "Change every page to A4 or Letter size, portrait or landscape.") { resizePdf() }
             )
         )
         for (row in featured) area.addView(buildRow(row, 1.25f))
@@ -245,7 +307,10 @@ class PdfToolsActivity : AppCompatActivity() {
             params.setMargins(m, m, m, m)
             layoutParams = params
             setPadding(dp(6), dp(6), dp(6), dp(6))
-            setOnClickListener { tool.action() }
+            // v0.1.150: tapping a tool opens its intro popup first
+            // (explanation + Pick PDF + Back) — never the file
+            // picker directly.
+            setOnClickListener { showToolPopup(tool) }
         }
         val iconSize = if (tool.featured) dp(52) else dp(40)
         val icon = PdfIconView(this).apply {
@@ -284,6 +349,166 @@ class PdfToolsActivity : AppCompatActivity() {
             card.addView(sub)
         }
         return card
+    }
+
+    // ------------------------------------------------------------------
+    // Tool intro popup (v0.1.150, ALL tools): tapping a tool opens
+    // this popup FIRST — never the file picker directly. It explains
+    // what the tool does, with a Pick button (opens the file
+    // picker for that tool) and a Back button (back to the menu).
+    // ------------------------------------------------------------------
+
+    private fun showToolPopup(tool: Tool) {
+        val dialog = Dialog(this)
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 20f * resources.displayMetrics.density
+                setColor(Color.WHITE)
+            }
+            setPadding(dp(20), dp(20), dp(20), dp(20))
+        }
+        val icon = PdfIconView(this).apply {
+            kind = tool.kind
+            layoutParams = LinearLayout.LayoutParams(dp(56), dp(56)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+            }
+        }
+        card.addView(icon)
+        val title = TextView(this).apply {
+            text = tool.name
+            textSize = 18f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) }
+        }
+        card.addView(title)
+        val explain = TextView(this).apply {
+            text = tool.explain
+            textSize = 14f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+        card.addView(explain)
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(20) }
+        }
+        val btnBack = MaterialButton(this).apply {
+            text = "Back"
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+                marginEnd = dp(8)
+            }
+            setOnClickListener { dialog.dismiss() }
+        }
+        styleOutlineButton(btnBack)
+        val btnPick = MaterialButton(this).apply {
+            text = tool.pickLabel
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+                marginStart = dp(8)
+            }
+            setOnClickListener {
+                dialog.dismiss()
+                tool.action()
+            }
+        }
+        styleFilledButton(btnPick)
+        btnRow.addView(btnBack)
+        btnRow.addView(btnPick)
+        card.addView(btnRow)
+        dialog.setContentView(card)
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        dialog.show()
+    }
+
+    /** Teal filled button (white text) — the app's primary action. */
+    private fun styleFilledButton(btn: MaterialButton) {
+        btn.backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+        btn.setTextColor(Color.WHITE)
+        btn.strokeWidth = 0
+        btn.cornerRadius = dp(12)
+    }
+
+    /** Teal outline button (white fill, teal text) — secondary action. */
+    private fun styleOutlineButton(btn: MaterialButton) {
+        btn.backgroundTintList = ColorStateList.valueOf(Color.WHITE)
+        btn.setTextColor(getColor(R.color.hakunaa_teal))
+        btn.strokeColor = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+        btn.strokeWidth = dp(1)
+        btn.cornerRadius = dp(12)
+    }
+
+    /**
+     * View a PDF in the phone's default PDF viewer (v0.1.150).
+     * The file is published to Documents/Hakunaa once via
+     * MediaStore and the URI is reused — View + Save never
+     * create duplicate copies. (The app has no FileProvider and
+     * the Manifest is out of scope, so MediaStore is the way
+     * PDFs open, same as the Saved dialog's Open button.)
+     */
+    private fun viewPdf(file: File) {
+        Thread {
+            try {
+                var uri = publishedUris[file]
+                if (uri == null) {
+                    uri = publishPdfUri(file)
+                    if (uri != null) publishedUris[file] = uri
+                }
+                val openUri = uri
+                runOnUiThread {
+                    if (openUri == null) {
+                        toast("Could not open this PDF")
+                        return@runOnUiThread
+                    }
+                    try {
+                        val view = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(openUri, "application/pdf")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        startActivity(view)
+                    } catch (_: Throwable) {
+                        toast("No PDF viewer found")
+                    }
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { toast("Could not open this PDF") }
+            }
+        }.start()
+    }
+
+    /** Small white pill button (teal text, teal stroke) — the
+     * proven-white View button pattern from the WebP window:
+     * a plain TextView + GradientDrawable, never a MaterialButton
+     * (MaterialButton white fill is unreliable, v0.1.144–147). */
+    private fun viewPillButton(onClick: () -> Unit): TextView {
+        val density = resources.displayMetrics.density
+        return TextView(this).apply {
+            text = "View"
+            textSize = 13f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_teal))
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 10f * density
+                setColor(getColor(R.color.hakunaa_surface))
+                setStroke((1 * density).toInt(), getColor(R.color.hakunaa_teal))
+            }
+            layoutParams = LinearLayout.LayoutParams(dp(64), dp(40))
+            setOnClickListener { onClick() }
+        }
     }
 
     // ------------------------------------------------------------------
@@ -358,8 +583,14 @@ class PdfToolsActivity : AppCompatActivity() {
     private fun publishPdf(file: File): Boolean =
         MediaStoreSaver.save(this, file, MediaStoreSaver.Kind.DOCUMENT, file.name) != null
 
-    private fun publishPdfUri(file: File): Uri? =
-        MediaStoreSaver.save(this, file, MediaStoreSaver.Kind.DOCUMENT, file.name)
+    private fun publishPdfUri(file: File): Uri? {
+        // v0.1.150: reuse a published URI — View + Save of the
+        // same file must never create duplicate copies.
+        publishedUris[file]?.let { return it }
+        val uri = MediaStoreSaver.save(this, file, MediaStoreSaver.Kind.DOCUMENT, file.name)
+        if (uri != null) publishedUris[file] = uri
+        return uri
+    }
 
     /**
      * Per-tool file pick (v0.1.149, Image Tools pattern): tap a tool
@@ -411,40 +642,1010 @@ class PdfToolsActivity : AppCompatActivity() {
                 toast("Pick at least 2 PDFs")
                 return@pickPdfsThen
             }
-            toast("Merging ${inputs.size} PDFs…")
+            showMergeList(inputs)
+        }
+    }
+
+    /**
+     * Merge PDF — file list with FULL drag-and-drop reorder
+     * (v0.1.150): every picked PDF shows a clear order number
+     * (1, 2, 3…), drag the ☰ handle to move any file anywhere.
+     * Merge + Back at the bottom.
+     */
+    private fun showMergeList(files: List<File>) {
+        mergeFiles = files.toMutableList()
+        mergeResultFiles = mutableListOf()
+        mergeResultRows = mutableListOf()
+        mergeResultSelected = -1
+        mergeOriginalSize = files.sumOf { it.length() }
+        mergeAdapter = null
+        mergeTouchHelper = null
+
+        val root = if (mergeOverlay == null) {
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setBackgroundColor(getColor(R.color.hakunaa_surface))
+                setPadding(dp(16), dp(16), dp(16), dp(16))
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            }.also {
+                findViewById<ViewGroup>(android.R.id.content).addView(it)
+                mergeOverlay = it
+            }
+        } else {
+            (mergeOverlay as LinearLayout).apply { removeAllViews() }
+        }
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val close = TextView(this).apply {
+            text = "✕"
+            textSize = 22f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            setPadding(dp(4), dp(4), dp(16), dp(4))
+            setOnClickListener { dismissMergeOverlay() }
+        }
+        val title = TextView(this).apply {
+            text = "Merge PDF"
+            textSize = 20f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        header.addView(close)
+        header.addView(title)
+        root.addView(header)
+
+        val hint = TextView(this).apply {
+            text = "Drag ☰ to reorder — the top file comes first"
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) }
+        }
+        root.addView(hint)
+
+        val list = RecyclerView(this).apply {
+            layoutManager = LinearLayoutManager(this@PdfToolsActivity)
+            clipToPadding = false
+            setPadding(0, 0, 0, dp(8))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            ).apply { topMargin = dp(8) }
+        }
+        val adapter = MergeAdapter()
+        mergeAdapter = adapter
+        list.adapter = adapter
+        val touchHelper = ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(
+            ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0
+        ) {
+            override fun onMove(
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder,
+                target: RecyclerView.ViewHolder
+            ): Boolean {
+                val from = viewHolder.bindingAdapterPosition
+                val to = target.bindingAdapterPosition
+                if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION) return false
+                Collections.swap(mergeFiles, from, to)
+                adapter.notifyItemMoved(from, to)
+                return true
+            }
+
+            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) = Unit
+
+            override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
+                super.clearView(recyclerView, viewHolder)
+                // Renumber every row after a drag (the order badge
+                // is position-based, like Image to PDF's Page N).
+                adapter.notifyDataSetChanged()
+            }
+        })
+        mergeTouchHelper = touchHelper
+        touchHelper.attachToRecyclerView(list)
+        root.addView(list)
+
+        val bottomRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+        val btnBack = MaterialButton(this).apply {
+            text = "Back"
+            layoutParams = LinearLayout.LayoutParams(0, dp(56), 1f).apply {
+                marginEnd = dp(8)
+            }
+            setOnClickListener { dismissMergeOverlay() }
+        }
+        styleOutlineButton(btnBack)
+        val btnMerge = MaterialButton(this).apply {
+            text = "Merge"
+            layoutParams = LinearLayout.LayoutParams(0, dp(56), 1f).apply {
+                marginStart = dp(8)
+            }
+            setOnClickListener { runMerge() }
+        }
+        styleFilledButton(btnMerge)
+        bottomRow.addView(btnBack)
+        bottomRow.addView(btnMerge)
+        root.addView(bottomRow)
+    }
+
+    /** One Merge list row: drag handle + order badge + name + size. */
+    private inner class MergeAdapter : RecyclerView.Adapter<MergeAdapter.VH>() {
+        inner class VH(val row: LinearLayout) : RecyclerView.ViewHolder(row)
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
+            val density = resources.displayMetrics.density
+            val row = LinearLayout(this@PdfToolsActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 12f * density
+                    setColor(Color.WHITE)
+                    setStroke((1 * density).toInt(), Color.parseColor("#CFD8DC"))
+                }
+                layoutParams = RecyclerView.LayoutParams(
+                    RecyclerView.LayoutParams.MATCH_PARENT,
+                    RecyclerView.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(4); bottomMargin = dp(4) }
+                setPadding(dp(8), dp(10), dp(12), dp(10))
+            }
+            val handle = TextView(this@PdfToolsActivity).apply {
+                text = "☰"
+                textSize = 20f
+                setTextColor(getColor(R.color.hakunaa_text_secondary))
+                setPadding(dp(4), dp(4), dp(8), dp(4))
+            }
+            val badge = TextView(this@PdfToolsActivity).apply {
+                textSize = 14f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(getColor(R.color.hakunaa_teal))
+                }
+                layoutParams = LinearLayout.LayoutParams(dp(28), dp(28)).apply {
+                    marginEnd = dp(12)
+                }
+            }
+            val name = TextView(this@PdfToolsActivity).apply {
+                textSize = 14f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(getColor(R.color.hakunaa_text))
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            val size = TextView(this@PdfToolsActivity).apply {
+                textSize = 12f
+                setTextColor(getColor(R.color.hakunaa_text_secondary))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginStart = dp(8) }
+            }
+            row.addView(handle)
+            row.addView(badge)
+            row.addView(name)
+            row.addView(size)
+            val holder = VH(row)
+            handle.setOnTouchListener { _, event ->
+                if (event.action == MotionEvent.ACTION_DOWN) {
+                    mergeTouchHelper?.startDrag(holder)
+                }
+                false
+            }
+            return holder
+        }
+
+        override fun onBindViewHolder(holder: VH, position: Int) {
+            val file = mergeFiles[position]
+            val row = holder.row
+            (row.getChildAt(1) as TextView).text = "${position + 1}"
+            (row.getChildAt(2) as TextView).text = file.name
+            (row.getChildAt(3) as TextView).text = FileUtils.formatSize(file.length())
+        }
+
+        override fun getItemCount(): Int = mergeFiles.size
+    }
+
+    private fun runMerge() {
+        if (mergeFiles.size < 2) {
+            toast("Pick at least 2 PDFs")
+            return
+        }
+        toast("Merging ${mergeFiles.size} PDFs…")
+        Thread {
+            try {
+                val merged = File(hakunaaCacheDir(), "hakunaa_merged_${System.currentTimeMillis()}.pdf")
+                val ok = PdfTools.merge(mergeFiles, merged)
+                if (!ok || !merged.exists()) {
+                    runOnUiThread { toast("Merge failed — check the files and try again") }
+                    return@Thread
+                }
+                // Compressed versions of the merged file (dropped
+                // honestly if any is bigger than the original).
+                val variants = mutableListOf<Triple<String, File, Long>>()
+                val comp = File(hakunaaCacheDir(), "hakunaa_merged_comp_${System.currentTimeMillis()}.pdf")
+                if (PdfTools.compressSmart(merged, comp, 150, 0.82f) >= 0 && comp.exists() && comp.length() < merged.length()) {
+                    variants.add(Triple("Compressed • 150 DPI, JPEG 82%", comp, comp.length()))
+                } else {
+                    try { comp.delete() } catch (_: Throwable) { }
+                }
+                val extreme = File(hakunaaCacheDir(), "hakunaa_merged_extreme_${System.currentTimeMillis()}.pdf")
+                if (PdfTools.compressSmart(merged, extreme, 72, 0.50f) >= 0 && extreme.exists() && extreme.length() < merged.length()) {
+                    variants.add(Triple("Extreme • 72 DPI, JPEG 50%", extreme, extreme.length()))
+                } else {
+                    try { extreme.delete() } catch (_: Throwable) { }
+                }
+                runOnUiThread { showMergeResults(merged, variants) }
+            } catch (_: Throwable) {
+                runOnUiThread { toast("Merge failed — check the files and try again") }
+            }
+        }.start()
+    }
+
+    /**
+     * Merge RESULT page (v0.1.150): THREE size levels with REAL
+     * sizes (Original + compressed versions), a FILE RENAME field,
+     * Save + Back. After save, the professional Saved dialog.
+     */
+    private fun showMergeResults(merged: File, variants: List<Triple<String, File, Long>>) {
+        val root = mergeOverlay as? LinearLayout ?: return
+        root.removeAllViews()
+        mergeResultFiles = mutableListOf()
+        mergeResultRows = mutableListOf()
+        mergeResultSelected = -1
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val close = TextView(this).apply {
+            text = "✕"
+            textSize = 22f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            setPadding(dp(4), dp(4), dp(16), dp(4))
+            setOnClickListener { dismissMergeOverlay() }
+        }
+        val title = TextView(this).apply {
+            text = "Merge result"
+            textSize = 20f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        header.addView(close)
+        header.addView(title)
+        root.addView(header)
+
+        val nameLabel = TextView(this).apply {
+            text = "File name"
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dp(16)
+                bottomMargin = dp(8)
+            }
+        }
+        root.addView(nameLabel)
+        val defaultName = mergeFiles.firstOrNull()?.nameWithoutExtension?.let { "${it}_merged.pdf" }
+            ?: "hakunaa_merged.pdf"
+        etMergeName = EditText(this).apply {
+            setText(defaultName)
+            textSize = 14f
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        root.addView(etMergeName)
+
+        val sizesLabel = TextView(this).apply {
+            text = "Choose a size"
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dp(16)
+                bottomMargin = dp(4)
+            }
+        }
+        root.addView(sizesLabel)
+
+        val total = mergeOriginalSize
+        val originalRow = buildMergeResultRow(
+            "Original", "${FileUtils.formatSize(merged.length())} • no recompression", merged
+        )
+        root.addView(originalRow)
+        mergeResultRows.add(originalRow)
+        mergeResultFiles.add(merged)
+        for ((label, file, size) in variants) {
+            val sizeText = "${FileUtils.formatSize(size)} • saved ${FileUtils.savedPercent(total, size)}"
+            val row = buildMergeResultRow(label, sizeText, file)
+            root.addView(row)
+            mergeResultRows.add(row)
+            mergeResultFiles.add(file)
+        }
+        selectMergeResult(0)
+
+        val spacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            )
+        }
+        root.addView(spacer)
+
+        val bottomRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) }
+        }
+        val btnBack = MaterialButton(this).apply {
+            text = "Back"
+            layoutParams = LinearLayout.LayoutParams(0, dp(56), 1f).apply {
+                marginEnd = dp(8)
+            }
+            setOnClickListener { showMergeList(mergeFiles) }
+        }
+        styleOutlineButton(btnBack)
+        val btnSave = MaterialButton(this).apply {
+            text = "Save"
+            layoutParams = LinearLayout.LayoutParams(0, dp(56), 1f).apply {
+                marginStart = dp(8)
+            }
+            setOnClickListener { saveMergeResult() }
+        }
+        styleFilledButton(btnSave)
+        bottomRow.addView(btnBack)
+        bottomRow.addView(btnSave)
+        root.addView(bottomRow)
+    }
+
+    private fun buildMergeResultRow(label: String, sizeText: String, file: File): LinearLayout {
+        val density = resources.displayMetrics.density
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 12f * density
+                setColor(Color.WHITE)
+                setStroke((1 * density).toInt(), Color.parseColor("#CFD8DC"))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(4); bottomMargin = dp(4) }
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            isClickable = true
+            isFocusable = true
+            val outValue = TypedValue()
+            theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
+            foreground = getDrawable(outValue.resourceId)
+        }
+        row.setOnClickListener {
+            val idx = mergeResultRows.indexOf(row)
+            if (idx >= 0) selectMergeResult(idx)
+        }
+        val left = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val tvLabel = TextView(this).apply {
+            text = label
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+        }
+        val tvSize = TextView(this).apply {
+            text = sizeText
+            textSize = 12f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+        }
+        left.addView(tvLabel)
+        left.addView(tvSize)
+        val viewPill = viewPillButton { viewPdf(file) }
+        val check = TextView(this).apply {
+            text = "✓"
+            textSize = 20f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_teal))
+            visibility = View.INVISIBLE
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = dp(8) }
+        }
+        row.addView(left)
+        row.addView(viewPill)
+        row.addView(check)
+        return row
+    }
+
+    private fun selectMergeResult(index: Int) {
+        mergeResultSelected = index
+        val density = resources.displayMetrics.density
+        for (i in mergeResultRows.indices) {
+            val row = mergeResultRows[i]
+            val selected = i == index
+            row.background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 12f * density
+                if (selected) {
+                    setColor(0xFFE0F2F1.toInt())
+                    setStroke((2 * density).toInt(), getColor(R.color.hakunaa_teal))
+                } else {
+                    setColor(Color.WHITE)
+                    setStroke((1 * density).toInt(), Color.parseColor("#CFD8DC"))
+                }
+            }
+            val check = row.getChildAt(2) as TextView
+            check.visibility = if (selected) View.VISIBLE else View.INVISIBLE
+        }
+    }
+
+    private fun saveMergeResult() {
+        if (mergeResultSelected < 0 || mergeResultSelected >= mergeResultFiles.size) {
+            toast("Pick a size first")
+            return
+        }
+        val file = mergeResultFiles[mergeResultSelected]
+        if (!file.exists()) {
+            toast("That result is gone — merge again")
+            return
+        }
+        var name = etMergeName?.text?.toString()?.trim() ?: ""
+        if (name.isBlank()) name = "hakunaa_merged.pdf"
+        name = name.replace("/", "_").replace("\\", "_")
+        if (!name.endsWith(".pdf", ignoreCase = true)) name += ".pdf"
+        val renamed = File(hakunaaCacheDir(), name)
+        Thread {
+            try {
+                if (renamed != file) file.copyTo(renamed, overwrite = true)
+                val savedUri = publishPdfUri(renamed)
+                runOnUiThread {
+                    if (savedUri != null) {
+                        dismissMergeOverlay()
+                        showSavedPdfDialog(renamed, savedUri)
+                    } else {
+                        toast("Save failed — try again")
+                    }
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { toast("Save failed — try again") }
+            }
+        }.start()
+    }
+
+    private fun dismissMergeOverlay() {
+        val overlay = mergeOverlay ?: return
+        findViewById<ViewGroup>(android.R.id.content).removeView(overlay)
+        mergeOverlay = null
+        mergeAdapter = null
+        mergeTouchHelper = null
+        for (f in mergeResultFiles) {
+            if (!publishedUris.containsKey(f)) {
+                try { f.delete() } catch (_: Throwable) { }
+            }
+        }
+        mergeResultFiles = mutableListOf()
+        mergeResultRows = mutableListOf()
+        mergeResultSelected = -1
+        etMergeName = null
+        // The picked input files are cache copies — safe to drop.
+        for (f in mergeFiles) try { f.delete() } catch (_: Throwable) { }
+        mergeFiles = mutableListOf()
+    }
+
+    private fun splitPdf() {
+        pickPdfThen { input ->
             Thread {
                 try {
-                    val out = File(hakunaaCacheDir(), "hakunaa_merged_${System.currentTimeMillis()}.pdf")
-                    val ok = PdfTools.merge(inputs, out)
-                    val savedUri = if (ok) publishPdfUri(out) else null
+                    val info = PdfTools.pageInfo(input, 0)
                     runOnUiThread {
-                        if (ok && savedUri != null) showSavedPdfDialog(out, savedUri)
-                        else toast("Merge failed — check the files and try again")
+                        if (info == null) {
+                            toast("Could not open this PDF")
+                        } else {
+                            showSplitOptions(input, info.first)
+                        }
                     }
                 } catch (_: Throwable) {
-                    runOnUiThread { toast("Merge failed — check the files and try again") }
+                    runOnUiThread { toast("Could not open this PDF") }
                 }
             }.start()
         }
     }
 
-    private fun splitPdf() {
-        pickPdfThen { input ->
-            toast("Splitting PDF…")
-            Thread {
-                try {
-                    val outDir = File(hakunaaCacheDir(), "split_${System.currentTimeMillis()}").apply { mkdirs() }
-                    val created = PdfTools.split(input, outDir)
-                    val published = created.count { publishPdf(it) }
-                    runOnUiThread {
-                        if (published > 0) toast("Done — $published page(s) saved to Documents/Hakunaa")
-                        else toast("Split failed — check the file and try again")
-                    }
-                } catch (_: Throwable) {
-                    runOnUiThread { toast("Split failed — check the file and try again") }
-                }
-            }.start()
+    /**
+     * Split PDF — professional options (v0.1.150): the PDF's page
+     * count is shown clearly, then 3 ways to split — by page
+     * range, every N pages, or single pages. Best judgment layout,
+     * matching the app's professional style.
+     */
+    private fun showSplitOptions(input: File, total: Int) {
+        // Going back from results: drop the old result files.
+        for (f in splitResultFiles) {
+            if (!publishedUris.containsKey(f)) {
+                try { f.delete() } catch (_: Throwable) { }
+            }
         }
+        splitResultFiles = mutableListOf()
+        splitInput = input
+        splitPageCount = total
+        splitOption = 0
+
+        val root = if (splitOverlay == null) {
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setBackgroundColor(getColor(R.color.hakunaa_surface))
+                setPadding(dp(16), dp(16), dp(16), dp(16))
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            }.also {
+                findViewById<ViewGroup>(android.R.id.content).addView(it)
+                splitOverlay = it
+            }
+        } else {
+            (splitOverlay as LinearLayout).apply { removeAllViews() }
+        }
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val close = TextView(this).apply {
+            text = "✕"
+            textSize = 22f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            setPadding(dp(4), dp(4), dp(16), dp(4))
+            setOnClickListener { dismissSplitOverlay() }
+        }
+        val title = TextView(this).apply {
+            text = "Split PDF"
+            textSize = 20f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        header.addView(close)
+        header.addView(title)
+        root.addView(header)
+
+        val fileLine = TextView(this).apply {
+            text = "${input.name} • $total page(s)"
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) }
+        }
+        root.addView(fileLine)
+
+        val optionsLabel = TextView(this).apply {
+            text = "How do you want to split it?"
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(16) }
+        }
+        root.addView(optionsLabel)
+
+        val optionRows = mutableListOf<LinearLayout>()
+        val optionInputs = mutableListOf<View>()
+        val optionDefs = listOf(
+            Triple("By page range", "Each range becomes one PDF", "e.g. 1-3, 4-6"),
+            Triple("Every N pages", "Split into equal chunks of N pages", "e.g. 5"),
+            Triple("Single pages", "One PDF per page", null)
+        )
+        for (i in optionDefs.indices) {
+            val (optTitle, optSub, optHint) = optionDefs[i]
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 12f * resources.displayMetrics.density
+                    setColor(Color.WHITE)
+                    setStroke((1 * resources.displayMetrics.density).toInt(), Color.parseColor("#CFD8DC"))
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(8) }
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+                isClickable = true
+                isFocusable = true
+            }
+            val tvOptTitle = TextView(this).apply {
+                text = optTitle
+                textSize = 15f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(getColor(R.color.hakunaa_text))
+            }
+            val tvOptSub = TextView(this).apply {
+                text = optSub
+                textSize = 12f
+                setTextColor(getColor(R.color.hakunaa_text_secondary))
+            }
+            row.addView(tvOptTitle)
+            row.addView(tvOptSub)
+            var inputView: View? = null
+            if (optHint != null) {
+                val et = EditText(this).apply {
+                    hint = optHint
+                    textSize = 14f
+                    inputType = InputType.TYPE_CLASS_TEXT
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { topMargin = dp(8) }
+                    visibility = View.GONE
+                }
+                inputView = et
+                row.addView(et)
+            }
+            if (i == 0) etSplitRange = inputView as? EditText
+            if (i == 1) etSplitEvery = inputView as? EditText
+            optionInputs.add(inputView ?: View(this).apply { visibility = View.GONE })
+            row.setOnClickListener { selectSplitOption(optionRows, optionInputs, i) }
+            optionRows.add(row)
+            root.addView(row)
+        }
+        selectSplitOption(optionRows, optionInputs, 0)
+
+        val spacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            )
+        }
+        root.addView(spacer)
+
+        val bottomRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) }
+        }
+        val btnBack = MaterialButton(this).apply {
+            text = "Back"
+            layoutParams = LinearLayout.LayoutParams(0, dp(56), 1f).apply {
+                marginEnd = dp(8)
+            }
+            setOnClickListener { dismissSplitOverlay() }
+        }
+        styleOutlineButton(btnBack)
+        val btnSplit = MaterialButton(this).apply {
+            text = "Split"
+            layoutParams = LinearLayout.LayoutParams(0, dp(56), 1f).apply {
+                marginStart = dp(8)
+            }
+            setOnClickListener { runSplit() }
+        }
+        styleFilledButton(btnSplit)
+        bottomRow.addView(btnBack)
+        bottomRow.addView(btnSplit)
+        root.addView(bottomRow)
+    }
+
+    private fun selectSplitOption(
+        rows: List<LinearLayout>, inputs: List<View>, selected: Int
+    ) {
+        splitOption = selected
+        val density = resources.displayMetrics.density
+        for (i in rows.indices) {
+            val row = rows[i]
+            val isSel = i == selected
+            row.background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 12f * density
+                if (isSel) {
+                    setColor(0xFFE0F2F1.toInt())
+                    setStroke((2 * density).toInt(), getColor(R.color.hakunaa_teal))
+                } else {
+                    setColor(Color.WHITE)
+                    setStroke((1 * density).toInt(), Color.parseColor("#CFD8DC"))
+                }
+            }
+            inputs[i].visibility = if (isSel) View.VISIBLE else View.GONE
+        }
+    }
+
+    /** Parse "1-3, 4-6" into a list of page sets (one per range). Null if invalid. */
+    private fun parseSplitRanges(text: String, total: Int): List<Set<Int>>? {
+        val out = mutableListOf<Set<Int>>()
+        for (part in text.split(",")) {
+            val t = part.trim()
+            if (t.isEmpty()) return null
+            if (t.contains("-")) {
+                val bits = t.split("-")
+                if (bits.size != 2) return null
+                val a = bits[0].trim().toIntOrNull() ?: return null
+                val b = bits[1].trim().toIntOrNull() ?: return null
+                if (a < 1 || b > total || a > b) return null
+                out.add((a..b).toSet())
+            } else {
+                val n = t.toIntOrNull() ?: return null
+                if (n < 1 || n > total) return null
+                out.add(setOf(n))
+            }
+        }
+        return if (out.isEmpty()) null else out
+    }
+
+    private fun runSplit() {
+        val input = splitInput ?: return
+        val total = splitPageCount
+        if (total < 1) {
+            toast("Could not read this PDF")
+            return
+        }
+        toast("Splitting PDF…")
+        Thread {
+            try {
+                val outDir = File(hakunaaCacheDir(), "split_${System.currentTimeMillis()}").apply { mkdirs() }
+                val created = mutableListOf<File>()
+                when (splitOption) {
+                    0 -> {
+                        val text = runOnUiThreadBlocking { etSplitRange?.text?.toString()?.trim() ?: "" }
+                        val ranges = parseSplitRanges(text, total)
+                        if (ranges == null) {
+                            runOnUiThread { toast("Type valid ranges, e.g. 1-3, 4-6") }
+                            return@Thread
+                        }
+                        for (range in ranges) {
+                            val first = range.minOrNull() ?: continue
+                            val last = range.maxOrNull() ?: continue
+                            val out = File(outDir, "hakunaa_split_$first-$last.pdf")
+                            if (PdfTools.extractPages(input, out, range) > 0) created.add(out)
+                        }
+                    }
+                    1 -> {
+                        val nText = runOnUiThreadBlocking { etSplitEvery?.text?.toString()?.trim() ?: "" }
+                        val n = nText.toIntOrNull()
+                        if (n == null || n < 1) {
+                            runOnUiThread { toast("Type how many pages per file, e.g. 5") }
+                            return@Thread
+                        }
+                        var start = 1
+                        while (start <= total) {
+                            val end = minOf(start + n - 1, total)
+                            val out = File(outDir, "hakunaa_split_$start-$end.pdf")
+                            if (PdfTools.extractPages(input, out, (start..end).toSet()) > 0) created.add(out)
+                            start = end + 1
+                        }
+                    }
+                    else -> {
+                        created.addAll(PdfTools.split(input, outDir))
+                    }
+                }
+                runOnUiThread {
+                    if (created.isEmpty()) {
+                        toast("Split failed — check the file and try again")
+                    } else {
+                        showSplitResults(created)
+                    }
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { toast("Split failed — check the file and try again") }
+            }
+        }.start()
+    }
+
+    /** Reads a value on the UI thread from a background thread. */
+    private fun runOnUiThreadBlocking(block: () -> String): String {
+        var result = ""
+        val latch = java.util.concurrent.CountDownLatch(1)
+        runOnUiThread {
+            result = block()
+            latch.countDown()
+        }
+        latch.await()
+        return result
+    }
+
+    /** Split RESULTS (v0.1.150): every created file with its size
+     * and a View button, plus Save all + Back + Done. */
+    private fun showSplitResults(files: List<File>) {
+        val root = splitOverlay as? LinearLayout ?: return
+        root.removeAllViews()
+        splitResultFiles = files.toMutableList()
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val close = TextView(this).apply {
+            text = "✕"
+            textSize = 22f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            setPadding(dp(4), dp(4), dp(16), dp(4))
+            setOnClickListener { dismissSplitOverlay() }
+        }
+        val title = TextView(this).apply {
+            text = "Split result"
+            textSize = 20f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        header.addView(close)
+        header.addView(title)
+        root.addView(header)
+
+        val countLine = TextView(this).apply {
+            text = "${files.size} file(s) created"
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) }
+        }
+        root.addView(countLine)
+
+        val scroll = android.widget.ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            ).apply { topMargin = dp(8) }
+            clipToPadding = false
+            setPadding(0, 0, 0, dp(8))
+        }
+        val listBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        for (file in files) {
+            listBox.addView(buildSplitResultRow(file))
+        }
+        scroll.addView(listBox)
+        root.addView(scroll)
+
+        val btnSaveAll = MaterialButton(this).apply {
+            text = "Save all"
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(56)
+            ).apply { topMargin = dp(12) }
+            setOnClickListener { saveSplitAll() }
+        }
+        styleFilledButton(btnSaveAll)
+        root.addView(btnSaveAll)
+
+        val bottomRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+        val btnBack = MaterialButton(this).apply {
+            text = "Back"
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+                marginEnd = dp(8)
+            }
+            setOnClickListener {
+                val input = splitInput
+                if (input != null) showSplitOptions(input, splitPageCount)
+                else dismissSplitOverlay()
+            }
+        }
+        styleOutlineButton(btnBack)
+        val btnDone = MaterialButton(this).apply {
+            text = "Done"
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+                marginStart = dp(8)
+            }
+            setOnClickListener { dismissSplitOverlay() }
+        }
+        styleFilledButton(btnDone)
+        bottomRow.addView(btnBack)
+        bottomRow.addView(btnDone)
+        root.addView(bottomRow)
+    }
+
+    private fun buildSplitResultRow(file: File): LinearLayout {
+        val density = resources.displayMetrics.density
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 12f * density
+                setColor(Color.WHITE)
+                setStroke((1 * density).toInt(), Color.parseColor("#CFD8DC"))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(4); bottomMargin = dp(4) }
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+        }
+        val left = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val tvName = TextView(this).apply {
+            text = file.name
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        val tvSize = TextView(this).apply {
+            text = FileUtils.formatSize(file.length())
+            textSize = 12f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+        }
+        left.addView(tvName)
+        left.addView(tvSize)
+        row.addView(left)
+        row.addView(viewPillButton { viewPdf(file) })
+        return row
+    }
+
+    private fun saveSplitAll() {
+        if (splitResultFiles.isEmpty()) {
+            toast("Nothing to save")
+            return
+        }
+        Thread {
+            try {
+                var saved = 0
+                for (file in splitResultFiles) {
+                    if (publishPdfUri(file) != null) saved++
+                }
+                runOnUiThread {
+                    if (saved > 0) {
+                        dismissSplitOverlay()
+                        toast("Done — $saved file(s) saved to Documents/Hakunaa")
+                    } else {
+                        toast("Save failed — try again")
+                    }
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { toast("Save failed — try again") }
+            }
+        }.start()
+    }
+
+    private fun dismissSplitOverlay() {
+        val overlay = splitOverlay ?: return
+        findViewById<ViewGroup>(android.R.id.content).removeView(overlay)
+        splitOverlay = null
+        for (f in splitResultFiles) {
+            if (!publishedUris.containsKey(f)) {
+                try { f.delete() } catch (_: Throwable) { }
+            }
+        }
+        splitResultFiles = mutableListOf()
+        etSplitRange = null
+        etSplitEvery = null
+        splitInput = null
+        splitPageCount = 0
     }
 
     private fun compressPdf() {
@@ -455,15 +1656,10 @@ class PdfToolsActivity : AppCompatActivity() {
                     val before = input.length()
                     val out = File(hakunaaCacheDir(), "hakunaa_compressed_${System.currentTimeMillis()}.pdf")
                     val savedBytes = PdfTools.compressLossless(input, out)
-                    val savedUri = if (savedBytes > 0) publishPdfUri(out) else null
                     runOnUiThread {
                         when {
-                            savedBytes > 0 && savedUri != null -> {
-                                val after = out.length()
-                                toast("Done — ${FileUtils.formatSize(before)} → ${FileUtils.formatSize(after)} (${FileUtils.savedPercent(before, after)})")
-                                showSavedPdfDialog(out, savedUri)
-                            }
-                            savedBytes == 0L -> toast("Already optimized — this PDF is as small as it gets without losing quality. Try Smart Compress for a smaller file.")
+                            savedBytes > 0 -> showLosslessResultCard(input, out, before)
+                            savedBytes == 0L -> showLosslessResultCard(input, null, before)
                             else -> toast("Compress failed — check the file and try again")
                         }
                     }
@@ -472,6 +1668,227 @@ class PdfToolsActivity : AppCompatActivity() {
                 }
             }.start()
         }
+    }
+
+    /**
+     * Lossless Compress result — CENTER card (v0.1.150): top
+     * preview, a short Lossless explanation, the result with a
+     * View button, a Save button, and Back + Done below. If
+     * [result] is null the PDF was already optimized and the card
+     * says so honestly instead of showing a fake result.
+     */
+    private fun showLosslessResultCard(input: File, result: File?, before: Long) {
+        if (losslessOverlay != null) return
+        losslessResultFile = result
+        losslessPreviewBitmap = null
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.parseColor("#80000000"))
+            setPadding(dp(24), dp(24), dp(24), dp(24))
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 20f * resources.displayMetrics.density
+                setColor(Color.WHITE)
+            }
+            setPadding(dp(20), dp(20), dp(20), dp(20))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val title = TextView(this).apply {
+            text = "Lossless Compress"
+            textSize = 18f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val close = TextView(this).apply {
+            text = "✕"
+            textSize = 20f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+            setOnClickListener { dismissLosslessOverlay() }
+        }
+        header.addView(title)
+        header.addView(close)
+        card.addView(header)
+
+        val preview = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 12f * resources.displayMetrics.density
+                setColor(Color.parseColor("#F1F3F4"))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(170)
+            ).apply { topMargin = dp(16) }
+        }
+        card.addView(preview)
+
+        val explain = TextView(this).apply {
+            text = "Lossless Compress squeezes out wasted space without touching quality — no image is re-compressed, every pixel stays exactly the same."
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) }
+        }
+        card.addView(explain)
+
+        if (result != null) {
+            val after = result.length()
+            val resultRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 12f * resources.displayMetrics.density
+                    setColor(0xFFE0F2F1.toInt())
+                    setStroke(dp(1), getColor(R.color.hakunaa_teal))
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(16) }
+                setPadding(dp(12), dp(12), dp(12), dp(12))
+            }
+            val resultText = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            val tvResult = TextView(this).apply {
+                text = "${FileUtils.formatSize(before)} → ${FileUtils.formatSize(after)}"
+                textSize = 15f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(getColor(R.color.hakunaa_text))
+            }
+            val tvSaved = TextView(this).apply {
+                text = "saved ${FileUtils.savedPercent(before, after)} • quality 100% the same"
+                textSize = 12f
+                setTextColor(getColor(R.color.hakunaa_text_secondary))
+            }
+            resultText.addView(tvResult)
+            resultText.addView(tvSaved)
+            resultRow.addView(resultText)
+            resultRow.addView(viewPillButton { viewPdf(result) })
+            card.addView(resultRow)
+
+            val btnSave = MaterialButton(this).apply {
+                text = "Save"
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(56)
+                ).apply { topMargin = dp(16) }
+                setOnClickListener {
+                    Thread {
+                        try {
+                            val savedUri = publishPdfUri(result)
+                            runOnUiThread {
+                                if (savedUri != null) {
+                                    dismissLosslessOverlay()
+                                    showSavedPdfDialog(result, savedUri)
+                                } else {
+                                    toast("Save failed — try again")
+                                }
+                            }
+                        } catch (_: Throwable) {
+                            runOnUiThread { toast("Save failed — try again") }
+                        }
+                    }.start()
+                }
+            }
+            styleFilledButton(btnSave)
+            card.addView(btnSave)
+        } else {
+            val tvAlready = TextView(this).apply {
+                text = "Already optimized — this PDF is as small as it gets without losing quality. Try Smart Compress for a smaller file."
+                textSize = 14f
+                setTextColor(getColor(R.color.hakunaa_text))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(16) }
+            }
+            card.addView(tvAlready)
+        }
+
+        val bottomRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) }
+        }
+        val btnBack = MaterialButton(this).apply {
+            text = "Back"
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+                marginEnd = dp(8)
+            }
+            setOnClickListener { dismissLosslessOverlay() }
+        }
+        styleOutlineButton(btnBack)
+        val btnDone = MaterialButton(this).apply {
+            text = "Done"
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+                marginStart = dp(8)
+            }
+            setOnClickListener { dismissLosslessOverlay() }
+        }
+        styleOutlineButton(btnDone)
+        bottomRow.addView(btnBack)
+        bottomRow.addView(btnDone)
+        card.addView(bottomRow)
+
+        root.addView(card)
+        root.setOnClickListener { /* taps outside the card do nothing */ }
+        findViewById<ViewGroup>(android.R.id.content).addView(root)
+        losslessOverlay = root
+
+        // First-page preview (of the result, or the original when
+        // already optimized) — rendered off the UI thread.
+        val previewFile = result ?: input
+        Thread {
+            try {
+                val bmp = PdfTools.renderFirstPageThumb(previewFile, 480)
+                runOnUiThread {
+                    if (bmp != null && losslessOverlay != null) {
+                        losslessPreviewBitmap = bmp
+                        preview.setImageBitmap(bmp)
+                    }
+                }
+            } catch (_: Throwable) {
+                // No preview — the card still works without it.
+            }
+        }.start()
+    }
+
+    private fun dismissLosslessOverlay() {
+        val overlay = losslessOverlay ?: return
+        findViewById<ViewGroup>(android.R.id.content).removeView(overlay)
+        losslessOverlay = null
+        losslessPreviewBitmap?.recycle()
+        losslessPreviewBitmap = null
+        losslessResultFile?.let { f ->
+            if (!publishedUris.containsKey(f)) {
+                try { f.delete() } catch (_: Throwable) { }
+            }
+        }
+        losslessResultFile = null
     }
 
     private fun compressSmartPdf() {
@@ -816,6 +2233,7 @@ class PdfToolsActivity : AppCompatActivity() {
         smartSelected = -1
         smartCustomFile = null
         smartCustomRow = null
+        smartPreviewBitmap = null
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -849,15 +2267,40 @@ class PdfToolsActivity : AppCompatActivity() {
         header.addView(title)
         root.addView(header)
 
+        // v0.1.150: TOP PREVIEW (first page) like Image Smart.
+        ivSmartPreview = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 12f * resources.displayMetrics.density
+                setColor(Color.parseColor("#F1F3F4"))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(170)
+            ).apply { topMargin = dp(12) }
+        }
+        root.addView(ivSmartPreview)
+
         val fileLine = TextView(this).apply {
             text = "Original: ${input.name} • ${FileUtils.formatSize(smartOriginalSize)}"
             textSize = 13f
             setTextColor(getColor(R.color.hakunaa_text_secondary))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(12) }
+            ).apply { topMargin = dp(10) }
         }
         root.addView(fileLine)
+
+        val resultsLabel = TextView(this).apply {
+            text = "Results"
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) }
+        }
+        root.addView(resultsLabel)
 
         tvSmartComputing = TextView(this).apply {
             text = "Computing 5 levels…"
@@ -870,86 +2313,88 @@ class PdfToolsActivity : AppCompatActivity() {
         }
         root.addView(tvSmartComputing)
 
+        // Results scroll (weight 1) — the bottom buttons stay
+        // pinned below, like Image Smart.
+        val scroll = android.widget.ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            ).apply { topMargin = dp(8) }
+            clipToPadding = false
+            setPadding(0, 0, 0, dp(8))
+        }
         smartResultsBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(8) }
-        }
-        root.addView(smartResultsBox)
-
-        val customLabel = TextView(this).apply {
-            text = "Custom size"
-            textSize = 14f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(getColor(R.color.hakunaa_text))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = dp(16)
-                bottomMargin = dp(8)
-            }
-        }
-        root.addView(customLabel)
-        val customRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        etSmartCustomKb = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER
-            hint = "e.g. 100"
-            textSize = 14f
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        val kbLabel = TextView(this).apply {
-            text = "KB"
-            textSize = 14f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(getColor(R.color.hakunaa_text))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { marginStart = dp(8); marginEnd = dp(12) }
-        }
-        val btnCustom = MaterialButton(this).apply {
-            text = "Compress"
-            setOnClickListener { runSmartCustomSize() }
-        }
-        customRow.addView(etSmartCustomKb)
-        customRow.addView(kbLabel)
-        customRow.addView(btnCustom)
-        root.addView(customRow)
-        tvSmartCustomResult = TextView(this).apply {
-            textSize = 13f
-            setTextColor(getColor(R.color.hakunaa_text_secondary))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(8) }
-        }
-        root.addView(tvSmartCustomResult)
-
-        val spacer = View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
             )
         }
-        root.addView(spacer)
+        scroll.addView(smartResultsBox)
+        root.addView(scroll)
 
+        // Bottom buttons, top to bottom (v0.1.150, like Image
+        // Smart): Save selected → Custom size → Close + Done.
         val btnSave = MaterialButton(this).apply {
             text = "Save selected"
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(56)
-            ).apply { topMargin = dp(16) }
+            ).apply { topMargin = dp(12) }
             setOnClickListener { saveSmartSelected() }
         }
+        styleFilledButton(btnSave)
         root.addView(btnSave)
+
+        val btnCustom = MaterialButton(this).apply {
+            text = "Custom size"
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(56)
+            ).apply { topMargin = dp(8) }
+            setOnClickListener { showSmartCustomSizePopup() }
+        }
+        styleOutlineButton(btnCustom)
+        root.addView(btnCustom)
+
+        val bottomRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+        val btnClose = MaterialButton(this).apply {
+            text = "Close"
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+                marginEnd = dp(8)
+            }
+            setOnClickListener { dismissSmartOverlay() }
+        }
+        styleOutlineButton(btnClose)
+        val btnDone = MaterialButton(this).apply {
+            text = "Done"
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+                marginStart = dp(8)
+            }
+            setOnClickListener {
+                if (smartSelected >= 0) saveSmartSelected() else dismissSmartOverlay()
+            }
+        }
+        styleFilledButton(btnDone)
+        bottomRow.addView(btnClose)
+        bottomRow.addView(btnDone)
+        root.addView(bottomRow)
 
         findViewById<ViewGroup>(android.R.id.content).addView(root)
         smartOverlay = root
 
         Thread {
             try {
+                val thumb = PdfTools.renderFirstPageThumb(input, 480)
                 val levels = PdfTools.compressSmartLevels(input, hakunaaCacheDir())
                 runOnUiThread {
+                    if (thumb != null && smartOverlay != null) {
+                        smartPreviewBitmap = thumb
+                        ivSmartPreview?.setImageBitmap(thumb)
+                    }
                     if (levels.isEmpty()) {
                         tvSmartComputing?.text = "Already optimized — even the strongest Smart settings couldn't shrink this PDF."
                         return@runOnUiThread
@@ -958,7 +2403,7 @@ class PdfToolsActivity : AppCompatActivity() {
                     smartLevelFiles = levels.map { it.file }.toMutableList()
                     for (level in levels) {
                         val sizeText = "${FileUtils.formatSize(level.size)} • saved ${FileUtils.savedPercent(smartOriginalSize, level.size)}"
-                        val row = buildSmartResultRow(level.label, sizeText)
+                        val row = buildSmartResultRow(level.label, sizeText, level.file)
                         smartResultsBox?.addView(row)
                         smartRows.add(row)
                         smartRowFiles.add(level.file)
@@ -975,7 +2420,7 @@ class PdfToolsActivity : AppCompatActivity() {
         }.start()
     }
 
-    private fun buildSmartResultRow(label: String, sizeText: String): LinearLayout {
+    private fun buildSmartResultRow(label: String, sizeText: String, file: File?): LinearLayout {
         val density = resources.displayMetrics.density
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1018,14 +2463,22 @@ class PdfToolsActivity : AppCompatActivity() {
         }
         left.addView(tvLabel)
         left.addView(tvSize)
+        // v0.1.150: VIEW pill on every level — opens that result
+        // PDF in the default viewer (Image Smart style).
+        val viewPill = viewPillButton { if (file != null) viewPdf(file) }
         val check = TextView(this).apply {
             text = "✓"
             textSize = 20f
             setTypeface(null, android.graphics.Typeface.BOLD)
             setTextColor(getColor(R.color.hakunaa_teal))
             visibility = View.INVISIBLE
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = dp(8) }
         }
         row.addView(left)
+        row.addView(viewPill)
         row.addView(check)
         return row
     }
@@ -1047,7 +2500,8 @@ class PdfToolsActivity : AppCompatActivity() {
                     setStroke((1 * density).toInt(), Color.parseColor("#CFD8DC"))
                 }
             }
-            val check = row.getChildAt(1) as TextView
+            // v0.1.150: check is child 2 now (left=0, View pill=1).
+            val check = row.getChildAt(2) as TextView
             check.visibility = if (selected) View.VISIBLE else View.INVISIBLE
         }
     }
@@ -1080,6 +2534,107 @@ class PdfToolsActivity : AppCompatActivity() {
                 runOnUiThread { toast("Save failed — try again") }
             }
         }.start()
+    }
+
+    /**
+     * Custom size POPUP (v0.1.150): the "Custom size" button opens
+     * this popup — type a target size (e.g. 100 KB) and Smart finds
+     * the best quality that fits. The result joins the results list
+     * as a row (with its own View button) and is selected.
+     */
+    private fun showSmartCustomSizePopup() {
+        val dialog = Dialog(this)
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 20f * resources.displayMetrics.density
+                setColor(Color.WHITE)
+            }
+            setPadding(dp(20), dp(20), dp(20), dp(20))
+        }
+        val title = TextView(this).apply {
+            text = "Custom size"
+            textSize = 18f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            gravity = Gravity.CENTER
+        }
+        card.addView(title)
+        val hintText = TextView(this).apply {
+            text = "Type a target size — Smart finds the best quality that fits in it."
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+        card.addView(hintText)
+        val inputRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(16) }
+        }
+        etSmartCustomKb = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            hint = "e.g. 100"
+            textSize = 14f
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val kbLabel = TextView(this).apply {
+            text = "KB"
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = dp(8) }
+        }
+        inputRow.addView(etSmartCustomKb)
+        inputRow.addView(kbLabel)
+        card.addView(inputRow)
+        tvSmartCustomResult = TextView(this).apply {
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) }
+        }
+        card.addView(tvSmartCustomResult)
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(16) }
+        }
+        val btnClose = MaterialButton(this).apply {
+            text = "Close"
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+                marginEnd = dp(8)
+            }
+            setOnClickListener { dialog.dismiss() }
+        }
+        styleOutlineButton(btnClose)
+        val btnCompute = MaterialButton(this).apply {
+            text = "Compress"
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+                marginStart = dp(8)
+            }
+            setOnClickListener { runSmartCustomSize() }
+        }
+        styleFilledButton(btnCompute)
+        btnRow.addView(btnClose)
+        btnRow.addView(btnCompute)
+        card.addView(btnRow)
+        dialog.setContentView(card)
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        dialog.show()
     }
 
     private fun runSmartCustomSize() {
@@ -1127,7 +2682,7 @@ class PdfToolsActivity : AppCompatActivity() {
         val box = smartResultsBox ?: return
         val row = smartCustomRow
         if (row == null) {
-            val newRow = buildSmartResultRow(label, sizeText)
+            val newRow = buildSmartResultRow(label, sizeText, file)
             smartCustomRow = newRow
             box.addView(newRow)
             smartRows.add(newRow)
@@ -1149,6 +2704,9 @@ class PdfToolsActivity : AppCompatActivity() {
         val overlay = smartOverlay ?: return
         findViewById<ViewGroup>(android.R.id.content).removeView(overlay)
         smartOverlay = null
+        smartPreviewBitmap?.recycle()
+        smartPreviewBitmap = null
+        ivSmartPreview = null
         for (f in smartLevelFiles) try { f.delete() } catch (_: Throwable) { }
         smartCustomFile?.let { try { it.delete() } catch (_: Throwable) { } }
         smartLevelFiles = mutableListOf()
