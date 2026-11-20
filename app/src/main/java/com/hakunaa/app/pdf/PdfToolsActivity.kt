@@ -155,6 +155,9 @@ class PdfToolsActivity : AppCompatActivity() {
     private var splitInput: File? = null
     private var splitPageCount = 0
     private var splitOption = 0 // 0 range, 1 every N, 2 single pages
+    // v0.1.152, Fix #13: first-page preview at the top of Split.
+    private var ivSplitPreview: ImageView? = null
+    private var splitPreviewBitmap: Bitmap? = null
     private var etSplitRange: EditText? = null
     private var etSplitEvery: EditText? = null
     private var etSplitSingle: EditText? = null
@@ -289,49 +292,49 @@ class PdfToolsActivity : AppCompatActivity() {
         val featured = listOf(
             listOf(
                 Tool("Smart Compress", "Best size", PdfIconView.Kind.SMART, true,
-                    "Shrink your PDF the smart way — 5 quality levels to pick from, plus a custom target size. Smaller file, same look. Pick the level that fits your need.") { compressSmartPdf() },
+                    "• 5 quality levels — pick the best size\n• Custom target size (e.g. 100 KB)\n• Smaller file, same look") { compressSmartPdf() },
                 Tool("Lossless Compress", "No quality loss", PdfIconView.Kind.LOSSLESS, true,
-                    "Squeeze out wasted space without touching quality — no image is re-compressed, every pixel stays exactly the same. Best when you want a smaller file with zero quality loss.") { compressPdf() }
+                    "• Smaller file, zero quality loss\n• No image is re-compressed\n• Every pixel stays exactly the same") { compressPdf() }
             ),
             listOf(
-                Tool("Merge PDF", "PDF a serkardhu", PdfIconView.Kind.MERGE, true,
-                    "Combine many PDFs into one — pick files, drag them into any order, then merge. The top file comes first in the merged PDF.") { mergePdfs() },
-                Tool("Split PDF", "Pages pirikardhu", PdfIconView.Kind.SPLIT, true,
-                    "Cut one PDF into smaller PDFs — by page ranges, every N pages, or single pages. Each part is saved as its own PDF.") { splitPdf() }
+                Tool("Merge PDF", "Combine into one", PdfIconView.Kind.MERGE, true,
+                    "• Combine many PDFs into one\n• Drag files into any order\n• Top file comes first") { mergePdfs() },
+                Tool("Split PDF", "Split into pages", PdfIconView.Kind.SPLIT, true,
+                    "• Cut one PDF into smaller PDFs\n• By page range, every N pages, or single pages") { splitPdf() }
             )
         )
         val grid = listOf(
             listOf(
                 Tool("Organize PDF", null, PdfIconView.Kind.ORGANIZE, false,
-                    "Reorder the pages of your PDF — put them in any order you like. Type the new order, e.g. 3,1,2.") { organizePdf() },
+                    "• Reorder the pages of your PDF\n• Type the new order, e.g. 3,1,2") { organizePdf() },
                 Tool("Sign PDF", null, PdfIconView.Kind.SIGN, false,
-                    "Draw your signature and stamp it on any page of your PDF. Choose the page, position and size.") { showSignOverlay() },
+                    "• Draw your signature\n• Stamp it on any page, any position") { showSignOverlay() },
                 Tool("PDF to JPG", null, PdfIconView.Kind.JPG, false,
-                    "Turn every page of your PDF into a JPG image. Each page is saved as its own photo.") { pdfToJpg() }
+                    "• Turn every page into a JPG image\n• Each page saved as its own photo") { pdfToJpg() }
             ),
             listOf(
                 Tool("Protect / Unlock", null, PdfIconView.Kind.LOCK, false,
-                    "Lock your PDF with a password — or unlock one you already know the password for. Without the password a locked PDF cannot be opened.") { protectUnlockPdf() },
+                    "• Lock your PDF with a password\n• Unlock one when you know the password") { protectUnlockPdf() },
                 Tool("Repair PDF", null, PdfIconView.Kind.REPAIR, false,
-                    "Fix a PDF that won't open — rebuilds the broken file structure and saves a clean copy. Works on most damaged files.") { repairPdf() },
+                    "• Fix a PDF that won't open\n• Rebuilds the broken file structure") { repairPdf() },
                 Tool("Page Numbers", null, PdfIconView.Kind.PAGE_NO, false,
-                    "Add page numbers to every page of your PDF. The numbers appear at the bottom of each page.") { pageNumbersPdf() }
+                    "• Add page numbers to every page\n• Numbers appear at the bottom") { pageNumbersPdf() }
             ),
             listOf(
                 Tool("Rotate PDF", null, PdfIconView.Kind.ROTATE, false,
-                    "Rotate all pages of your PDF by 90°, 180° or 270°. The content stays exactly the same.") { rotatePdf() },
+                    "• Rotate all pages 90°, 180° or 270°\n• Content stays exactly the same") { rotatePdf() },
                 Tool("Image to PDF", null, PdfIconView.Kind.IMG_PDF, false,
-                    "Turn your photos into a PDF — pick images, reorder them, choose the page size. A4 or Letter, portrait or landscape.", "Pick Image") { pickImageForPdf.launch("image/*") },
+                    "• Turn your photos into a PDF\n• Reorder them, pick A4 or Letter", "Pick Image") { pickImageForPdf.launch("image/*") },
                 Tool("Extract Text", null, PdfIconView.Kind.TEXT, false,
-                    "Pull all the text out of your PDF into a plain text file. Saved to Documents/Hakunaa.") { extractTextPdf() }
+                    "• Pull all the text out of your PDF\n• Saved as a plain text file") { extractTextPdf() }
             ),
             listOf(
                 Tool("Watermark", null, PdfIconView.Kind.WATERMARK, false,
-                    "Stamp your own text across every page of your PDF. Type any text, e.g. CONFIDENTIAL.") { watermarkPdf() },
+                    "• Stamp your own text on every page\n• E.g. CONFIDENTIAL") { watermarkPdf() },
                 Tool("Extract Images", null, PdfIconView.Kind.IMG_EXTRACT, false,
-                    "Save every photo inside your PDF as its own image file. The images are saved to Pictures/Hakunaa.") { extractImagesPdf() },
+                    "• Save every photo inside your PDF\n• Each image saved on its own") { extractImagesPdf() },
                 Tool("Resize Pages", null, PdfIconView.Kind.RESIZE, false,
-                    "Change every page to A4 or Letter size, portrait or landscape. Text stays sharp — it is not re-printed as an image.") { resizePdf() }
+                    "• Change every page to a new size\n• A4, Letter, A3, A5, Legal and more") { resizePdf() }
             )
         )
         for (row in featured) area.addView(buildRow(row, 1.25f))
@@ -369,10 +372,11 @@ class PdfToolsActivity : AppCompatActivity() {
                     setColor(0xFFE0F2F1.toInt())
                     setStroke((2 * density).toInt(), getColor(R.color.hakunaa_teal))
                 } else {
-                    // v0.1.149: stronger contrast + border so the
-                    // grid boxes are CLEAR, not washed out.
-                    setColor(Color.parseColor("#E9ECEF"))
-                    setStroke((1 * density).toInt(), Color.parseColor("#CFD8DC"))
+                    // v0.1.152, Fix #11: grid cards get the same
+                    // excellent outline as the featured cards —
+                    // clean white + 2dp teal border, professional.
+                    setColor(Color.WHITE)
+                    setStroke((2 * density).toInt(), getColor(R.color.hakunaa_teal))
                 }
             }
             val params = LinearLayout.LayoutParams(
@@ -442,19 +446,33 @@ class PdfToolsActivity : AppCompatActivity() {
                 cornerRadius = 20f * resources.displayMetrics.density
                 setColor(Color.WHITE)
             }
-            setPadding(dp(20), dp(20), dp(20), dp(20))
+            // v0.1.152, Fix #12: roomier padding for a premium feel.
+            setPadding(dp(24), dp(24), dp(24), dp(24))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
         }
-        val icon = PdfIconView(this).apply {
-            kind = tool.kind
-            layoutParams = LinearLayout.LayoutParams(dp(56), dp(56)).apply {
+        // v0.1.152, Fix #12: icon sits in a tinted circle — the
+        // plain icon on white looked bare; the circle makes the
+        // popup feel finished and professional.
+        val iconWrap = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(0xFFE0F2F1.toInt())
+            }
+            layoutParams = LinearLayout.LayoutParams(dp(76), dp(76)).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
             }
         }
-        card.addView(icon)
+        val icon = PdfIconView(this).apply {
+            kind = tool.kind
+            layoutParams = LinearLayout.LayoutParams(dp(56), dp(56))
+        }
+        iconWrap.addView(icon)
+        card.addView(iconWrap)
         val title = TextView(this).apply {
             text = tool.name
             textSize = 18f
@@ -464,18 +482,21 @@ class PdfToolsActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(12) }
+            ).apply { topMargin = dp(16) }
         }
         card.addView(title)
         val explain = TextView(this).apply {
             text = tool.explain
             textSize = 14f
             setTextColor(getColor(R.color.hakunaa_text_secondary))
-            gravity = Gravity.CENTER
+            // v0.1.152, Fix #14: explanations are short bullet
+            // points now — left-aligned so the bullets line up
+            // and read cleanly (centred bullets look messy).
+            gravity = Gravity.START
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(8) }
+            ).apply { topMargin = dp(12) }
         }
         card.addView(explain)
         val btnRow = LinearLayout(this).apply {
@@ -483,10 +504,10 @@ class PdfToolsActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(20) }
+            ).apply { topMargin = dp(24) }
         }
         val btnBack = popupPillButton("Back", false) { dialog.dismiss() }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+            layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f).apply {
                 marginEnd = dp(8)
             }
         }
@@ -494,7 +515,7 @@ class PdfToolsActivity : AppCompatActivity() {
             dialog.dismiss()
             tool.action()
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+            layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f).apply {
                 marginStart = dp(8)
             }
         }
@@ -1578,6 +1599,34 @@ class PdfToolsActivity : AppCompatActivity() {
         }
         root.addView(fileLine)
 
+        // v0.1.152, Fix #13: TOP PREVIEW (first page) like Smart —
+        // the user asked for a preview at the top of Split too.
+        ivSplitPreview = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 12f * resources.displayMetrics.density
+                setColor(Color.parseColor("#F1F3F4"))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(170)
+            ).apply { topMargin = dp(12) }
+        }
+        root.addView(ivSplitPreview)
+        splitPreviewBitmap?.recycle()
+        splitPreviewBitmap = null
+        Thread {
+            try {
+                val thumb = PdfTools.renderFirstPageThumb(input, 480)
+                runOnUiThread {
+                    if (thumb != null && splitOverlay != null) {
+                        splitPreviewBitmap = thumb
+                        ivSplitPreview?.setImageBitmap(thumb)
+                    }
+                }
+            } catch (_: Throwable) { }
+        }.start()
+
         val optionsLabel = TextView(this).apply {
             text = "How do you want to split it?"
             textSize = 14f
@@ -1609,8 +1658,10 @@ class PdfToolsActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = dp(8) }
-                setPadding(dp(14), dp(12), dp(14), dp(12))
+                ).apply { topMargin = dp(10) }
+                // v0.1.152, Fix #13: roomier cards — the old
+                // 12dp padding felt cramped next to the preview.
+                setPadding(dp(16), dp(14), dp(16), dp(14))
                 isClickable = true
                 isFocusable = true
             }
@@ -2035,6 +2086,9 @@ class PdfToolsActivity : AppCompatActivity() {
         etSplitSingle = null
         splitInput = null
         splitPageCount = 0
+        ivSplitPreview = null
+        splitPreviewBitmap?.recycle()
+        splitPreviewBitmap = null
     }
 
     private fun compressPdf() {
@@ -2579,59 +2633,269 @@ class PdfToolsActivity : AppCompatActivity() {
     // Resize Pages (v0.1.148, new).
     // ------------------------------------------------------------------
 
-    private fun resizePdf() {
-        pickPdfThen { input ->
-            val wrap = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(20), dp(8), dp(20), dp(4))
-            }
-            val sizeLabel = TextView(this).apply {
-                text = "Page size"
-                setTypeface(null, android.graphics.Typeface.BOLD)
-                textSize = 14f
-            }
-            val rgSize = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
-            val rbA4 = RadioButton(this).apply { text = "A4"; isChecked = true }
-            val rbLetter = RadioButton(this).apply { text = "Letter"; layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(16) } }
-            rgSize.addView(rbA4)
-            rgSize.addView(rbLetter)
-            val orientLabel = TextView(this).apply {
-                text = "Orientation"
-                setTypeface(null, android.graphics.Typeface.BOLD)
-                textSize = 14f
-                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(16) }
-            }
-            val rgOrient = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
-            val rbPortrait = RadioButton(this).apply { text = "Portrait"; isChecked = true }
-            val rbLandscape = RadioButton(this).apply { text = "Landscape"; layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(16) } }
-            rgOrient.addView(rbPortrait)
-            rgOrient.addView(rbLandscape)
-            wrap.addView(sizeLabel)
-            wrap.addView(rgSize)
-            wrap.addView(orientLabel)
-            wrap.addView(rgOrient)
-            AlertDialog.Builder(this)
-                .setTitle("Resize Pages")
-                .setView(wrap)
-                .setPositiveButton("Resize") { _, _ ->
-                    val isA4 = rbA4.isChecked
-                    val landscape = rbLandscape.isChecked
-                    val w = if (isA4) 595f else 612f
-                    val h = if (isA4) 842f else 792f
-                    val target = if (landscape) PDRectangle(h, w) else PDRectangle(w, h)
-                    runResize(input, target, if (isA4) "A4" else "Letter")
+    // ------------------------------------------------------------------
+    // Resize Pages (v0.1.152, Fix #15 + #16): the old version was a
+    // plain AlertDialog whose RadioButtons all rendered selected
+    // (Material3 radio drawables in this theme show the checked dot
+    // on every button) and offered only A4/Letter. Rebuilt as a
+    // professional teal dialog like the tool popups, with stateful
+    // chips (exclusive by construction — no RadioButtons at all),
+    // 9 page sizes (A4, Letter, A3, A5, Legal, Tabloid, Executive,
+    // B5, Custom WxH in mm), orientation, and a fit choice.
+    // Sizes are the real standard dimensions in PDF points.
+    // ------------------------------------------------------------------
+
+    private data class PageSize(val name: String, val wPt: Float, val hPt: Float)
+
+    private val resizeSizes = listOf(
+        PageSize("A4", 595f, 842f),
+        PageSize("Letter", 612f, 792f),
+        PageSize("A3", 842f, 1191f),
+        PageSize("A5", 420f, 595f),
+        PageSize("Legal", 612f, 1008f),
+        PageSize("Tabloid", 792f, 1224f),
+        PageSize("Executive", 522f, 756f),
+        PageSize("B5", 499f, 709f),
+        PageSize("Custom", 0f, 0f)
+    )
+
+    /** Selectable chip — teal filled when selected, white with a
+     * grey border when not. Single-select by construction. */
+    private fun resizeChip(text: String, selected: Boolean, onClick: () -> Unit): TextView {
+        return TextView(this).apply {
+            this.text = text
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            gravity = Gravity.CENTER
+            isClickable = true
+            isFocusable = true
+            setPadding(dp(4), dp(10), dp(4), dp(10))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(10).toFloat()
+                if (selected) {
+                    setColor(getColor(R.color.hakunaa_teal))
+                } else {
+                    setColor(Color.WHITE)
+                    setStroke(dp(1), Color.parseColor("#CFD8DC"))
                 }
-                .setNegativeButton("Cancel", null)
-                .show()
+            }
+            setTextColor(if (selected) Color.WHITE else getColor(R.color.hakunaa_text))
+            setOnClickListener { onClick() }
         }
     }
 
-    private fun runResize(input: File, target: PDRectangle, label: String) {
+    private fun resizePdf() {
+        pickPdfThen { input ->
+            var selectedSize = 0 // A4
+            var landscape = false
+            var fitContent = true
+            val dialog = Dialog(this)
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 20f * resources.displayMetrics.density
+                    setColor(Color.WHITE)
+                }
+                setPadding(dp(24), dp(24), dp(24), dp(24))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            }
+            val title = TextView(this).apply {
+                text = "Resize Pages"
+                textSize = 18f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(getColor(R.color.hakunaa_text))
+                gravity = Gravity.CENTER
+            }
+            card.addView(title)
+
+            fun sectionLabel(text: String): TextView {
+                return TextView(this).apply {
+                    this.text = text
+                    textSize = 14f
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    setTextColor(getColor(R.color.hakunaa_text))
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { topMargin = dp(16) }
+                }
+            }
+            fun chipRow(chips: List<TextView>): LinearLayout {
+                return LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { topMargin = dp(8) }
+                    for ((i, chip) in chips.withIndex()) {
+                        chip.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                            if (i > 0) marginStart = dp(8)
+                        }
+                        addView(chip)
+                    }
+                }
+            }
+
+            card.addView(sectionLabel("Page size"))
+            val sizeChips = mutableListOf<TextView>()
+            val customBox = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                visibility = View.GONE
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(8) }
+            }
+            val etCustomW = EditText(this).apply {
+                hint = "Width (mm)"
+                textSize = 14f
+                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+                background = inputBoxBackground()
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            val etCustomH = EditText(this).apply {
+                hint = "Height (mm)"
+                textSize = 14f
+                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+                background = inputBoxBackground()
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginStart = dp(8)
+                }
+            }
+            customBox.addView(etCustomW)
+            customBox.addView(etCustomH)
+            fun refreshSizeChips() {
+                for (i in sizeChips.indices) {
+                    val chip = sizeChips[i]
+                    val sel = i == selectedSize
+                    chip.background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = dp(10).toFloat()
+                        if (sel) setColor(getColor(R.color.hakunaa_teal)) else {
+                            setColor(Color.WHITE)
+                            setStroke(dp(1), Color.parseColor("#CFD8DC"))
+                        }
+                    }
+                    chip.setTextColor(if (sel) Color.WHITE else getColor(R.color.hakunaa_text))
+                }
+                customBox.visibility =
+                    if (resizeSizes[selectedSize].name == "Custom") View.VISIBLE else View.GONE
+            }
+            for (i in resizeSizes.indices) {
+                sizeChips.add(resizeChip(resizeSizes[i].name, i == selectedSize) {
+                    selectedSize = i
+                    refreshSizeChips()
+                })
+            }
+            for (row in sizeChips.chunked(3)) card.addView(chipRow(row))
+            card.addView(customBox)
+
+            card.addView(sectionLabel("Orientation"))
+            val orientChips = mutableListOf<TextView>()
+            fun refreshOrientChips() {
+                for (i in orientChips.indices) {
+                    val sel = (i == 1) == landscape
+                    orientChips[i].background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = dp(10).toFloat()
+                        if (sel) setColor(getColor(R.color.hakunaa_teal)) else {
+                            setColor(Color.WHITE)
+                            setStroke(dp(1), Color.parseColor("#CFD8DC"))
+                        }
+                    }
+                    orientChips[i].setTextColor(if (sel) Color.WHITE else getColor(R.color.hakunaa_text))
+                }
+            }
+            orientChips.add(resizeChip("Portrait", true) { landscape = false; refreshOrientChips() })
+            orientChips.add(resizeChip("Landscape", false) { landscape = true; refreshOrientChips() })
+            card.addView(chipRow(orientChips))
+
+            card.addView(sectionLabel("Content"))
+            val fitChips = mutableListOf<TextView>()
+            fun refreshFitChips() {
+                for (i in fitChips.indices) {
+                    val sel = (i == 0) == fitContent
+                    fitChips[i].background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = dp(10).toFloat()
+                        if (sel) setColor(getColor(R.color.hakunaa_teal)) else {
+                            setColor(Color.WHITE)
+                            setStroke(dp(1), Color.parseColor("#CFD8DC"))
+                        }
+                    }
+                    fitChips[i].setTextColor(if (sel) Color.WHITE else getColor(R.color.hakunaa_text))
+                }
+            }
+            fitChips.add(resizeChip("Fit to page", true) { fitContent = true; refreshFitChips() })
+            fitChips.add(resizeChip("Keep size", false) { fitContent = false; refreshFitChips() })
+            card.addView(chipRow(fitChips))
+
+            val btnRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(24) }
+            }
+            val btnCancel = popupPillButton("Cancel", false) { dialog.dismiss() }.apply {
+                layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f).apply {
+                    marginEnd = dp(8)
+                }
+            }
+            val btnResize = popupPillButton("Resize", true) {
+                val size = resizeSizes[selectedSize]
+                val wPt: Float
+                val hPt: Float
+                val label: String
+                if (size.name == "Custom") {
+                    val wMm = etCustomW.text.toString().trim().toFloatOrNull()
+                    val hMm = etCustomH.text.toString().trim().toFloatOrNull()
+                    if (wMm == null || hMm == null || wMm < 10f || hMm < 10f || wMm > 1000f || hMm > 1000f) {
+                        toast("Enter a valid width and height (10–1000 mm)")
+                        return@popupPillButton
+                    }
+                    wPt = wMm * 72f / 25.4f
+                    hPt = hMm * 72f / 25.4f
+                    label = "Custom ${wMm.toInt()}×${hMm.toInt()}mm"
+                } else {
+                    wPt = size.wPt
+                    hPt = size.hPt
+                    label = size.name
+                }
+                val target = if (landscape) PDRectangle(hPt, wPt) else PDRectangle(wPt, hPt)
+                dialog.dismiss()
+                runResize(input, target, label, fitContent)
+            }.apply {
+                layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f).apply {
+                    marginStart = dp(8)
+                }
+            }
+            btnRow.addView(btnCancel)
+            btnRow.addView(btnResize)
+            card.addView(btnRow)
+            dialog.setContentView(card)
+            dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            dialog.window?.setLayout(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            dialog.show()
+        }
+    }
+
+    private fun runResize(input: File, target: PDRectangle, label: String, fit: Boolean = true) {
         toast("Resizing pages to $label…")
         Thread {
             try {
                 val out = File(hakunaaCacheDir(), "hakunaa_resized_${System.currentTimeMillis()}.pdf")
-                val ok = PdfTools.resizePages(input, out, target)
+                val ok = PdfTools.resizePages(input, out, target, fit)
                 val savedUri = if (ok) publishPdfUri(out) else null
                 runOnUiThread {
                     if (ok && savedUri != null) showSavedPdfDialog(out, savedUri)

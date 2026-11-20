@@ -74,7 +74,7 @@ class PdfIconView @JvmOverloads constructor(
             Kind.IMG_PDF -> canvas.image(yellow)
             Kind.TEXT -> canvas.textT()
             Kind.WATERMARK -> canvas.watermark()
-            Kind.IMG_EXTRACT -> canvas.image(green)
+            Kind.IMG_EXTRACT -> canvas.imageExtract()
             Kind.RESIZE -> canvas.resize()
         }
         canvas.restore()
@@ -128,61 +128,83 @@ class PdfIconView @JvmOverloads constructor(
         }
     }
 
-    /** Three horizontal lines (organize / list). */
+    /** Reorder list: grip dots + three lines. */
     private fun Canvas.organize() {
+        fill.color = blue
+        for (y in listOf(28f, 50f, 72f)) {
+            drawCircle(20f, y, 4f, fill)
+            drawCircle(30f, y, 4f, fill)
+        }
         stroke.color = blue
         stroke.strokeWidth = 7f
         for (y in listOf(28f, 50f, 72f)) {
-            drawLine(16f, y, 84f, y, stroke)
+            drawLine(42f, y, 84f, y, stroke)
         }
     }
 
-    /** Pen + signature curve. */
+    /** Pen + flowing signature squiggle. */
     private fun Canvas.sign() {
         stroke.color = tealDk
+        stroke.strokeWidth = 6f
+        val sig = android.graphics.Path().apply {
+            moveTo(14f, 78f)
+            cubicTo(26f, 62f, 34f, 90f, 46f, 74f)
+            cubicTo(54f, 62f, 62f, 88f, 74f, 72f)
+            lineTo(86f, 78f)
+        }
+        drawPath(sig, stroke)
         stroke.strokeWidth = 8f
-        drawLine(16f, 60f, 68f, 16f, stroke)
+        drawLine(30f, 52f, 66f, 16f, stroke)
         fill.color = tealDk
         val nib = android.graphics.Path().apply {
-            moveTo(68f, 16f)
-            lineTo(86f, 10f)
+            moveTo(66f, 16f)
+            lineTo(88f, 8f)
             lineTo(80f, 32f)
             close()
         }
         drawPath(nib, fill)
-        stroke.strokeWidth = 7f
-        drawArc(RectF(14f, 58f, 86f, 92f), 200f, 140f, false, stroke)
     }
 
-    /** Yellow square with "JPG". */
+    /** Yellow file square with folded corner + "JPG". */
     private fun Canvas.jpg() {
         rr(14f, 14f, 72f, yellow, 10f)
+        fill.color = Color.WHITE
+        val fold = android.graphics.Path().apply {
+            moveTo(64f, 14f)
+            lineTo(86f, 36f)
+            lineTo(64f, 36f)
+            close()
+        }
+        drawPath(fold, fill)
         textPaint.textSize = 26f
-        drawText("JPG", 50f, 59f, textPaint)
+        drawText("JPG", 50f, 62f, textPaint)
     }
 
-    /** Padlock. */
+    /** Padlock with a white keyhole. */
     private fun Canvas.lock() {
         stroke.color = blue
-        stroke.strokeWidth = 6f
-        drawArc(RectF(32f, 14f, 68f, 50f), 180f, 180f, false, stroke)
+        stroke.strokeWidth = 7f
+        drawArc(RectF(32f, 12f, 68f, 48f), 180f, 180f, false, stroke)
         rr(24f, 44f, 52f, blue, 9f)
+        fill.color = Color.WHITE
+        drawCircle(50f, 62f, 7f, fill)
+        drawRoundRect(RectF(46f, 64f, 54f, 76f), 3f, 3f, fill)
     }
 
-    /** Wrench: open jaw + handle. */
+    /** Wrench: open jaw crescent + thick handle. */
     private fun Canvas.repair() {
         stroke.color = tealDk
-        stroke.strokeWidth = 9f
-        drawArc(RectF(46f, 6f, 92f, 52f), 300f, 120f, false, stroke)
         stroke.strokeWidth = 10f
-        drawLine(20f, 82f, 48f, 54f, stroke)
+        drawArc(RectF(42f, 8f, 92f, 58f), 300f, 150f, false, stroke)
+        stroke.strokeWidth = 11f
+        drawLine(18f, 84f, 48f, 54f, stroke)
     }
 
     /** Four numbered mini squares (page numbers). */
     private fun Canvas.pageNo() {
         val nums = listOf("1", "2", "3", "4")
         val spots = listOf(18f to 18f, 56f to 18f, 18f to 56f, 56f to 56f)
-        textPaint.textSize = 18f
+        textPaint.textSize = 19f
         for (i in nums.indices) {
             val (x, y) = spots[i]
             rr(x, y, 26f, purple, 7f)
@@ -193,13 +215,13 @@ class PdfIconView @JvmOverloads constructor(
     /** Circular arrow (rotate). */
     private fun Canvas.rotate() {
         stroke.color = purple
-        stroke.strokeWidth = 7f
+        stroke.strokeWidth = 8f
         drawArc(RectF(16f, 16f, 84f, 84f), 40f, 280f, false, stroke)
         fill.color = purple
         val head = android.graphics.Path().apply {
-            moveTo(78f, 20f)
-            lineTo(94f, 42f)
-            lineTo(62f, 38f)
+            moveTo(78f, 18f)
+            lineTo(96f, 42f)
+            lineTo(60f, 38f)
             close()
         }
         drawPath(head, fill)
@@ -210,41 +232,51 @@ class PdfIconView @JvmOverloads constructor(
         rr(14f, 14f, 72f, color, 10f)
         fill.color = Color.WHITE
         val mountain = android.graphics.Path().apply {
-            moveTo(20f, 68f)
-            lineTo(36f, 38f)
-            lineTo(48f, 56f)
-            lineTo(58f, 44f)
-            lineTo(80f, 68f)
+            moveTo(20f, 70f)
+            lineTo(38f, 36f)
+            lineTo(50f, 54f)
+            lineTo(60f, 42f)
+            lineTo(80f, 70f)
             close()
         }
         drawPath(mountain, fill)
-        drawCircle(30f, 30f, 6f, fill)
+        drawCircle(32f, 30f, 6f, fill)
     }
 
-    /** Big teal "T" (extract text). */
+    /** Image with an outward arrow — pulling images OUT of a PDF. */
+    private fun Canvas.imageExtract() {
+        image(green)
+        arrow(60f, 34f, 20f, -20f, Color.WHITE, 6f)
+    }
+
+    /** Big teal "T" + text lines (extract text). */
     private fun Canvas.textT() {
         textPaint.color = tealDk
-        textPaint.textSize = 64f
-        drawText("T", 50f, 72f, textPaint)
+        textPaint.textSize = 56f
+        drawText("T", 50f, 56f, textPaint)
+        stroke.color = tealDk
+        stroke.strokeWidth = 6f
+        drawLine(28f, 72f, 72f, 72f, stroke)
+        drawLine(34f, 86f, 66f, 86f, stroke)
         textPaint.color = Color.WHITE
     }
 
-    /** Stamp in a purple square (watermark). */
+    /** Rubber stamp in a purple square (watermark). */
     private fun Canvas.watermark() {
         rr(14f, 14f, 72f, purple, 10f)
         fill.color = Color.WHITE
-        drawRoundRect(RectF(28f, 60f, 72f, 76f), 6f, 6f, fill)
+        drawRoundRect(RectF(26f, 62f, 74f, 78f), 5f, 5f, fill)
         stroke.color = Color.WHITE
         stroke.strokeWidth = 7f
-        drawLine(50f, 30f, 50f, 60f, stroke)
-        drawCircle(50f, 28f, 9f, fill)
+        drawLine(50f, 32f, 50f, 62f, stroke)
+        drawCircle(50f, 28f, 10f, fill)
     }
 
-    /** Four arrows pointing outwards (resize / expand). */
+    /** Four bold arrows pointing outwards (resize / expand). */
     private fun Canvas.resize() {
-        arrow(38f, 38f, -14f, -14f, tealDk)
-        arrow(62f, 38f, 14f, -14f, tealDk)
-        arrow(38f, 62f, -14f, 14f, tealDk)
-        arrow(62f, 62f, 14f, 14f, tealDk)
+        arrow(38f, 38f, -16f, -16f, tealDk, 7f)
+        arrow(62f, 38f, 16f, -16f, tealDk, 7f)
+        arrow(38f, 62f, -16f, 16f, tealDk, 7f)
+        arrow(62f, 62f, 16f, 16f, tealDk, 7f)
     }
 }

@@ -974,9 +974,13 @@ object PdfTools {
      * Resize Pages: rebuild every page at [target] size, scaling
      * the original page content to fit (centred, aspect kept).
      * Vector and text content stays vector — nothing is rasterised.
+     * [fit] = true scales to fit the new size (default). When
+     * false the content is never enlarged — pages are placed at
+     * their original size, centred, and only shrunk if they do
+     * not fit (v0.1.152 "Keep size" option).
      * Returns true on success.
      */
-    fun resizePages(input: File, output: File, target: PDRectangle): Boolean {
+    fun resizePages(input: File, output: File, target: PDRectangle, fit: Boolean = true): Boolean {
         return try {
             PDDocument.load(input).use { src ->
                 PDDocument().use { dst ->
@@ -986,10 +990,11 @@ object PdfTools {
                         val form = layer.importPageAsForm(src, page)
                         val newPage = PDPage(target)
                         dst.addPage(newPage)
-                        val scale = minOf(
+                        val fitScale = minOf(
                             target.width / srcBox.width,
                             target.height / srcBox.height
                         )
+                        val scale = if (fit) fitScale else minOf(fitScale, 1f)
                         val w = srcBox.width * scale
                         val h = srcBox.height * scale
                         val x = (target.width - w) / 2f
