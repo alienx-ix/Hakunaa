@@ -2479,6 +2479,20 @@ class ImageToolActivity : AppCompatActivity() {
                 (16 * density).toInt(), (8 * density).toInt()
             )
         }
+        // v0.1.142 (Batch 26): WebP ONLY — the row FILLS the
+        // card height so the text AND the View button centre
+        // top-to-bottom (the user: "Left side texts lam super..
+        // Lite a top Bottom center matu pananum" + "View button
+        // um top bottom center venum"). Text stays LEFT-aligned
+        // (horizontal) — only the vertical centre changes; the
+        // v0.1.139 horizontal centring stays reverted. Smart
+        // keeps its WRAP_CONTENT row (top-left text), untouched.
+        if (plainCard) {
+            inner.layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.MATCH_PARENT
+            )
+        }
         // v0.1.140 (Batch 24): the v0.1.139 MATCH_PARENT row
         // fill is REVERTED — the user wants the WebP window to
         // clone Smart's screen exactly, and Smart's row is
@@ -3021,9 +3035,19 @@ class ImageToolActivity : AppCompatActivity() {
             textSize = 14f
             setTypeface(null, android.graphics.Typeface.BOLD)
             setTextColor(getColor(R.color.hakunaa_text))
+            // v0.1.142 (Batch 26): WHITE fill above the first
+            // card (the user: "Top la Card ku mela space irku
+            // la adha.. Normal a irka mari white potu fill, just
+            // white fill okva?"). ONLY this Results header area
+            // — below the status bar, which is perfect and must
+            // NOT be disturbed (user, 08:13 IST); the window /
+            // status-bar background is untouched. Bottom padding
+            // 13dp runs the white right up to the first card
+            // (whose top margin is 0, see refreshWebpRows).
+            setBackgroundColor(getColor(R.color.hakunaa_surface))
             // v0.1.141 (Batch 25): 10dp above — a little extra
             // space below the explain box, like the mockup.
-            setPadding(0, (10 * density).toInt(), 0, (2 * density).toInt())
+            setPadding(0, (10 * density).toInt(), 0, (13 * density).toInt())
             visibility = View.GONE
         }
         content.addView(webpResultsLabel)
@@ -3037,12 +3061,17 @@ class ImageToolActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
             )
-            // v0.1.130: 8dp room below the last card + clipToPadding
+            // v0.1.130: room below the last card + clipToPadding
             // =false, so the last card's shadow can actually draw
             // (v0.1.129's padding-only fix on the main screen never
             // worked — clipToPadding defaults to true and cuts the
             // shadow at the card's edge).
-            setPadding(0, 0, 0, (8 * density).toInt())
+            // v0.1.142 (Batch 26): 16dp (was 8dp) — MORE space
+            // after the 5 boxes before Save (the user: "5boxes
+            // mudiyavum space venum laa"). The bottom bar also
+            // shrank (52dp -> 32dp), so the rows area is taller
+            // and the last card can never be clipped.
+            setPadding(0, 0, 0, (16 * density).toInt())
             clipToPadding = false
         }
         content.addView(rowsContainer)
@@ -3051,12 +3080,13 @@ class ImageToolActivity : AppCompatActivity() {
         // v0.1.137 fold-in: top padding 0 — the gap above Save is
         // already exactly Smart's 8dp (rows container bottom
         // padding); 8dp more here would loosen it.
-        // v0.1.141 (Batch 25): Save sits ~52dp above the bottom
-        // edge — near the bottom but a LITTLE UP, exactly like
-        // the user-approved mockup (NOT flush to the bottom).
+        // v0.1.142 (Batch 26): Save sits ~32dp above the bottom
+        // edge (was ~52dp) — a LITTLE MORE DOWN than v0.1.141
+        // (the user: "Save Button inu lite aa keela"), but still
+        // a little up from the very edge, NOT flush to the bottom.
         val bottomBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding((16 * density).toInt(), 0, (16 * density).toInt(), (52 * density).toInt())
+            setPadding((16 * density).toInt(), 0, (16 * density).toInt(), (32 * density).toInt())
         }
         val saveBtn = com.google.android.material.button.MaterialButton(this).apply {
             text = "Save selected"
@@ -3106,7 +3136,7 @@ class ImageToolActivity : AppCompatActivity() {
             // The v0.1.138 weight-shared cards are reverted.
             // The "Results" heading shows with the rows.
             webpResultsLabel.visibility = View.VISIBLE
-            for (r in webpRows) {
+            for ((index, r) in webpRows.withIndex()) {
                 val card = buildResultRow(
                     r, r == best, r == selectedWebp,
                     onPreview = {
@@ -3127,7 +3157,11 @@ class ImageToolActivity : AppCompatActivity() {
                     // v0.1.141 (Batch 25): 11dp gaps between the
                     // cards (was 6dp) — a little extra space,
                     // exactly like the approved mockup (~28px).
-                    topMarginDp = 11,
+                    // v0.1.142 (Batch 26): the FIRST card has NO
+                    // top margin — the white Results header above
+                    // it runs right up to the card (white fill,
+                    // no grey strip). Other cards keep 11dp.
+                    topMarginDp = if (index == 0) 0 else 11,
                     // Plain container (no MaterialCardView tint),
                     // so the WebP cards are Smart's exact light
                     // colour instead of the darker dialog tint.
