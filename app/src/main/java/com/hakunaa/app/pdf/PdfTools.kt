@@ -2,6 +2,8 @@ package com.hakunaa.app.pdf
 
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDDocumentInformation
+import com.tom_roush.pdfbox.cos.COSName
+import com.tom_roush.pdfbox.cos.COSStream
 import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
@@ -68,25 +70,56 @@ object PdfTools {
     }
 
     /**
-     * Lossless Compress: strip metadata and save with full compression.
-     * 20–30% smaller on typical PDFs, quality 100% the same.
-     * Returns the bytes saved (input size minus output size), 0 if the
-     * PDF is already as small as it gets (in that case NO output file
-     * is left behind — an earlier build saved a BIGGER file, 3.7 MB
-     * → 3.8 MB, because re-saving an already-optimized PDF with
-     * PDFBox's default writer can add overhead), or -1 on failure.
-     * Smart lossy compression (image downscale to 150 DPI) is separate.
+     * Lossless Compress (v0.1.151): REAL lossless compression.
+     * The old version only stripped metadata and re-saved — most
+     * real PDFs are already saved with compressed streams, so it
+     * reported "Already optimized" for every file. This version
+     * Flate-compresses every stream that is stored UNCOMPRESSED
+     * (no filter at all — usually page content streams and other
+     * raw data), strips the metadata, and rebuilds the file.
+     * Streams that already have a filter are NEVER touched — JPEG
+     * images (DCTDecode), Flate streams and font data stay exactly
+     * as they are, so quality is 100% the same. Returns the bytes
+     * saved, 0 if the PDF truly cannot shrink losslessly (in that
+     * case NO output file is left behind), or -1 on failure.
      */
     fun compressLossless(input: File, output: File): Long {
         return try {
             PDDocument.load(input).use { doc ->
-                doc.documentInformation = com.tom_roush.pdfbox.pdmodel.PDDocumentInformation()
+                doc.documentInformation = PDDocumentInformation()
+                // Flate-compress unfiltered streams. A stream with
+                // no filter holds raw bytes; wrapping them in
+                // FlateDecode is exactly what a "fully compressed"
+                // save does, and PDFBox decodes them identically
+                // on read — so this is lossless by construction.
+                // The raw bytes are read BEFORE the filter is set:
+                // reading after would try to inflate raw data.
+                for (cosObj in doc.document.objects) {
+                    val base = try { cosObj.getObject() } catch (_: Throwable) { null } ?: continue
+                    if (base !is COSStream) continue
+                    try {
+                        if (base.filters != null) continue
+                        val raw = base.unfilteredStream
+                        val out = base.createOutputStream(COSName.FLATE_DECODE)
+                        raw.use { inputStream ->
+                            out.use { outputStream ->
+                                val buf = ByteArray(8192)
+                                var n: Int
+                                while (inputStream.read(buf).also { n = it } >= 0) {
+                                    outputStream.write(buf, 0, n)
+                                }
+                            }
+                        }
+                    } catch (_: Throwable) {
+                        // One bad stream must never kill the file.
+                    }
+                }
                 doc.save(output)
             }
             val saved = input.length() - output.length()
             if (saved <= 0) {
-                // Already optimized (or re-save overhead made it bigger):
-                // never hand the user a larger "compressed" file.
+                // Truly already optimized (or re-save overhead made
+                // it bigger): never hand back a larger file.
                 try { output.delete() } catch (_: Throwable) { }
                 0L
             } else {

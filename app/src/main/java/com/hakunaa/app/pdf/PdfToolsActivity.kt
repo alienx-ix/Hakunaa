@@ -16,6 +16,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.Window
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -114,7 +115,10 @@ class PdfToolsActivity : AppCompatActivity() {
     private var smartRowFiles = mutableListOf<File?>()
     private var smartSelected = -1
     private var smartCustomFile: File? = null
-    private var smartCustomRow: LinearLayout? = null
+    private var smartCustomUnitMb = false
+    private var smartCustomDialog: Dialog? = null
+    private var customResultBox: LinearLayout? = null
+    private var tvCustomResultSize: TextView? = null
     private var tvSmartComputing: TextView? = null
     private var smartResultsBox: LinearLayout? = null
     private var tvSmartCustomResult: TextView? = null
@@ -136,6 +140,8 @@ class PdfToolsActivity : AppCompatActivity() {
     // then a 3-size result page with rename.
     private var mergeOverlay: View? = null
     private var mergeFiles = mutableListOf<File>()
+    private var mergeThumbCache = mutableMapOf<File, Bitmap>()
+    private var mergePreviewBitmap: Bitmap? = null
     private var mergeAdapter: MergeAdapter? = null
     private var mergeTouchHelper: ItemTouchHelper? = null
     private var mergeResultFiles = mutableListOf<File>()
@@ -151,6 +157,7 @@ class PdfToolsActivity : AppCompatActivity() {
     private var splitOption = 0 // 0 range, 1 every N, 2 single pages
     private var etSplitRange: EditText? = null
     private var etSplitEvery: EditText? = null
+    private var etSplitSingle: EditText? = null
     private var splitResultFiles = mutableListOf<File>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -186,6 +193,74 @@ class PdfToolsActivity : AppCompatActivity() {
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
+    /** Status-bar height in px (v0.1.151, Fix #7): the tool overlays
+     * are added to android.R.id.content, ABOVE the activity's
+     * fitsSystemWindows insets, so each overlay root must add this
+     * top padding itself — otherwise the header overlaps the bar. */
+    private fun statusBarHeightPx(): Int {
+        val id = resources.getIdentifier("status_bar_height", "dimen", "android")
+        return if (id > 0) resources.getDimensionPixelSize(id) else dp(24)
+    }
+
+    /** Plain TextView pill button for Dialogs (v0.1.151, Fix #1):
+     * the proven pattern from the WebP View button — a plain
+     * TextView + GradientDrawable, never a MaterialButton (whose
+     * text clipped to nothing in the v0.1.150 tool popup). The
+     * caller sets the LayoutParams (row pill or full width). */
+    private fun popupPillButton(text: String, filled: Boolean, onClick: () -> Unit): TextView {
+        return TextView(this).apply {
+            this.text = text
+            textSize = 15f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            gravity = Gravity.CENTER
+            isClickable = true
+            isFocusable = true
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(12).toFloat()
+                if (filled) {
+                    setColor(getColor(R.color.hakunaa_teal))
+                } else {
+                    setColor(Color.WHITE)
+                    setStroke(dp(1), getColor(R.color.hakunaa_teal))
+                }
+            }
+            setTextColor(if (filled) Color.WHITE else getColor(R.color.hakunaa_teal))
+            setOnClickListener { onClick() }
+        }
+    }
+
+    /** Rounded white input box (v0.1.151): EditTexts with a bordered
+     * box look professional; the bare underline looks unfinished. */
+    private fun inputBoxBackground(): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(10).toFloat()
+            setColor(Color.WHITE)
+            setStroke(dp(1), Color.parseColor("#CFD8DC"))
+        }
+    }
+
+    /** Copy a picked file to the cache KEEPING its original file
+     * name (v0.1.151, Fix #7): the old "single.pdf" / "merge_N.pdf"
+     * names hid the real file name from every screen. Names are
+     * made unique when two picked files share one. */
+    private fun copyUriToCacheNamed(uri: Uri): File {
+        var name = FileUtils.fileName(contentResolver, uri)
+            .replace("/", "_").replace("\\", "_")
+        if (name.isBlank()) name = "file.pdf"
+        val base = name.substringBeforeLast(".", name)
+        val ext = name.substringAfterLast(".", "")
+        var candidate = name
+        var n = 2
+        while (File(cacheDir, candidate).exists()) {
+            candidate = if (ext.isEmpty() || ext == name) "${base}_$n" else "${base}_$n.$ext"
+            n++
+        }
+        return FileUtils.copyUriToCache(this, uri, candidate)
+    }
+
+
     private fun toast(msg: String) {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
     }
@@ -214,49 +289,49 @@ class PdfToolsActivity : AppCompatActivity() {
         val featured = listOf(
             listOf(
                 Tool("Smart Compress", "Best size", PdfIconView.Kind.SMART, true,
-                    "Shrink your PDF the smart way — 5 quality levels to pick from, plus a custom target size. Smaller file, same look.") { compressSmartPdf() },
+                    "Shrink your PDF the smart way — 5 quality levels to pick from, plus a custom target size. Smaller file, same look. Pick the level that fits your need.") { compressSmartPdf() },
                 Tool("Lossless Compress", "No quality loss", PdfIconView.Kind.LOSSLESS, true,
-                    "Squeeze out wasted space without touching quality — no image is re-compressed, every pixel stays exactly the same.") { compressPdf() }
+                    "Squeeze out wasted space without touching quality — no image is re-compressed, every pixel stays exactly the same. Best when you want a smaller file with zero quality loss.") { compressPdf() }
             ),
             listOf(
                 Tool("Merge PDF", "PDF a serkardhu", PdfIconView.Kind.MERGE, true,
-                    "Combine many PDFs into one — pick files, drag them into any order, then merge.") { mergePdfs() },
+                    "Combine many PDFs into one — pick files, drag them into any order, then merge. The top file comes first in the merged PDF.") { mergePdfs() },
                 Tool("Split PDF", "Pages pirikardhu", PdfIconView.Kind.SPLIT, true,
-                    "Cut one PDF into smaller PDFs — by page ranges, every N pages, or single pages.") { splitPdf() }
+                    "Cut one PDF into smaller PDFs — by page ranges, every N pages, or single pages. Each part is saved as its own PDF.") { splitPdf() }
             )
         )
         val grid = listOf(
             listOf(
                 Tool("Organize PDF", null, PdfIconView.Kind.ORGANIZE, false,
-                    "Reorder the pages of your PDF — put them in any order you like.") { organizePdf() },
+                    "Reorder the pages of your PDF — put them in any order you like. Type the new order, e.g. 3,1,2.") { organizePdf() },
                 Tool("Sign PDF", null, PdfIconView.Kind.SIGN, false,
-                    "Draw your signature and stamp it on any page of your PDF.") { showSignOverlay() },
+                    "Draw your signature and stamp it on any page of your PDF. Choose the page, position and size.") { showSignOverlay() },
                 Tool("PDF to JPG", null, PdfIconView.Kind.JPG, false,
-                    "Turn every page of your PDF into a JPG image.") { pdfToJpg() }
+                    "Turn every page of your PDF into a JPG image. Each page is saved as its own photo.") { pdfToJpg() }
             ),
             listOf(
                 Tool("Protect / Unlock", null, PdfIconView.Kind.LOCK, false,
-                    "Lock your PDF with a password — or unlock one you already know the password for.") { protectUnlockPdf() },
+                    "Lock your PDF with a password — or unlock one you already know the password for. Without the password a locked PDF cannot be opened.") { protectUnlockPdf() },
                 Tool("Repair PDF", null, PdfIconView.Kind.REPAIR, false,
-                    "Fix a PDF that won't open — rebuilds the broken file structure and saves a clean copy.") { repairPdf() },
+                    "Fix a PDF that won't open — rebuilds the broken file structure and saves a clean copy. Works on most damaged files.") { repairPdf() },
                 Tool("Page Numbers", null, PdfIconView.Kind.PAGE_NO, false,
-                    "Add page numbers to every page of your PDF.") { pageNumbersPdf() }
+                    "Add page numbers to every page of your PDF. The numbers appear at the bottom of each page.") { pageNumbersPdf() }
             ),
             listOf(
                 Tool("Rotate PDF", null, PdfIconView.Kind.ROTATE, false,
-                    "Rotate all pages of your PDF by 90°, 180° or 270°.") { rotatePdf() },
+                    "Rotate all pages of your PDF by 90°, 180° or 270°. The content stays exactly the same.") { rotatePdf() },
                 Tool("Image to PDF", null, PdfIconView.Kind.IMG_PDF, false,
-                    "Turn your photos into a PDF — pick images, reorder them, choose the page size.", "Pick Image") { pickImageForPdf.launch("image/*") },
+                    "Turn your photos into a PDF — pick images, reorder them, choose the page size. A4 or Letter, portrait or landscape.", "Pick Image") { pickImageForPdf.launch("image/*") },
                 Tool("Extract Text", null, PdfIconView.Kind.TEXT, false,
-                    "Pull all the text out of your PDF into a plain text file.") { extractTextPdf() }
+                    "Pull all the text out of your PDF into a plain text file. Saved to Documents/Hakunaa.") { extractTextPdf() }
             ),
             listOf(
                 Tool("Watermark", null, PdfIconView.Kind.WATERMARK, false,
-                    "Stamp your own text across every page of your PDF.") { watermarkPdf() },
+                    "Stamp your own text across every page of your PDF. Type any text, e.g. CONFIDENTIAL.") { watermarkPdf() },
                 Tool("Extract Images", null, PdfIconView.Kind.IMG_EXTRACT, false,
-                    "Save every photo inside your PDF as its own image file.") { extractImagesPdf() },
+                    "Save every photo inside your PDF as its own image file. The images are saved to Pictures/Hakunaa.") { extractImagesPdf() },
                 Tool("Resize Pages", null, PdfIconView.Kind.RESIZE, false,
-                    "Change every page to A4 or Letter size, portrait or landscape.") { resizePdf() }
+                    "Change every page to A4 or Letter size, portrait or landscape. Text stays sharp — it is not re-printed as an image.") { resizePdf() }
             )
         )
         for (row in featured) area.addView(buildRow(row, 1.25f))
@@ -368,6 +443,10 @@ class PdfToolsActivity : AppCompatActivity() {
                 setColor(Color.WHITE)
             }
             setPadding(dp(20), dp(20), dp(20), dp(20))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
         }
         val icon = PdfIconView(this).apply {
             kind = tool.kind
@@ -406,30 +485,38 @@ class PdfToolsActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(20) }
         }
-        val btnBack = MaterialButton(this).apply {
-            text = "Back"
+        val btnBack = popupPillButton("Back", false) { dialog.dismiss() }.apply {
             layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
                 marginEnd = dp(8)
             }
-            setOnClickListener { dialog.dismiss() }
         }
-        styleOutlineButton(btnBack)
-        val btnPick = MaterialButton(this).apply {
-            text = tool.pickLabel
+        val btnPick = popupPillButton(tool.pickLabel, true) {
+            dialog.dismiss()
+            tool.action()
+        }.apply {
             layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
                 marginStart = dp(8)
             }
-            setOnClickListener {
-                dialog.dismiss()
-                tool.action()
-            }
         }
-        styleFilledButton(btnPick)
         btnRow.addView(btnBack)
         btnRow.addView(btnPick)
         card.addView(btnRow)
         dialog.setContentView(card)
         dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        // v0.1.151, Fix #1 ROOT CAUSE: a Dialog left at its default
+        // WRAP_CONTENT window size measured this card at a collapsed
+        // width (icon + padding only), so the explanation wrapped
+        // into a sliver and the weight-0 buttons got no width — their
+        // labels clipped to nothing. Force the window to the full
+        // width (the same pattern SavedDialog already uses) so the
+        // text wraps at the real width and the pills get their share.
+        // The buttons are plain TextView pills now, not
+        // MaterialButtons, so their labels cannot be clipped by
+        // Material theming either.
+        dialog.window?.setLayout(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
         dialog.show()
     }
 
@@ -548,27 +635,169 @@ class PdfToolsActivity : AppCompatActivity() {
             .show()
     }
 
-    /** Professional Saved popup (PDF-only; SavedDialog in image/
-     * needs an image Format, so PDF saves use this one). */
+    /** Professional Saved popup for PDFs (v0.1.151, Fix #5): the
+     * SAME design as Image tools' SavedDialog — green check,
+     * first-page thumbnail, file name, location/size/format, and
+     * Open / Share / Done. The old plain AlertDialog ("Saved to
+     * Documents/Hakunaa/… / DONE OPEN") is gone from every PDF save. */
     private fun showSavedPdfDialog(outFile: File, savedUri: Uri?) {
-        AlertDialog.Builder(this)
-            .setTitle("Saved")
-            .setMessage("Saved to Documents/Hakunaa/${outFile.name}")
-            .setPositiveButton("Open") { _, _ ->
-                if (savedUri != null) {
-                    try {
-                        val view = Intent(Intent.ACTION_VIEW).apply {
-                            setDataAndType(savedUri, "application/pdf")
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        startActivity(view)
-                    } catch (_: Throwable) {
-                        toast("No PDF viewer found")
-                    }
+        val dialog = Dialog(this)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.setCancelable(true)
+        val density = resources.displayMetrics.density
+        val outer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((24 * density).toInt(), 0, (24 * density).toInt(), 0)
+        }
+        val card = com.google.android.material.card.MaterialCardView(this).apply {
+            radius = 20f * density
+            cardElevation = 8f * density
+            setCardBackgroundColor(getColor(R.color.hakunaa_surface))
+        }
+        val inner = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(
+                (24 * density).toInt(), (24 * density).toInt(),
+                (24 * density).toInt(), (20 * density).toInt()
+            )
+        }
+        val icon = TextView(this).apply {
+            text = "✓"
+            textSize = 24f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(getColor(R.color.hakunaa_teal))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                (48 * density).toInt(), (48 * density).toInt()
+            )
+        }
+        val title = TextView(this).apply {
+            text = "Saved"
+            textSize = 18f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            gravity = Gravity.CENTER
+            setPadding(0, (16 * density).toInt(), 0, 0)
+        }
+        val thumb = ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                (120 * density).toInt(), (120 * density).toInt()
+            ).apply { topMargin = (16 * density).toInt() }
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.parseColor("#F1F3F4"))
+                cornerRadius = 12f * density
+            }
+        }
+        val name = TextView(this).apply {
+            text = outFile.name
+            textSize = 15f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            gravity = Gravity.CENTER
+            setPadding(0, (12 * density).toInt(), 0, 0)
+        }
+        val details = TextView(this).apply {
+            text = "Documents/Hakunaa • ${FileUtils.formatSize(outFile.length())} • PDF"
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            gravity = Gravity.CENTER
+            setPadding(0, (4 * density).toInt(), 0, 0)
+        }
+        val buttons = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, (20 * density).toInt(), 0, 0)
+        }
+        fun actionButton(text: String, filled: Boolean): MaterialButton {
+            return MaterialButton(this).apply {
+                this.text = text
+                cornerRadius = (12 * density).toInt()
+                setPadding((16 * density).toInt(), 0, (16 * density).toInt(), 0)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    marginStart = (4 * density).toInt()
+                    marginEnd = (4 * density).toInt()
+                }
+                if (filled) {
+                    setTextColor(Color.WHITE)
+                    backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+                } else {
+                    setTextColor(getColor(R.color.hakunaa_teal))
+                    backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_surface))
+                    strokeColor = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+                    strokeWidth = (1 * density).toInt()
                 }
             }
-            .setNegativeButton("Done", null)
-            .show()
+        }
+        val openBtn = actionButton("Open", false)
+        val shareBtn = actionButton("Share", false)
+        val doneBtn = actionButton("Done", true)
+        openBtn.setOnClickListener {
+            if (savedUri != null) {
+                try {
+                    val view = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(savedUri, "application/pdf")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    startActivity(view)
+                } catch (_: Throwable) {
+                    toast("No PDF viewer found")
+                }
+            }
+            dialog.dismiss()
+        }
+        shareBtn.setOnClickListener {
+            if (savedUri != null) {
+                try {
+                    val share = Intent(Intent.ACTION_SEND).apply {
+                        type = "application/pdf"
+                        putExtra(Intent.EXTRA_STREAM, savedUri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    startActivity(Intent.createChooser(share, "Share"))
+                } catch (_: Throwable) {
+                    toast("Couldn't share")
+                }
+            }
+            dialog.dismiss()
+        }
+        doneBtn.setOnClickListener { dialog.dismiss() }
+        buttons.addView(openBtn)
+        buttons.addView(shareBtn)
+        buttons.addView(doneBtn)
+        inner.addView(icon)
+        inner.addView(title)
+        inner.addView(thumb)
+        inner.addView(name)
+        inner.addView(details)
+        inner.addView(buttons)
+        card.addView(inner)
+        outer.addView(card)
+        dialog.setContentView(outer)
+        dialog.window?.setLayout(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        dialog.show()
+        // First-page thumbnail, rendered off the UI thread.
+        Thread {
+            try {
+                val bmp = PdfTools.renderFirstPageThumb(outFile, 240)
+                runOnUiThread { if (bmp != null) thumb.setImageBitmap(bmp) }
+            } catch (_: Throwable) {
+                // No thumbnail — the dialog still works without it.
+            }
+        }.start()
     }
 
     // ------------------------------------------------------------------
@@ -601,7 +830,7 @@ class PdfToolsActivity : AppCompatActivity() {
         singlePdfCallback = { uri ->
             Thread {
                 try {
-                    val file = FileUtils.copyUriToCache(this, uri, "single.pdf")
+                    val file = copyUriToCacheNamed(uri)
                     runOnUiThread { action(file) }
                 } catch (_: Throwable) {
                     runOnUiThread { toast("Could not open this PDF") }
@@ -619,9 +848,7 @@ class PdfToolsActivity : AppCompatActivity() {
             } else {
                 Thread {
                     try {
-                        val files = uris.mapIndexed { index, uri ->
-                            FileUtils.copyUriToCache(this, uri, "merge_$index.pdf")
-                        }
+                        val files = uris.map { uri -> copyUriToCacheNamed(uri) }
                         runOnUiThread { action(files) }
                     } catch (_: Throwable) {
                         runOnUiThread { toast("Could not open these PDFs") }
@@ -665,7 +892,15 @@ class PdfToolsActivity : AppCompatActivity() {
             LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setBackgroundColor(getColor(R.color.hakunaa_surface))
-                setPadding(dp(16), dp(16), dp(16), dp(16))
+                // v0.1.151, Fix #7: the overlay sits above the activity's
+                // insets, so it adds the status-bar height itself —
+                // otherwise the header overlaps the status bar.
+                // Fix #9: consume ALL touches — without this, taps on
+                // blank space fall through to the menu cards underneath
+                // and open other tools.
+                setPadding(dp(16), statusBarHeightPx() + dp(16), dp(16), dp(16))
+                isClickable = true
+                isFocusable = true
                 layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
                 )
@@ -805,6 +1040,18 @@ class PdfToolsActivity : AppCompatActivity() {
                 setTextColor(getColor(R.color.hakunaa_text_secondary))
                 setPadding(dp(4), dp(4), dp(8), dp(4))
             }
+            // v0.1.151, Fix #7: a small first-page preview in the row.
+            val thumb = ImageView(this@PdfToolsActivity).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 8f * density
+                    setColor(Color.parseColor("#F1F3F4"))
+                }
+                layoutParams = LinearLayout.LayoutParams(dp(44), dp(60)).apply {
+                    marginEnd = dp(10)
+                }
+            }
             val badge = TextView(this@PdfToolsActivity).apply {
                 textSize = 14f
                 setTypeface(null, android.graphics.Typeface.BOLD)
@@ -834,6 +1081,7 @@ class PdfToolsActivity : AppCompatActivity() {
                 ).apply { marginStart = dp(8) }
             }
             row.addView(handle)
+            row.addView(thumb)
             row.addView(badge)
             row.addView(name)
             row.addView(size)
@@ -850,9 +1098,32 @@ class PdfToolsActivity : AppCompatActivity() {
         override fun onBindViewHolder(holder: VH, position: Int) {
             val file = mergeFiles[position]
             val row = holder.row
-            (row.getChildAt(1) as TextView).text = "${position + 1}"
-            (row.getChildAt(2) as TextView).text = file.name
-            (row.getChildAt(3) as TextView).text = FileUtils.formatSize(file.length())
+            (row.getChildAt(2) as TextView).text = "${position + 1}"
+            (row.getChildAt(3) as TextView).text = file.name
+            (row.getChildAt(4) as TextView).text = FileUtils.formatSize(file.length())
+            // v0.1.151, Fix #7: first-page thumbnail, rendered off
+            // the UI thread and cached per file.
+            val thumb = row.getChildAt(1) as ImageView
+            thumb.tag = file
+            val cached = mergeThumbCache[file]
+            if (cached != null) {
+                thumb.setImageBitmap(cached)
+            } else {
+                thumb.setImageDrawable(null)
+                Thread {
+                    try {
+                        val bmp = PdfTools.renderFirstPageThumb(file, 240)
+                        runOnUiThread {
+                            if (bmp != null && thumb.tag == file) {
+                                mergeThumbCache[file] = bmp
+                                thumb.setImageBitmap(bmp)
+                            }
+                        }
+                    } catch (_: Throwable) {
+                        // No preview — the row still works without it.
+                    }
+                }.start()
+            }
         }
 
         override fun getItemCount(): Int = mergeFiles.size
@@ -929,6 +1200,48 @@ class PdfToolsActivity : AppCompatActivity() {
         header.addView(title)
         root.addView(header)
 
+        // v0.1.151, Fix #8: a preview of the merged PDF on top,
+        // plus a short info line — the old screen was a bare
+        // filename field over a big empty gap.
+        val preview = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 12f * resources.displayMetrics.density
+                setColor(Color.parseColor("#F1F3F4"))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(170)
+            ).apply { topMargin = dp(12) }
+        }
+        root.addView(preview)
+        val infoLine = TextView(this).apply {
+            text = "Merged from ${mergeFiles.size} files"
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(10) }
+        }
+        root.addView(infoLine)
+        Thread {
+            try {
+                val bmp = PdfTools.renderFirstPageThumb(merged, 480)
+                val pages = PdfTools.pageInfo(merged, 0)?.first
+                runOnUiThread {
+                    if (bmp != null) {
+                        mergePreviewBitmap = bmp
+                        preview.setImageBitmap(bmp)
+                    }
+                    if (pages != null) {
+                        infoLine.text = "$pages pages • merged from ${mergeFiles.size} files"
+                    }
+                }
+            } catch (_: Throwable) {
+                // No preview — the result screen still works.
+            }
+        }.start()
+
         val nameLabel = TextView(this).apply {
             text = "File name"
             textSize = 14f
@@ -944,14 +1257,27 @@ class PdfToolsActivity : AppCompatActivity() {
         root.addView(nameLabel)
         val defaultName = mergeFiles.firstOrNull()?.nameWithoutExtension?.let { "${it}_merged.pdf" }
             ?: "hakunaa_merged.pdf"
+        // v0.1.151, Fix #8: the filename sits in a proper rounded
+        // box, not a bare underline.
+        val nameBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = inputBoxBackground()
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setPadding(dp(12), dp(4), dp(12), dp(4))
+        }
         etMergeName = EditText(this).apply {
             setText(defaultName)
             textSize = 14f
+            background = null
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
             )
         }
-        root.addView(etMergeName)
+        nameBox.addView(etMergeName)
+        root.addView(nameBox)
 
         val sizesLabel = TextView(this).apply {
             text = "Choose a size"
@@ -1149,6 +1475,10 @@ class PdfToolsActivity : AppCompatActivity() {
         mergeResultRows = mutableListOf()
         mergeResultSelected = -1
         etMergeName = null
+        for ((_, bmp) in mergeThumbCache) try { bmp.recycle() } catch (_: Throwable) { }
+        mergeThumbCache = mutableMapOf()
+        mergePreviewBitmap?.recycle()
+        mergePreviewBitmap = null
         // The picked input files are cache copies — safe to drop.
         for (f in mergeFiles) try { f.delete() } catch (_: Throwable) { }
         mergeFiles = mutableListOf()
@@ -1195,7 +1525,15 @@ class PdfToolsActivity : AppCompatActivity() {
             LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setBackgroundColor(getColor(R.color.hakunaa_surface))
-                setPadding(dp(16), dp(16), dp(16), dp(16))
+                // v0.1.151, Fix #7: the overlay sits above the activity's
+                // insets, so it adds the status-bar height itself —
+                // otherwise the header overlaps the status bar.
+                // Fix #9: consume ALL touches — without this, taps on
+                // blank space fall through to the menu cards underneath
+                // and open other tools.
+                setPadding(dp(16), statusBarHeightPx() + dp(16), dp(16), dp(16))
+                isClickable = true
+                isFocusable = true
                 layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
                 )
@@ -1256,7 +1594,7 @@ class PdfToolsActivity : AppCompatActivity() {
         val optionDefs = listOf(
             Triple("By page range", "Each range becomes one PDF", "e.g. 1-3, 4-6"),
             Triple("Every N pages", "Split into equal chunks of N pages", "e.g. 5"),
-            Triple("Single pages", "One PDF per page", null)
+            Triple("Single pages", "One PDF per page", "e.g. 1,3,5 — empty = all pages")
         )
         for (i in optionDefs.indices) {
             val (optTitle, optSub, optHint) = optionDefs[i]
@@ -1276,6 +1614,12 @@ class PdfToolsActivity : AppCompatActivity() {
                 isClickable = true
                 isFocusable = true
             }
+            // v0.1.151, Fix #9: title + subtitle on the left, a
+            // check on the selected option on the right.
+            val textCol = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
             val tvOptTitle = TextView(this).apply {
                 text = optTitle
                 textSize = 15f
@@ -1287,14 +1631,38 @@ class PdfToolsActivity : AppCompatActivity() {
                 textSize = 12f
                 setTextColor(getColor(R.color.hakunaa_text_secondary))
             }
-            row.addView(tvOptTitle)
-            row.addView(tvOptSub)
+            textCol.addView(tvOptTitle)
+            textCol.addView(tvOptSub)
+            val check = TextView(this).apply {
+                text = "✓"
+                textSize = 20f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(getColor(R.color.hakunaa_teal))
+                visibility = View.GONE
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginStart = dp(8) }
+            }
+            val headRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            }
+            headRow.addView(textCol)
+            headRow.addView(check)
+            row.addView(headRow)
             var inputView: View? = null
             if (optHint != null) {
                 val et = EditText(this).apply {
                     hint = optHint
                     textSize = 14f
-                    inputType = InputType.TYPE_CLASS_TEXT
+                    inputType = if (i == 1) InputType.TYPE_CLASS_NUMBER else InputType.TYPE_CLASS_TEXT
+                    background = inputBoxBackground()
+                    setPadding(dp(12), dp(10), dp(12), dp(10))
                     layoutParams = LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT
@@ -1306,6 +1674,7 @@ class PdfToolsActivity : AppCompatActivity() {
             }
             if (i == 0) etSplitRange = inputView as? EditText
             if (i == 1) etSplitEvery = inputView as? EditText
+            if (i == 2) etSplitSingle = inputView as? EditText
             optionInputs.add(inputView ?: View(this).apply { visibility = View.GONE })
             row.setOnClickListener { selectSplitOption(optionRows, optionInputs, i) }
             optionRows.add(row)
@@ -1368,6 +1737,10 @@ class PdfToolsActivity : AppCompatActivity() {
                 }
             }
             inputs[i].visibility = if (isSel) View.VISIBLE else View.GONE
+            // v0.1.151: a check on the selected option.
+            val headRow = row.getChildAt(0) as LinearLayout
+            (headRow.getChildAt(1) as TextView).visibility =
+                if (isSel) View.VISIBLE else View.GONE
         }
     }
 
@@ -1436,7 +1809,22 @@ class PdfToolsActivity : AppCompatActivity() {
                         }
                     }
                     else -> {
-                        created.addAll(PdfTools.split(input, outDir))
+                        // v0.1.151: an optional page list (e.g. 1,3,5)
+                        // splits only those pages; empty = all pages.
+                        val selText = runOnUiThreadBlocking { etSplitSingle?.text?.toString()?.trim() ?: "" }
+                        if (selText.isEmpty()) {
+                            created.addAll(PdfTools.split(input, outDir))
+                        } else {
+                            val pages = PdfTools.parsePageSelection(selText)
+                            if (pages == null || pages.any { it < 1 || it > total }) {
+                                runOnUiThread { toast("Type valid pages, e.g. 1,3,5") }
+                                return@Thread
+                            }
+                            for (page in pages.sorted()) {
+                                val out = File(outDir, "hakunaa_page_$page.pdf")
+                                if (PdfTools.extractPages(input, out, setOf(page)) > 0) created.add(out)
+                            }
+                        }
                     }
                 }
                 runOnUiThread {
@@ -1644,88 +2032,73 @@ class PdfToolsActivity : AppCompatActivity() {
         splitResultFiles = mutableListOf()
         etSplitRange = null
         etSplitEvery = null
+        etSplitSingle = null
         splitInput = null
         splitPageCount = 0
     }
 
     private fun compressPdf() {
         pickPdfThen { input ->
-            toast("Compressing PDF (lossless)…")
-            Thread {
-                try {
-                    val before = input.length()
-                    val out = File(hakunaaCacheDir(), "hakunaa_compressed_${System.currentTimeMillis()}.pdf")
-                    val savedBytes = PdfTools.compressLossless(input, out)
-                    runOnUiThread {
-                        when {
-                            savedBytes > 0 -> showLosslessResultCard(input, out, before)
-                            savedBytes == 0L -> showLosslessResultCard(input, null, before)
-                            else -> toast("Compress failed — check the file and try again")
-                        }
-                    }
-                } catch (_: Throwable) {
-                    runOnUiThread { toast("Compress failed — check the file and try again") }
-                }
-            }.start()
+            showLosslessScreen(input)
         }
     }
 
     /**
-     * Lossless Compress result — CENTER card (v0.1.150): top
-     * preview, a short Lossless explanation, the result with a
-     * View button, a Save button, and Back + Done below. If
-     * [result] is null the PDF was already optimized and the card
-     * says so honestly instead of showing a fake result.
+     * Lossless Compress — FULL tool screen (v0.1.151, Fix #6):
+     * the old version showed the result in a popup over the menu
+     * and stopped there ("menu ulayae pogala"). Now the flow goes
+     * INSIDE the tool screen: preview + full explanation + file
+     * info, then compress, then the CENTER result card in the same
+     * screen. The compress itself is now REAL (v0.1.151, Fix #4).
      */
-    private fun showLosslessResultCard(input: File, result: File?, before: Long) {
+    private fun showLosslessScreen(input: File) {
         if (losslessOverlay != null) return
-        losslessResultFile = result
+        losslessResultFile = null
         losslessPreviewBitmap = null
+        val before = input.length()
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setBackgroundColor(Color.parseColor("#80000000"))
-            setPadding(dp(24), dp(24), dp(24), dp(24))
+            setBackgroundColor(getColor(R.color.hakunaa_surface))
+            setPadding(dp(16), statusBarHeightPx() + dp(16), dp(16), dp(16))
+            isClickable = true
+            isFocusable = true
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
-            )
-        }
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = 20f * resources.displayMetrics.density
-                setColor(Color.WHITE)
-            }
-            setPadding(dp(20), dp(20), dp(20), dp(20))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
             )
         }
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
+        val close = TextView(this).apply {
+            text = "✕"
+            textSize = 22f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            setPadding(dp(4), dp(4), dp(16), dp(4))
+            setOnClickListener { dismissLosslessOverlay() }
+        }
         val title = TextView(this).apply {
             text = "Lossless Compress"
-            textSize = 18f
+            textSize = 20f
             setTypeface(null, android.graphics.Typeface.BOLD)
             setTextColor(getColor(R.color.hakunaa_text))
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
-        val close = TextView(this).apply {
-            text = "✕"
-            textSize = 20f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(getColor(R.color.hakunaa_text))
-            setPadding(dp(4), dp(4), dp(4), dp(4))
-            setOnClickListener { dismissLosslessOverlay() }
-        }
-        header.addView(title)
         header.addView(close)
-        card.addView(header)
+        header.addView(title)
+        root.addView(header)
+
+        val fileLine = TextView(this).apply {
+            text = "${input.name} • ${FileUtils.formatSize(before)}"
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) }
+        }
+        root.addView(fileLine)
 
         val preview = ImageView(this).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
@@ -1736,9 +2109,9 @@ class PdfToolsActivity : AppCompatActivity() {
             }
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(170)
-            ).apply { topMargin = dp(16) }
+            ).apply { topMargin = dp(12) }
         }
-        card.addView(preview)
+        root.addView(preview)
 
         val explain = TextView(this).apply {
             text = "Lossless Compress squeezes out wasted space without touching quality — no image is re-compressed, every pixel stays exactly the same."
@@ -1749,83 +2122,30 @@ class PdfToolsActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(12) }
         }
-        card.addView(explain)
+        root.addView(explain)
 
-        if (result != null) {
-            val after = result.length()
-            val resultRow = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                background = GradientDrawable().apply {
-                    shape = GradientDrawable.RECTANGLE
-                    cornerRadius = 12f * resources.displayMetrics.density
-                    setColor(0xFFE0F2F1.toInt())
-                    setStroke(dp(1), getColor(R.color.hakunaa_teal))
-                }
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = dp(16) }
-                setPadding(dp(12), dp(12), dp(12), dp(12))
-            }
-            val resultText = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-            val tvResult = TextView(this).apply {
-                text = "${FileUtils.formatSize(before)} → ${FileUtils.formatSize(after)}"
-                textSize = 15f
-                setTypeface(null, android.graphics.Typeface.BOLD)
-                setTextColor(getColor(R.color.hakunaa_text))
-            }
-            val tvSaved = TextView(this).apply {
-                text = "saved ${FileUtils.savedPercent(before, after)} • quality 100% the same"
-                textSize = 12f
-                setTextColor(getColor(R.color.hakunaa_text_secondary))
-            }
-            resultText.addView(tvResult)
-            resultText.addView(tvSaved)
-            resultRow.addView(resultText)
-            resultRow.addView(viewPillButton { viewPdf(result) })
-            card.addView(resultRow)
-
-            val btnSave = MaterialButton(this).apply {
-                text = "Save"
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, dp(56)
-                ).apply { topMargin = dp(16) }
-                setOnClickListener {
-                    Thread {
-                        try {
-                            val savedUri = publishPdfUri(result)
-                            runOnUiThread {
-                                if (savedUri != null) {
-                                    dismissLosslessOverlay()
-                                    showSavedPdfDialog(result, savedUri)
-                                } else {
-                                    toast("Save failed — try again")
-                                }
-                            }
-                        } catch (_: Throwable) {
-                            runOnUiThread { toast("Save failed — try again") }
-                        }
-                    }.start()
-                }
-            }
-            styleFilledButton(btnSave)
-            card.addView(btnSave)
-        } else {
-            val tvAlready = TextView(this).apply {
-                text = "Already optimized — this PDF is as small as it gets without losing quality. Try Smart Compress for a smaller file."
-                textSize = 14f
-                setTextColor(getColor(R.color.hakunaa_text))
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = dp(16) }
-            }
-            card.addView(tvAlready)
+        // The CENTER result card lives here (filled in once the
+        // compress finishes) — preview + explanation first, then
+        // compress, exactly as the user asked.
+        val resultBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            ).apply { topMargin = dp(12) }
         }
+        val tvStatus = TextView(this).apply {
+            text = "Compressing…"
+            textSize = 14f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        resultBox.addView(tvStatus)
+        root.addView(resultBox)
 
         val bottomRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1852,29 +2172,136 @@ class PdfToolsActivity : AppCompatActivity() {
         styleOutlineButton(btnDone)
         bottomRow.addView(btnBack)
         bottomRow.addView(btnDone)
-        card.addView(bottomRow)
+        root.addView(bottomRow)
 
-        root.addView(card)
-        root.setOnClickListener { /* taps outside the card do nothing */ }
         findViewById<ViewGroup>(android.R.id.content).addView(root)
         losslessOverlay = root
 
-        // First-page preview (of the result, or the original when
-        // already optimized) — rendered off the UI thread.
-        val previewFile = result ?: input
         Thread {
             try {
-                val bmp = PdfTools.renderFirstPageThumb(previewFile, 480)
+                val thumb = PdfTools.renderFirstPageThumb(input, 480)
+                val pages = PdfTools.pageInfo(input, 0)?.first
+                val out = File(hakunaaCacheDir(), "hakunaa_compressed_${System.currentTimeMillis()}.pdf")
+                val savedBytes = PdfTools.compressLossless(input, out)
                 runOnUiThread {
-                    if (bmp != null && losslessOverlay != null) {
-                        losslessPreviewBitmap = bmp
-                        preview.setImageBitmap(bmp)
+                    if (losslessOverlay == null) return@runOnUiThread
+                    if (thumb != null) {
+                        losslessPreviewBitmap = thumb
+                        preview.setImageBitmap(thumb)
+                    }
+                    if (pages != null) {
+                        fileLine.text = "${input.name} • ${FileUtils.formatSize(before)} • $pages page(s)"
+                    }
+                    resultBox.removeAllViews()
+                    when {
+                        savedBytes > 0 -> {
+                            losslessResultFile = out
+                            resultBox.addView(buildLosslessResultCard(out, before))
+                        }
+                        savedBytes == 0L -> {
+                            val tvAlready = TextView(this).apply {
+                                text = "Already optimized — this PDF is as small as it gets without losing quality. Try Smart Compress for a smaller file."
+                                textSize = 14f
+                                setTextColor(getColor(R.color.hakunaa_text))
+                                gravity = Gravity.CENTER
+                                layoutParams = LinearLayout.LayoutParams(
+                                    LinearLayout.LayoutParams.MATCH_PARENT,
+                                    LinearLayout.LayoutParams.WRAP_CONTENT
+                                )
+                            }
+                            resultBox.addView(tvAlready)
+                        }
+                        else -> {
+                            tvStatus.text = "Compress failed — check the file and try again"
+                            resultBox.addView(tvStatus)
+                        }
                     }
                 }
             } catch (_: Throwable) {
-                // No preview — the card still works without it.
+                runOnUiThread {
+                    if (losslessOverlay != null) {
+                        resultBox.removeAllViews()
+                        tvStatus.text = "Compress failed — check the file and try again"
+                        resultBox.addView(tvStatus)
+                    }
+                }
             }
         }.start()
+    }
+
+    /** The CENTER result card for the Lossless screen: result with
+     * a View button, a Save button below it. */
+    private fun buildLosslessResultCard(result: File, before: Long): LinearLayout {
+        val after = result.length()
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        val resultRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 12f * resources.displayMetrics.density
+                setColor(0xFFE0F2F1.toInt())
+                setStroke(dp(1), getColor(R.color.hakunaa_teal))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+        }
+        val resultText = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val tvResult = TextView(this).apply {
+            text = "${FileUtils.formatSize(before)} → ${FileUtils.formatSize(after)}"
+            textSize = 15f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+        }
+        val tvSaved = TextView(this).apply {
+            text = "saved ${FileUtils.savedPercent(before, after)} • quality 100% the same"
+            textSize = 12f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+        }
+        resultText.addView(tvResult)
+        resultText.addView(tvSaved)
+        resultRow.addView(resultText)
+        resultRow.addView(viewPillButton { viewPdf(result) })
+        card.addView(resultRow)
+        val btnSave = MaterialButton(this).apply {
+            text = "Save"
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(56)
+            ).apply { topMargin = dp(16) }
+            setOnClickListener {
+                Thread {
+                    try {
+                        val savedUri = publishPdfUri(result)
+                        runOnUiThread {
+                            if (savedUri != null) {
+                                dismissLosslessOverlay()
+                                showSavedPdfDialog(result, savedUri)
+                            } else {
+                                toast("Save failed — try again")
+                            }
+                        }
+                    } catch (_: Throwable) {
+                        runOnUiThread { toast("Save failed — try again") }
+                    }
+                }.start()
+            }
+        }
+        styleFilledButton(btnSave)
+        card.addView(btnSave)
+        return card
     }
 
     private fun dismissLosslessOverlay() {
@@ -2232,13 +2659,20 @@ class PdfToolsActivity : AppCompatActivity() {
         smartRowFiles = mutableListOf()
         smartSelected = -1
         smartCustomFile = null
-        smartCustomRow = null
         smartPreviewBitmap = null
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(getColor(R.color.hakunaa_surface))
-            setPadding(dp(16), dp(16), dp(16), dp(16))
+            // v0.1.151, Fix #7: the overlay sits above the activity's
+            // insets, so it adds the status-bar height itself —
+            // otherwise the header overlaps the status bar.
+            // Fix #9: consume ALL touches — without this, taps on
+            // blank space fall through to the menu cards underneath
+            // and open other tools.
+            setPadding(dp(16), statusBarHeightPx() + dp(16), dp(16), dp(16))
+            isClickable = true
+            isFocusable = true
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
             )
@@ -2537,13 +2971,17 @@ class PdfToolsActivity : AppCompatActivity() {
     }
 
     /**
-     * Custom size POPUP (v0.1.150): the "Custom size" button opens
-     * this popup — type a target size (e.g. 100 KB) and Smart finds
-     * the best quality that fits. The result joins the results list
-     * as a row (with its own View button) and is selected.
+     * Custom size POPUP (v0.1.151): the "Custom size" button opens
+     * this popup — type a target size and Smart finds the best
+     * quality that fits. KB or MB (Fix #2). The result is shown
+     * IN THIS POPUP with View + Save (Fix #3) — it is NOT added
+     * to the 5 levels list below.
      */
     private fun showSmartCustomSizePopup() {
+        smartCustomDialog?.dismiss()
+        smartCustomDialog = null
         val dialog = Dialog(this)
+        smartCustomDialog = dialog
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
@@ -2552,6 +2990,10 @@ class PdfToolsActivity : AppCompatActivity() {
                 setColor(Color.WHITE)
             }
             setPadding(dp(20), dp(20), dp(20), dp(20))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
         }
         val title = TextView(this).apply {
             text = "Custom size"
@@ -2586,17 +3028,38 @@ class PdfToolsActivity : AppCompatActivity() {
             textSize = 14f
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
-        val kbLabel = TextView(this).apply {
-            text = "KB"
-            textSize = 14f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(getColor(R.color.hakunaa_text))
+        inputRow.addView(etSmartCustomKb)
+        // v0.1.151, Fix #2: KB / MB unit toggle.
+        val unitRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { marginStart = dp(8) }
         }
-        inputRow.addView(etSmartCustomKb)
-        inputRow.addView(kbLabel)
+        val unitPills = mutableListOf<TextView>()
+        for (label in listOf("KB", "MB")) {
+            val pill = TextView(this).apply {
+                text = label
+                textSize = 13f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                gravity = Gravity.CENTER
+                isClickable = true
+                isFocusable = true
+                setPadding(dp(12), dp(6), dp(12), dp(6))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, dp(32)
+                ).apply { marginEnd = dp(4) }
+                setOnClickListener {
+                    smartCustomUnitMb = (label == "MB")
+                    refreshUnitPills(unitPills)
+                }
+            }
+            unitPills.add(pill)
+            unitRow.addView(pill)
+        }
+        refreshUnitPills(unitPills)
+        inputRow.addView(unitRow)
         card.addView(inputRow)
         tvSmartCustomResult = TextView(this).apply {
             textSize = 13f
@@ -2606,6 +3069,51 @@ class PdfToolsActivity : AppCompatActivity() {
             ).apply { topMargin = dp(12) }
         }
         card.addView(tvSmartCustomResult)
+        // v0.1.151, Fix #3: the result lives IN THIS POPUP.
+        customResultBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) }
+        }
+        tvCustomResultSize = TextView(this).apply {
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        customResultBox?.addView(tvCustomResultSize)
+        val customBtnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) }
+        }
+        val btnView = popupPillButton("View", false) {
+            smartCustomFile?.let { viewPdf(it) }
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+                marginEnd = dp(8)
+            }
+        }
+        val btnSaveCustom = popupPillButton("Save", true) {
+            saveSmartCustomFile()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+                marginStart = dp(8)
+            }
+        }
+        customBtnRow.addView(btnView)
+        customBtnRow.addView(btnSaveCustom)
+        customResultBox?.addView(customBtnRow)
+        card.addView(customResultBox)
         val btnRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
@@ -2613,43 +3121,95 @@ class PdfToolsActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(16) }
         }
-        val btnClose = MaterialButton(this).apply {
-            text = "Close"
+        val btnClose = popupPillButton("Close", false) {
+            dialog.dismiss()
+        }.apply {
             layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
                 marginEnd = dp(8)
             }
-            setOnClickListener { dialog.dismiss() }
         }
-        styleOutlineButton(btnClose)
-        val btnCompute = MaterialButton(this).apply {
-            text = "Compress"
+        val btnCompute = popupPillButton("Compress", true) {
+            runSmartCustomSize()
+        }.apply {
             layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
                 marginStart = dp(8)
             }
-            setOnClickListener { runSmartCustomSize() }
         }
-        styleFilledButton(btnCompute)
         btnRow.addView(btnClose)
         btnRow.addView(btnCompute)
         card.addView(btnRow)
         dialog.setContentView(card)
         dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        dialog.window?.setLayout(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        dialog.setOnDismissListener {
+            smartCustomDialog = null
+            customResultBox = null
+            tvCustomResultSize = null
+        }
         dialog.show()
+    }
+
+    private fun refreshUnitPills(pills: List<TextView>) {
+        for ((i, pill) in pills.withIndex()) {
+            val selected = (i == 1) == smartCustomUnitMb
+            pill.background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(16).toFloat()
+                if (selected) {
+                    setColor(getColor(R.color.hakunaa_teal))
+                } else {
+                    setColor(Color.WHITE)
+                    setStroke(dp(1), getColor(R.color.hakunaa_teal))
+                }
+            }
+            pill.setTextColor(if (selected) Color.WHITE else getColor(R.color.hakunaa_teal))
+        }
+    }
+
+    private fun saveSmartCustomFile() {
+        val file = smartCustomFile ?: return
+        if (!file.exists()) {
+            toast("That result is gone — compute again")
+            return
+        }
+        smartCustomDialog?.dismiss()
+        Thread {
+            try {
+                val savedUri = publishPdfUri(file)
+                runOnUiThread {
+                    if (savedUri != null) {
+                        dismissSmartOverlay()
+                        showSavedPdfDialog(file, savedUri)
+                    } else {
+                        toast("Save failed — try again")
+                    }
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { toast("Save failed — try again") }
+            }
+        }.start()
     }
 
     private fun runSmartCustomSize() {
         val input = smartInput ?: return
-        val kb = etSmartCustomKb?.text?.toString()?.trim()?.toIntOrNull()
-        if (kb == null || kb <= 0) {
-            toast("Type a size in KB, e.g. 100")
+        val value = etSmartCustomKb?.text?.toString()?.trim()?.toIntOrNull()
+        if (value == null || value <= 0) {
+            toast("Type a size, e.g. 100")
             return
         }
-        val targetBytes = kb.toLong() * 1024L
+        // v0.1.151, Fix #2: KB or MB (1 MB = 1024 KB).
+        val unitLabel = if (smartCustomUnitMb) "MB" else "KB"
+        val mult = if (smartCustomUnitMb) 1024L * 1024L else 1024L
+        val targetBytes = value.toLong() * mult
         if (targetBytes >= smartOriginalSize) {
-            tvSmartCustomResult?.text = "Already smaller than $kb KB — no need to compress"
+            tvSmartCustomResult?.text = "Already smaller than $value $unitLabel — no need to compress"
             return
         }
         tvSmartCustomResult?.text = "Computing…"
+        customResultBox?.visibility = View.GONE
         Thread {
             try {
                 val result = PdfTools.compressSmartToTarget(input, hakunaaCacheDir(), targetBytes)
@@ -2664,40 +3224,21 @@ class PdfToolsActivity : AppCompatActivity() {
                     }
                     smartCustomFile = f
                     val sizeText = "${FileUtils.formatSize(result.size)} • saved ${FileUtils.savedPercent(smartOriginalSize, result.size)}"
-                    val label = "Custom • $kb KB"
                     if (result.reached) {
-                        tvSmartCustomResult?.text = "Done — $sizeText"
+                        tvSmartCustomResult?.text = "Done — fits in $value $unitLabel"
                     } else {
-                        tvSmartCustomResult?.text = "Could not reach $kb KB — smallest is ${FileUtils.formatSize(result.smallestSize)}"
+                        tvSmartCustomResult?.text = "Could not reach $value $unitLabel — smallest is ${FileUtils.formatSize(result.smallestSize)}"
                     }
-                    updateSmartCustomRow(label, sizeText, f)
+                    // v0.1.151, Fix #3: the result is shown IN THIS
+                    // POPUP (View + Save here). It is NOT added to
+                    // the 5 levels list below.
+                    tvCustomResultSize?.text = sizeText
+                    customResultBox?.visibility = View.VISIBLE
                 }
             } catch (_: Throwable) {
                 runOnUiThread { tvSmartCustomResult?.text = "Custom size failed — try again" }
             }
         }.start()
-    }
-
-    private fun updateSmartCustomRow(label: String, sizeText: String, file: File) {
-        val box = smartResultsBox ?: return
-        val row = smartCustomRow
-        if (row == null) {
-            val newRow = buildSmartResultRow(label, sizeText, file)
-            smartCustomRow = newRow
-            box.addView(newRow)
-            smartRows.add(newRow)
-            smartRowFiles.add(file)
-            selectSmartRow(smartRows.size - 1)
-        } else {
-            val left = row.getChildAt(0) as LinearLayout
-            (left.getChildAt(0) as TextView).text = label
-            (left.getChildAt(1) as TextView).text = sizeText
-            val idx = smartRows.indexOf(row)
-            if (idx >= 0) {
-                smartRowFiles[idx] = file
-                selectSmartRow(idx)
-            }
-        }
     }
 
     private fun dismissSmartOverlay() {
@@ -2714,7 +3255,9 @@ class PdfToolsActivity : AppCompatActivity() {
         smartRowFiles = mutableListOf()
         smartSelected = -1
         smartCustomFile = null
-        smartCustomRow = null
+        smartCustomDialog = null
+        customResultBox = null
+        tvCustomResultSize = null
         tvSmartComputing = null
         smartResultsBox = null
         tvSmartCustomResult = null
@@ -2739,7 +3282,15 @@ class PdfToolsActivity : AppCompatActivity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(getColor(R.color.hakunaa_surface))
-            setPadding(dp(16), dp(16), dp(16), dp(16))
+            // v0.1.151, Fix #7: the overlay sits above the activity's
+            // insets, so it adds the status-bar height itself —
+            // otherwise the header overlaps the status bar.
+            // Fix #9: consume ALL touches — without this, taps on
+            // blank space fall through to the menu cards underneath
+            // and open other tools.
+            setPadding(dp(16), statusBarHeightPx() + dp(16), dp(16), dp(16))
+            isClickable = true
+            isFocusable = true
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
             )
