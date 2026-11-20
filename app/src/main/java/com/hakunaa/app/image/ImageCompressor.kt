@@ -1033,7 +1033,7 @@ object ImageCompressor {
 
     /**
      * "Better Compress with WebP" results: WebP at SEVERAL quality
-     * levels (95 / 85 / 70 / 60), all smaller than the original,
+     * levels (95 / 85 / 75 / 70 / 60), all smaller than the original,
      * smallest first. The WebP window shows all of them so the user
      * picks the quality/size they want — not just one result.
      * Nothing bigger than the original is ever returned.
@@ -1041,7 +1041,11 @@ object ImageCompressor {
     fun compressWebpLevels(input: File, outputBase: File): List<LevelResult> {
         val inputSize = input.length()
         val results = mutableListOf<LevelResult>()
-        for (quality in listOf(95, 85, 70, 60)) {
+        // v0.1.141 (Batch 25): FIVE levels now — WebP 75% added
+        // (user-approved mockup: 5 boxes like Smart, WebP 60 /
+        // 70 / 75 / 85 / 95). Sizes are computed per image, never
+        // hardcoded.
+        for (quality in listOf(95, 85, 75, 70, 60)) {
             val candidate = File(
                 outputBase.parent,
                 "${outputBase.nameWithoutExtension}_webp_q$quality.webp"

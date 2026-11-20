@@ -2909,7 +2909,9 @@ class ImageToolActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
-            setPadding(0, (10 * density).toInt(), 0, 0)
+            // v0.1.141 (Batch 25): 14dp — a little extra space
+            // below the file info, like the approved mockup.
+            setPadding(0, (14 * density).toInt(), 0, 0)
             visibility = View.GONE
         }
         content.addView(webpSummary)
@@ -2967,7 +2969,9 @@ class ImageToolActivity : AppCompatActivity() {
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
         )
-        webpInfoParams.topMargin = (12 * density).toInt()
+        // v0.1.141 (Batch 25): 16dp — a little extra space below
+        // the summary, like the approved mockup.
+        webpInfoParams.topMargin = (16 * density).toInt()
         content.addView(webpInfoCard, webpInfoParams)
         // "Compressing WebP…" animation (v0.1.124) — never an empty
         // screen while WebP computes (it can take ~1 minute on a
@@ -3017,20 +3021,16 @@ class ImageToolActivity : AppCompatActivity() {
             textSize = 14f
             setTypeface(null, android.graphics.Typeface.BOLD)
             setTextColor(getColor(R.color.hakunaa_text))
-            setPadding(0, (2 * density).toInt(), 0, (2 * density).toInt())
+            // v0.1.141 (Batch 25): 10dp above — a little extra
+            // space below the explain box, like the mockup.
+            setPadding(0, (10 * density).toInt(), 0, (2 * density).toInt())
             visibility = View.GONE
         }
         content.addView(webpResultsLabel)
-        // Rows fill the rest of the content — the cards are
-        // FIXED Smart height now (v0.1.140, Batch 24), via
-        // measureSmartCardHeightPx(), exactly like Smart's
-        // compact cards. The v0.1.138 weight-shared cards are
-        // REVERTED — the user asked for Smart's exact layout
-        // ("Smart inu better a irku la..."). The rows container
-        // stays weight-filled (0, 1f) like Smart's, so with 4
-        // compact cards there may be space below the last card
-        // (the v0.1.136 arithmetic) — reported honestly, not
-        // "fixed" by stretching (the user rejected that).
+        // v0.1.141 (Batch 25): FIVE fixed compact cards now
+        // (WebP 75% added), so the gap below the last card is
+        // smaller than v0.1.140's 4-card gap — exactly the
+        // user-approved mockup layout. Still no stretching.
         val rowsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.TOP
@@ -3051,9 +3051,12 @@ class ImageToolActivity : AppCompatActivity() {
         // v0.1.137 fold-in: top padding 0 — the gap above Save is
         // already exactly Smart's 8dp (rows container bottom
         // padding); 8dp more here would loosen it.
+        // v0.1.141 (Batch 25): Save sits ~52dp above the bottom
+        // edge — near the bottom but a LITTLE UP, exactly like
+        // the user-approved mockup (NOT flush to the bottom).
         val bottomBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding((16 * density).toInt(), 0, (16 * density).toInt(), (16 * density).toInt())
+            setPadding((16 * density).toInt(), 0, (16 * density).toInt(), (52 * density).toInt())
         }
         val saveBtn = com.google.android.material.button.MaterialButton(this).apply {
             text = "Save selected"
@@ -3121,7 +3124,10 @@ class ImageToolActivity : AppCompatActivity() {
                     // v0.1.140 (Batch 24): compact like Smart —
                     // exactly Smart's on-screen card height.
                     fixedHeightPx = measureSmartCardHeightPx(),
-                    topMarginDp = 6,
+                    // v0.1.141 (Batch 25): 11dp gaps between the
+                    // cards (was 6dp) — a little extra space,
+                    // exactly like the approved mockup (~28px).
+                    topMarginDp = 11,
                     // Plain container (no MaterialCardView tint),
                     // so the WebP cards are Smart's exact light
                     // colour instead of the darker dialog tint.
