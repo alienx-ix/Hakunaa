@@ -20,8 +20,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import com.hakunaa.app.R
 import com.hakunaa.app.core.FileUtils
 import com.hakunaa.app.core.MediaStoreSaver
@@ -94,6 +92,20 @@ class ImageToolActivity : AppCompatActivity() {
     private var smartFixedCardHeightPx: Int? = null
     /** Lazily computed WebP results for the Better Compress window. */
     private var webpLazyResults: List<ImageCompressor.LevelResult>? = null
+    /** v0.1.146 (Batch 30): the WebP window's overlay root
+     *  while it is open (null otherwise). The window is NO
+     *  LONGER a Dialog — see showWebpWindow(). */
+    private var webpOverlayRoot: View? = null
+
+    /** v0.1.146 (Batch 30): remove the WebP overlay (if open).
+     *  A Dialog used to swallow Back itself; the overlay is a
+     *  plain View, so backStep() calls this first. */
+    private fun dismissWebpWindow() {
+        webpOverlayRoot?.let { root ->
+            (root.parent as? ViewGroup)?.removeView(root)
+            webpOverlayRoot = null
+        }
+    }
     /** Metadata before removal (for the Before/After view). */
     private var metadataBefore: List<Pair<String, String>> = emptyList()
     private var metadataRemovedList: List<String> = emptyList()
@@ -176,6 +188,13 @@ class ImageToolActivity : AppCompatActivity() {
      *  HD Compress never lands on the (removed) size step either —
      *  back from the HD result (step 2) returns to the mode cards (0). */
     private fun backStep() {
+        // v0.1.146 (Batch 30): Back closes the WebP overlay
+        // first — exactly like the old Dialog's Back. Nothing
+        // else in the tool steps back while it is open.
+        if (webpOverlayRoot != null) {
+            dismissWebpWindow()
+            return
+        }
         if (mode == MODE_COMPRESS && step > 0) {
             step = if (compressMode == 1 && step == 3) 1
                 else if (compressMode == 3) 0
@@ -2620,26 +2639,32 @@ class ImageToolActivity : AppCompatActivity() {
                 text = "View"
                 textSize = 13f
                 setTextColor(getColor(R.color.hakunaa_teal))
-                backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_surface))
-                // v0.1.144 (Batch 28): WHITE fill, like the WebP
-                // View pill — JUST a colour fix, nothing else
-                // changes (same size, outline, text, position).
-                // The backgroundTintList was ALREADY white, but
-                // the button rendered light BLUE-GREY on the
-                // phone (user, 2026-11-20): Material3 composites
-                // an elevation overlay — the PRIMARY colour
-                // (#0B57D0 blue) at an alpha set by elevation —
-                // over the fill, and the default 2dp elevation
-                // tinted the white blue. Elevation 0 (and no
-                // press-lift animator, so it never re-tints on
-                // press) removes the overlay, so the white tint
-                // renders as pure white. The ripple press
-                // feedback is untouched.
+                // v0.1.146 (Batch 30): WHITE fill, like the WebP
+                // View pill — SAME button, colour only (user,
+                // 2026-11-20: "same button la white color venum
+                // same as better la irkua mari (Note onnly
+                // color)"). The backgroundTintList-white +
+                // elevation-0 approach FAILED twice on the phone
+                // (v0.1.144, v0.1.145 — v0.1.145 IS installed
+                // and the buttons are STILL card-colour): the
+                // tint never renders white. So the button now
+                // draws its background EXACTLY like the WebP
+                // pill (plain white fill, teal stroke, 10dp
+                // corners) — the button REMAINS a
+                // MaterialButton, same size, text, position;
+                // only the fill renders white. Set LAST, and
+                // the tint/stroke/corner helper calls are gone
+                // (the drawable carries them), so no helper
+                // call can replace it. No ripple, like the
+                // WebP pill — the button still taps the same.
                 elevation = 0f
                 stateListAnimator = null
-                strokeColor = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
-                strokeWidth = (1 * density).toInt()
-                cornerRadius = (10 * density).toInt()
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 10f * density
+                    setColor(getColor(R.color.hakunaa_surface))
+                    setStroke((1 * density).toInt(), getColor(R.color.hakunaa_teal))
+                }
                 setPadding((12 * density).toInt(), 0, (12 * density).toInt(), 0)
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -2790,9 +2815,19 @@ class ImageToolActivity : AppCompatActivity() {
     private fun showWebpWindow() {
         val input = inputFile ?: return
         val density = resources.displayMetrics.density
-        val dialog = Dialog(this)
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
-        dialog.setCancelable(true)
+        // v0.1.146 (Batch 30): NO Dialog any more — a Dialog
+        // window NEVER painted the status bar white on the
+        // phone (v0.1.143 transparent, v0.1.144 flag +
+        // transparent + activity white, v0.1.145 opaque white
+        // ALL failed; the bar stayed theme grey #F6F7F9).
+        // The window is now a full-screen overlay View inside
+        // THIS activity's content, so the activity's own
+        // StatusBar.setup (proven white on Smart) controls
+        // the bar and the top is full white, exactly like
+        // Smart. Same layout, same content, same behaviour —
+        // only the container changed. If a stale overlay is
+        // somehow still up, drop it first.
+        dismissWebpWindow()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             // v0.1.143 (Batch 27): UNIFORM WHITE like Smart —
@@ -2808,6 +2843,10 @@ class ImageToolActivity : AppCompatActivity() {
             // Results-header white fill is now the same white,
             // so it blends in — no boundary at the top.
             setBackgroundColor(getColor(R.color.hakunaa_surface))
+            // v0.1.146 (Batch 30): the overlay is modal like
+            // the old Dialog was — touches on it must NOT leak
+            // through to the Smart screen underneath.
+            isClickable = true
             // v0.1.138 (Batch 22): FULL-SCREEN like Smart — the
             // floating dialog (WRAP_CONTENT, v0.1.137) was the
             // visible difference the user kept seeing (user:
@@ -2818,7 +2857,10 @@ class ImageToolActivity : AppCompatActivity() {
             // the system insets, so the content sits below the
             // status bar and above the nav bar, like the
             // preview dialog.
-            layoutParams = ViewGroup.LayoutParams(
+            // v0.1.146 (Batch 30): FrameLayout params — the
+            // parent is now android.R.id.content (a
+            // FrameLayout), not a dialog window.
+            layoutParams = android.widget.FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
@@ -2843,7 +2885,7 @@ class ImageToolActivity : AppCompatActivity() {
                 (40 * density).toInt(), (40 * density).toInt()
             )
         }
-        close.setOnClickListener { dialog.dismiss() }
+        close.setOnClickListener { dismissWebpWindow() }
         val title = TextView(this).apply {
             text = "Better Compress with WebP"
             textSize = 20f
@@ -3136,69 +3178,26 @@ class ImageToolActivity : AppCompatActivity() {
         }
         bottomBar.addView(saveBtn)
         root.addView(bottomBar)
-        dialog.setContentView(root)
-        // v0.1.138 (Batch 22): FULL-SCREEN like Smart — the
-        // floating dialog is gone. Same pattern as
-        // FullPreviewDialog: the window background is the
-        // screen colour (kills the floating dialog frame),
-        // MATCH_PARENT x MATCH_PARENT, no dim behind it
-        // (nothing is visible behind a full-screen window).
-        // The dialog's decor applies the system insets, so
-        // the top bar sits below the status bar and Save
-        // above the nav bar.
-        // v0.1.143 (Batch 27): EDGE-TO-EDGE + transparent
-        // status bar — a Dialog window does NOT draw behind
-        // the status bar by default, so the system painted
-        // the bar dark ("blackish") while Smart's (an
-        // Activity with StatusBar.setup) is clean white.
-        // The window now draws behind a TRANSPARENT status
-        // bar with DARK icons (light status bar), and the
-        // root takes the status bar inset as padding (same
-        // pattern as StatusBar.setup for activities) — so
-        // the content still sits below the bar and Save
-        // above the nav bar, while the white background
-        // runs seamlessly behind the bar: one uniform white
-        // from the very top, exactly like Smart. WebP window
-        // only — no other screen's status bar is touched.
-        dialog.window?.setBackgroundDrawableResource(R.color.hakunaa_surface)
-        dialog.window?.setDimAmount(0f)
-        dialog.window?.setLayout(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT
-        )
-        dialog.window?.let { w ->
-            // v0.1.145 (Batch 29): OPAQUE WHITE — the transparent
-            // approach failed TWICE on the phone (v0.1.143:
-            // transparent alone; v0.1.144: flag + transparent +
-            // activity white) — the bar still showed the theme
-            // grey #F6F7F9. The dialog window does NOT draw
-            // content behind the bar like an activity does, so a
-            // transparent colour has nothing white to reveal.
-            // Opaque white paints the bar solid white directly
-            // and does NOT depend on content drawing behind it.
-            // The flag is still needed so the colour takes
-            // effect at all.
-            w.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
-            WindowCompat.setDecorFitsSystemWindows(w, false)
-            w.statusBarColor = getColor(R.color.hakunaa_surface)
-            WindowInsetsControllerCompat(w, w.decorView)
-                .isAppearanceLightStatusBars = true
-        }
-        // v0.1.144 (Batch 28): belt-and-braces — the ACTIVITY
-        // window is the one PROVEN to paint the bar (Smart is
-        // white via StatusBar.setup on this same window). While
-        // the WebP window is up, paint the activity's bar solid
-        // white too, so the bar is white even if the dialog
-        // window's flag path fails on some device. Restored on
-        // dismiss — every dismiss path (X, back, programmatic)
-        // fires OnDismissListener, so Smart's bar is untouched
-        // after the window closes.
-        val activityStatusBarColor = window.statusBarColor
-        window.statusBarColor = getColor(R.color.hakunaa_surface)
-        dialog.setOnDismissListener { window.statusBarColor = activityStatusBarColor }
+        // v0.1.146 (Batch 30): attach the overlay to the
+        // activity's own content — full-screen, on top of the
+        // Smart screen. The activity window (StatusBar.setup:
+        // transparent bar + white content behind it, proven
+        // white on Smart) paints the status bar, so the top
+        // is full white like Smart. NO dialog window, NO
+        // flags, NO statusBarColor here at all — the three
+        // failed dialog approaches are gone for good.
+        // The root takes the status bar inset as padding
+        // (same pattern as StatusBar.setup), so the top bar
+        // sits below the status bar and Save above the nav
+        // bar, while the white background runs seamlessly
+        // behind the bar: one uniform white from the very
+        // top. WebP window only — no other screen's status
+        // bar is touched.
         root.fitsSystemWindows = true
+        val contentParent = findViewById<ViewGroup>(android.R.id.content)
+        contentParent.addView(root)
+        webpOverlayRoot = root
         ViewCompat.requestApplyInsets(root)
-        dialog.show()
         // This window's own selection (independent of the main list).
         var selectedWebp: ImageCompressor.LevelResult? = null
         var webpRows: List<ImageCompressor.LevelResult> = emptyList()
@@ -3251,7 +3250,7 @@ class ImageToolActivity : AppCompatActivity() {
         }
         saveBtn.setOnClickListener {
             selectedWebp?.let {
-                dialog.dismiss()
+                dismissWebpWindow()
                 saveSmartResult(it)
             }
         }

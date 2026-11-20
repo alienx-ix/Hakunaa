@@ -281,6 +281,21 @@ class EnhanceActivity : AppCompatActivity() {
             }
             updatePageIndicator()
         }
+        // v0.1.146 (Batch 30): the tick MUST show — v0.1.145's
+        // android:buttonTint="@null" did NOT clear the
+        // Material3 theme's primary-blue tint on the phone
+        // (the box stayed solid blue, tick invisible), because
+        // AppCompat reads the tint from its own app:buttonTint
+        // / theme default, not android:buttonTint. Clearing
+        // the tint list in code (and re-setting the drawable
+        // fresh) is the framework API and is final — no theme
+        // default can re-apply after inflation. Tick rendering
+        // only; size, position, label and the 1/2 bottom
+        // position are untouched.
+        findViewById<CheckBox>(R.id.cbApplyAll).apply {
+            buttonTintList = null
+            buttonDrawable = getDrawable(R.drawable.checkbox_apply_all)
+        }
         // Ticking "Apply to all pages" applies the current
         // filter to every page right away (v0.1.70), so the
         // preview shows it on every page — swiping to any page
