@@ -4,7 +4,9 @@ import android.app.Dialog
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
@@ -17,6 +19,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.exifinterface.media.ExifInterface
@@ -117,7 +120,7 @@ class ImageToPdfActivity : AppCompatActivity() {
                 (40 * density).toInt(), (40 * density).toInt()
             )
         }
-        close.setOnClickListener { finish() }
+        close.setOnClickListener { attemptLeave { finish() } }
         val title = TextView(this).apply {
             text = "Image to PDF"
             textSize = 20f
@@ -303,6 +306,13 @@ class ImageToPdfActivity : AppCompatActivity() {
         // view did not exist yet, so the inset padding was never
         // applied and the header overlapped the status bar.
         StatusBar.setup(this, true)
+        // v0.1.155, Fix #41: Back inside this tool asks "Leave?"
+        // first (Image Tools style), like every other PDF tool.
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                attemptLeave { finish() }
+            }
+        })
         paintChips()
 
         // Restore pages after rotation, else open the picker
@@ -651,6 +661,131 @@ class ImageToPdfActivity : AppCompatActivity() {
     /** Professional Saved dialog (v0.1.153, Fix #20): green check
      *  + file name + location/size + Open / Share / Done. The old
      *  flow just toasted and closed the screen. */
+    /** Leave confirmation (v0.1.155, Fix #41): the SAME
+     * "Leave this tool?" dialog Image Tools shows — "!" in a teal
+     * circle, "Your work will be discarded.", Cancel (outline) /
+     * Leave (filled teal). Cancel stays; Leave runs [onLeave]. */
+    private fun attemptLeave(onLeave: () -> Unit) {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val outer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((20 * density).toInt(), 0, (20 * density).toInt(), 0)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 20f * density
+                setColor(Color.WHITE)
+            }
+            setPadding(
+                (20 * density).toInt(), (20 * density).toInt(),
+                (20 * density).toInt(), (20 * density).toInt()
+            )
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        val headerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val icon = TextView(this).apply {
+            text = "!"
+            textSize = 20f
+            setTypeface(null, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setTextColor(getColor(R.color.hakunaa_teal))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(0xFFE0F2F1.toInt())
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                (40 * density).toInt(), (40 * density).toInt()
+            )
+        }
+        val title = TextView(this).apply {
+            text = "Leave this tool?"
+            textSize = 18f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = (12 * density).toInt() }
+        }
+        headerRow.addView(icon)
+        headerRow.addView(title)
+        val message = TextView(this).apply {
+            text = "Your work will be discarded."
+            textSize = 14f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            setPadding(0, (12 * density).toInt(), 0, 0)
+        }
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (20 * density).toInt() }
+        }
+        fun leavePill(text: String, filled: Boolean, onClick: () -> Unit): TextView {
+            return TextView(this).apply {
+                this.text = text
+                textSize = 15f
+                setTypeface(null, Typeface.BOLD)
+                gravity = Gravity.CENTER
+                isClickable = true
+                isFocusable = true
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = (12 * density).toInt().toFloat()
+                    if (filled) {
+                        setColor(getColor(R.color.hakunaa_teal))
+                    } else {
+                        setColor(Color.WHITE)
+                        setStroke((1 * density).toInt(), getColor(R.color.hakunaa_teal))
+                    }
+                }
+                setTextColor(if (filled) Color.WHITE else getColor(R.color.hakunaa_teal))
+                setOnClickListener { onClick() }
+            }
+        }
+        val btnCancel = leavePill("Cancel", false) { dialog.dismiss() }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                0, (52 * density).toInt(), 1f
+            ).apply { marginEnd = (8 * density).toInt() }
+        }
+        val btnLeave = leavePill("Leave", true) {
+            dialog.dismiss()
+            onLeave()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                0, (52 * density).toInt(), 1f
+            ).apply { marginStart = (8 * density).toInt() }
+        }
+        btnRow.addView(btnCancel)
+        btnRow.addView(btnLeave)
+        card.addView(headerRow)
+        card.addView(message)
+        card.addView(btnRow)
+        outer.addView(card)
+        dialog.setContentView(outer)
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        dialog.window?.setLayout(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        dialog.setCancelable(true)
+        dialog.show()
+    }
+
     private fun showSavedDialog(file: File, uri: Uri) {
         val density = resources.displayMetrics.density
         val dialog = Dialog(this)

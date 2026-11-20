@@ -219,23 +219,29 @@ class PdfIconView @JvmOverloads constructor(
         drawRoundRect(RectF(46f, 64f, 54f, 76f), 3f, 3f, fill)
     }
 
-    /** Real open-jaw wrench (v0.1.154, Fix #32 — the v0.1.153
-     * arc still read as a magnifier / G-shape): a THICK C-head
-     * with a WIDE open mouth (130° gap at the top-right) and two
-     * flat jaw faces, plus a thick handle. The wide mouth is what
-     * makes it read as a wrench at a glance. */
+    /** Claw hammer (v0.1.155, Fix #35 — the wrench was rejected
+     * twice: it kept reading as a magnifier / G-shape. The user
+     * asked for a hammer instead. A claw hammer is unmistakable:
+     * a horizontal head with a V-split claw at the left end and
+     * a thick handle dropping diagonally from the head.) */
     private fun Canvas.repair() {
+        // Handle: thick diagonal drop from under the head.
         stroke.color = tealDk
-        stroke.strokeWidth = 13f
-        // Jaw ring: 230° arc, 130° mouth open at the top-right.
-        drawArc(RectF(42f, 8f, 90f, 56f), 25f, 230f, false, stroke)
-        // Jaw flats: from each arc end toward the centre.
-        stroke.strokeWidth = 11f
-        drawLine(88f, 42f, 77f, 37f, stroke)
-        drawLine(60f, 9f, 63f, 20f, stroke)
-        // Handle.
-        stroke.strokeWidth = 13f
-        drawLine(52f, 48f, 16f, 84f, stroke)
+        stroke.strokeWidth = 12f
+        drawLine(60f, 34f, 84f, 88f, stroke)
+        // Head: horizontal rounded bar.
+        fill.color = tealDk
+        drawRoundRect(RectF(18f, 12f, 78f, 34f), 8f, 8f, fill)
+        // Claw: a white V-split cut into the left end of the head
+        // (the card behind is white, so the cut reads as the claw).
+        fill.color = Color.WHITE
+        val claw = android.graphics.Path().apply {
+            moveTo(18f, 15f)
+            lineTo(36f, 23f)
+            lineTo(18f, 31f)
+            close()
+        }
+        drawPath(claw, fill)
     }
 
 
@@ -251,11 +257,32 @@ class PdfIconView @JvmOverloads constructor(
         }
     }
 
-    /** Circular arrow (rotate). */
+    /** Rotate a page (v0.1.155, Fix #38 — the bare circular arrow
+     * read as "refresh", not "rotate a PDF"): a document page in
+     * the centre with a BOLD circular arrow sweeping around it,
+     * so the action is unmistakably "rotate this page". */
     private fun Canvas.rotate() {
+        // Page in the middle.
         stroke.color = purple
-        stroke.strokeWidth = 8f
-        drawArc(RectF(16f, 16f, 84f, 84f), 40f, 280f, false, stroke)
+        stroke.strokeWidth = 5f
+        val doc = android.graphics.Path().apply {
+            moveTo(34f, 30f)
+            lineTo(58f, 30f)
+            lineTo(66f, 38f)
+            lineTo(66f, 70f)
+            lineTo(34f, 70f)
+            close()
+        }
+        drawPath(doc, stroke)
+        drawLine(58f, 30f, 58f, 38f, stroke)
+        drawLine(58f, 38f, 66f, 38f, stroke)
+        stroke.strokeWidth = 4f
+        drawLine(40f, 48f, 60f, 48f, stroke)
+        drawLine(40f, 57f, 60f, 57f, stroke)
+        // Bold circular arrow around the page.
+        stroke.color = purple
+        stroke.strokeWidth = 9f
+        drawArc(RectF(14f, 14f, 86f, 86f), 40f, 280f, false, stroke)
         fill.color = purple
         val head = android.graphics.Path().apply {
             moveTo(78f, 18f)
@@ -266,7 +293,10 @@ class PdfIconView @JvmOverloads constructor(
         drawPath(head, fill)
     }
 
-    /** Rounded square + mountain + sun (image). */
+    /** Rounded square + mountain + sun (image) with a small white
+     * "PDF" page badge at the bottom-right (v0.1.155, Fix #37 —
+     * the plain image read as just a photo, the same as Extract
+     * Images. The PDF badge makes it read as "image → PDF"). */
     private fun Canvas.image(color: Int) {
         rr(14f, 14f, 72f, color, 10f)
         fill.color = Color.WHITE
@@ -280,12 +310,58 @@ class PdfIconView @JvmOverloads constructor(
         }
         drawPath(mountain, fill)
         drawCircle(32f, 30f, 6f, fill)
+        // PDF page badge, bottom-right.
+        fill.color = Color.WHITE
+        drawRoundRect(RectF(48f, 58f, 90f, 90f), 8f, 8f, fill)
+        stroke.color = tealDk
+        stroke.strokeWidth = 3f
+        drawRoundRect(RectF(48f, 58f, 90f, 90f), 8f, 8f, stroke)
+        textPaint.color = tealDk
+        textPaint.textSize = 15f
+        drawText("PDF", 69f, 80f, textPaint)
+        textPaint.color = Color.WHITE
     }
 
-    /** Image with an outward arrow — pulling images OUT of a PDF. */
+    /** An image pulled OUT of a PDF page (v0.1.155, Fix #36 —
+     * the old green image + arrow looked identical to Image to
+     * PDF. Now the page itself is drawn, with the green image
+     * sliding out of it and an outward arrow — the "extract"
+     * action is visible at a glance.) */
     private fun Canvas.imageExtract() {
-        image(green)
-        arrow(60f, 34f, 20f, -20f, Color.WHITE, 6f)
+        // The PDF page behind, left side.
+        stroke.color = tealDk
+        stroke.strokeWidth = 6f
+        val doc = android.graphics.Path().apply {
+            moveTo(14f, 10f)
+            lineTo(44f, 10f)
+            lineTo(58f, 24f)
+            lineTo(58f, 86f)
+            lineTo(14f, 86f)
+            close()
+        }
+        drawPath(doc, stroke)
+        stroke.strokeWidth = 5f
+        drawLine(44f, 10f, 44f, 24f, stroke)
+        drawLine(44f, 24f, 58f, 24f, stroke)
+        stroke.color = tealDk
+        stroke.strokeWidth = 4f
+        drawLine(22f, 44f, 50f, 44f, stroke)
+        drawLine(22f, 56f, 50f, 56f, stroke)
+        // The image sliding out to the right.
+        rr(44f, 42f, 42f, green, 8f)
+        fill.color = Color.WHITE
+        val mountain = android.graphics.Path().apply {
+            moveTo(48f, 78f)
+            lineTo(60f, 58f)
+            lineTo(68f, 68f)
+            lineTo(74f, 60f)
+            lineTo(82f, 78f)
+            close()
+        }
+        drawPath(mountain, fill)
+        drawCircle(57f, 53f, 5f, fill)
+        // Outward arrow: the image is coming OUT.
+        arrow(70f, 40f, 18f, -18f, green, 7f)
     }
 
     /** Big teal "T" + text lines (extract text). */
@@ -322,14 +398,34 @@ class PdfIconView @JvmOverloads constructor(
         drawLine(83f, 69f, 69f, 83f, stroke)
     }
 
+    /** Watermark (v0.1.155, Fix #39 — the old stamp did not read
+     * as watermarking): a document page with a diagonal
+     * translucent watermark band across it, marked "W". The
+     * diagonal mark on the page is the watermark itself. */
     private fun Canvas.watermark() {
-        rr(14f, 14f, 72f, purple, 10f)
-        fill.color = Color.WHITE
-        drawRoundRect(RectF(26f, 62f, 74f, 78f), 5f, 5f, fill)
-        stroke.color = Color.WHITE
-        stroke.strokeWidth = 7f
-        drawLine(50f, 32f, 50f, 62f, stroke)
-        drawCircle(50f, 28f, 10f, fill)
+        // Page outline.
+        stroke.color = purple
+        stroke.strokeWidth = 6f
+        val doc = android.graphics.Path().apply {
+            moveTo(26f, 12f)
+            lineTo(58f, 12f)
+            lineTo(74f, 28f)
+            lineTo(74f, 84f)
+            lineTo(26f, 84f)
+            close()
+        }
+        drawPath(doc, stroke)
+        stroke.strokeWidth = 5f
+        drawLine(58f, 12f, 58f, 28f, stroke)
+        drawLine(58f, 28f, 74f, 28f, stroke)
+        // Diagonal translucent watermark band + "W".
+        save()
+        rotate(-30f, 50f, 50f)
+        fill.color = Color.argb(110, 170, 90, 160)
+        drawRoundRect(RectF(6f, 41f, 94f, 59f), 9f, 9f, fill)
+        textPaint.textSize = 16f
+        drawText("W", 50f, 56f, textPaint)
+        restore()
     }
 
     /** Four bold arrows pointing outwards (resize / expand). */

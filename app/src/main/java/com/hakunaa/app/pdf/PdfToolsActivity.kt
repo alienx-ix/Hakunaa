@@ -29,6 +29,8 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.AppCompatTextView
+import androidx.core.widget.TextViewCompat
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -166,20 +168,19 @@ class PdfToolsActivity : AppCompatActivity() {
 
         buildMenu()
 
-        // System Back closes the Sign / Smart overlay first (same
-        // pattern as the WebP overlay in ImageToolActivity).
+        // System Back inside a PDF tool asks "Leave?" first
+        // (v0.1.155, Fix #41 — Image Tools style), instead of
+        // dropping straight back to the menu.
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                when {
-                    genericOverlay != null -> dismissGenericOverlay()
-                    smartOverlay != null -> dismissSmartOverlay()
-                    losslessOverlay != null -> dismissLosslessOverlay()
-                    mergeOverlay != null -> dismissMergeOverlay()
-                    splitOverlay != null -> dismissSplitOverlay()
-                    else -> {
-                        isEnabled = false
-                        onBackPressedDispatcher.onBackPressed()
-                    }
+                if (genericOverlay != null || smartOverlay != null ||
+                    losslessOverlay != null || mergeOverlay != null ||
+                    splitOverlay != null
+                ) {
+                    attemptLeavePdf { dismissTopPdfOverlay() }
+                } else {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
                 }
             }
         })
@@ -264,7 +265,7 @@ class PdfToolsActivity : AppCompatActivity() {
             setTypeface(null, android.graphics.Typeface.BOLD)
             setTextColor(getColor(R.color.hakunaa_text))
             setPadding(dp(4), dp(4), dp(16), dp(4))
-            setOnClickListener { dismissGenericOverlay() }
+            setOnClickListener { attemptLeavePdf { dismissGenericOverlay() } }
         }
         val titleView = TextView(this).apply {
             text = title
@@ -294,6 +295,121 @@ class PdfToolsActivity : AppCompatActivity() {
         signInput = null
         signPageBitmap = null
         signSigBitmap = null
+    }
+
+    /** Dismiss whichever PDF tool overlay is open (same priority
+     * as the old Back handler). Used by the leave dialog. */
+    private fun dismissTopPdfOverlay() {
+        when {
+            genericOverlay != null -> dismissGenericOverlay()
+            smartOverlay != null -> dismissSmartOverlay()
+            losslessOverlay != null -> dismissLosslessOverlay()
+            mergeOverlay != null -> dismissMergeOverlay()
+            splitOverlay != null -> dismissSplitOverlay()
+        }
+    }
+
+    /** Leave confirmation (v0.1.155, Fix #41): the SAME
+     * "Leave this tool?" dialog Image Tools shows (attemptLeave)
+     * — "!" in a teal circle, "Your work will be discarded.",
+     * Cancel (outline) / Leave (filled teal). Shown when system
+     * Back OR a tool screen's X / Back / Close is pressed inside
+     * ANY PDF tool screen. Cancel stays in the tool; Leave runs
+     * [onLeave] (dismisses the tool back to the menu). Done
+     * buttons and save-success paths do NOT ask — that work is
+     * finished. Buttons are the PDF-proven plain TextView pills
+     * (v0.1.151), never MaterialButtons. */
+    private fun attemptLeavePdf(onLeave: () -> Unit) {
+        val dialog = Dialog(this)
+        val outer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), 0, dp(20), 0)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 20f * resources.displayMetrics.density
+                setColor(Color.WHITE)
+            }
+            setPadding(dp(20), dp(20), dp(20), dp(20))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        val headerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val icon = TextView(this).apply {
+            text = "!"
+            textSize = 20f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setTextColor(getColor(R.color.hakunaa_teal))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(0xFFE0F2F1.toInt())
+            }
+            layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
+        }
+        val title = TextView(this).apply {
+            text = "Leave this tool?"
+            textSize = 18f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = dp(12) }
+        }
+        headerRow.addView(icon)
+        headerRow.addView(title)
+        val message = TextView(this).apply {
+            text = "Your work will be discarded."
+            textSize = 14f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            setPadding(0, dp(12), 0, 0)
+        }
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(20) }
+        }
+        val btnCancel = popupPillButton("Cancel", false) { dialog.dismiss() }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f).apply {
+                marginEnd = dp(8)
+            }
+        }
+        val btnLeave = popupPillButton("Leave", true) {
+            dialog.dismiss()
+            onLeave()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f).apply {
+                marginStart = dp(8)
+            }
+        }
+        btnRow.addView(btnCancel)
+        btnRow.addView(btnLeave)
+        card.addView(headerRow)
+        card.addView(message)
+        card.addView(btnRow)
+        outer.addView(card)
+        dialog.setContentView(outer)
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        dialog.window?.setLayout(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        dialog.setCancelable(true)
+        dialog.show()
     }
 
     /** File info line under the header ("name • 12 pages • 2.3 MB"). */
@@ -382,7 +498,7 @@ class PdfToolsActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(16) }
         }
-        val btnBack = popupPillButton("Back", false) { dismissGenericOverlay() }.apply {
+        val btnBack = popupPillButton("Back", false) { attemptLeavePdf { dismissGenericOverlay() } }.apply {
             layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f).apply {
                 marginEnd = dp(8)
             }
@@ -465,6 +581,11 @@ class PdfToolsActivity : AppCompatActivity() {
         val featured: Boolean,
         val explain: String,
         val pickLabel: String = "Pick PDF",
+        // v0.1.155, Fix #40: a shorter label for the grid card only
+        // (the popup title and screen title keep [name]). It must
+        // sit BEFORE [action]: the trailing lambda binds to the
+        // last parameter, so a field after [action] would swallow it.
+        val gridName: String? = null,
         val action: () -> Unit
     )
 
@@ -499,7 +620,8 @@ class PdfToolsActivity : AppCompatActivity() {
             ),
             listOf(
                 Tool("Protect / Unlock", null, PdfIconView.Kind.LOCK, false,
-                    "• Lock your PDF with a password\n• Unlock one when you know the password") { protectUnlockPdf() },
+                    "• Lock your PDF with a password\n• Unlock one when you know the password",
+                    gridName = "Lock / Unlock") { protectUnlockPdf() },
                 Tool("Repair PDF", null, PdfIconView.Kind.REPAIR, false,
                     "• Fix a PDF that won't open\n• Rebuilds the broken file structure") { repairPdf() },
                 Tool("PDF to JPG", null, PdfIconView.Kind.JPG, false,
@@ -587,13 +709,20 @@ class PdfToolsActivity : AppCompatActivity() {
             }
         }
         card.addView(icon)
-        val name = TextView(this).apply {
-            text = tool.name
+        val name = AppCompatTextView(this).apply {
+            text = tool.gridName ?: tool.name
             textSize = 14f
             setTypeface(null, android.graphics.Typeface.BOLD)
             setTextColor(getColor(R.color.hakunaa_text))
             gravity = Gravity.CENTER
-            maxLines = 2
+            // v0.1.155, Fix #40: the label must fit on ONE single
+            // line, never clipped — auto-size shrinks it (14sp down
+            // to 11sp) only when the card is too narrow, so it
+            // stays 14sp on normal phones and never wraps or cuts.
+            maxLines = 1
+            TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
+                this, 11, 14, 1, TypedValue.COMPLEX_UNIT_SP
+            )
             includeFontPadding = false
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -657,21 +786,17 @@ class PdfToolsActivity : AppCompatActivity() {
         // v0.1.152, Fix #12: icon sits in a tinted circle — the
         // plain icon on white looked bare; the circle makes the
         // popup feel finished and professional.
-        // v0.1.154, Fix #33: Smart is the flagship — its popup gets
-        // a premium gold treatment (gold-tinted circle + gold
-        // "★ PREMIUM" badge below). Other tools keep teal.
-        val isPremiumSmart = tool.kind == PdfIconView.Kind.SMART
+        // v0.1.155, Fix #34: the v0.1.154 gold circle + "★ PREMIUM"
+        // badge are REVERTED — the user never asked for them
+        // ("Ipdi kekala, previous yae revert panitu"). Every tool
+        // keeps the plain teal-tinted circle, exactly as v0.1.153.
+        // Do NOT re-add any premium/gold element here.
         val iconWrap = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                if (isPremiumSmart) {
-                    setColor(0xFFFFF3D6.toInt())
-                    setStroke((2 * resources.displayMetrics.density).toInt(), Color.parseColor("#E8C15A"))
-                } else {
-                    setColor(0xFFE0F2F1.toInt())
-                }
+                setColor(0xFFE0F2F1.toInt())
             }
             layoutParams = LinearLayout.LayoutParams(dp(76), dp(76)).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
@@ -683,30 +808,6 @@ class PdfToolsActivity : AppCompatActivity() {
         }
         iconWrap.addView(icon)
         card.addView(iconWrap)
-        if (isPremiumSmart) {
-            val badge = TextView(this).apply {
-                text = "★ PREMIUM"
-                textSize = 11f
-                setTypeface(null, android.graphics.Typeface.BOLD)
-                setTextColor(Color.parseColor("#8A6D1B"))
-                gravity = Gravity.CENTER
-                background = GradientDrawable().apply {
-                    shape = GradientDrawable.RECTANGLE
-                    cornerRadius = 10f * resources.displayMetrics.density
-                    setColor(0xFFFFF3D6.toInt())
-                    setStroke((1 * resources.displayMetrics.density).toInt(), Color.parseColor("#E8C15A"))
-                }
-                setPadding(dp(10), dp(4), dp(10), dp(4))
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    gravity = Gravity.CENTER_HORIZONTAL
-                    topMargin = dp(12)
-                }
-            }
-            card.addView(badge)
-        }
         val title = TextView(this).apply {
             text = tool.name
             textSize = 18f
@@ -1151,7 +1252,7 @@ class PdfToolsActivity : AppCompatActivity() {
             setTypeface(null, android.graphics.Typeface.BOLD)
             setTextColor(getColor(R.color.hakunaa_text))
             setPadding(dp(4), dp(4), dp(16), dp(4))
-            setOnClickListener { dismissMergeOverlay() }
+            setOnClickListener { attemptLeavePdf { dismissMergeOverlay() } }
         }
         val title = TextView(this).apply {
             text = "Merge PDF"
@@ -1226,7 +1327,7 @@ class PdfToolsActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(0, dp(56), 1f).apply {
                 marginEnd = dp(8)
             }
-            setOnClickListener { dismissMergeOverlay() }
+            setOnClickListener { attemptLeavePdf { dismissMergeOverlay() } }
         }
         styleOutlineButton(btnBack)
         val btnMerge = MaterialButton(this).apply {
@@ -1621,7 +1722,7 @@ class PdfToolsActivity : AppCompatActivity() {
             setTypeface(null, android.graphics.Typeface.BOLD)
             setTextColor(getColor(R.color.hakunaa_text))
             setPadding(dp(4), dp(4), dp(16), dp(4))
-            setOnClickListener { dismissMergeOverlay() }
+            setOnClickListener { attemptLeavePdf { dismissMergeOverlay() } }
         }
         val title = TextView(this).apply {
             text = "Merge result"
@@ -1989,7 +2090,7 @@ class PdfToolsActivity : AppCompatActivity() {
             setTypeface(null, android.graphics.Typeface.BOLD)
             setTextColor(getColor(R.color.hakunaa_text))
             setPadding(dp(4), dp(4), dp(16), dp(4))
-            setOnClickListener { dismissSplitOverlay() }
+            setOnClickListener { attemptLeavePdf { dismissSplitOverlay() } }
         }
         val title = TextView(this).apply {
             text = "Split PDF"
@@ -2165,7 +2266,7 @@ class PdfToolsActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(0, dp(56), 1f).apply {
                 marginEnd = dp(8)
             }
-            setOnClickListener { dismissSplitOverlay() }
+            setOnClickListener { attemptLeavePdf { dismissSplitOverlay() } }
         }
         styleOutlineButton(btnBack)
         val btnSplit = MaterialButton(this).apply {
@@ -2333,7 +2434,7 @@ class PdfToolsActivity : AppCompatActivity() {
             setTypeface(null, android.graphics.Typeface.BOLD)
             setTextColor(getColor(R.color.hakunaa_text))
             setPadding(dp(4), dp(4), dp(16), dp(4))
-            setOnClickListener { dismissSplitOverlay() }
+            setOnClickListener { attemptLeavePdf { dismissSplitOverlay() } }
         }
         val title = TextView(this).apply {
             text = "Split result"
@@ -2401,7 +2502,7 @@ class PdfToolsActivity : AppCompatActivity() {
             setOnClickListener {
                 val input = splitInput
                 if (input != null) showSplitOptions(input, splitPageCount)
-                else dismissSplitOverlay()
+                else attemptLeavePdf { dismissSplitOverlay() }
             }
         }
         styleOutlineButton(btnBack)
@@ -2544,7 +2645,7 @@ class PdfToolsActivity : AppCompatActivity() {
             setTypeface(null, android.graphics.Typeface.BOLD)
             setTextColor(getColor(R.color.hakunaa_text))
             setPadding(dp(4), dp(4), dp(16), dp(4))
-            setOnClickListener { dismissLosslessOverlay() }
+            setOnClickListener { attemptLeavePdf { dismissLosslessOverlay() } }
         }
         val title = TextView(this).apply {
             text = "Lossless Compress"
@@ -2626,7 +2727,7 @@ class PdfToolsActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
                 marginEnd = dp(8)
             }
-            setOnClickListener { dismissLosslessOverlay() }
+            setOnClickListener { attemptLeavePdf { dismissLosslessOverlay() } }
         }
         styleOutlineButton(btnBack)
         val btnDone = MaterialButton(this).apply {
@@ -3588,7 +3689,7 @@ class PdfToolsActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(16) }
         }
-        val btnBack = popupPillButton("Back", false) { dismissGenericOverlay() }.apply {
+        val btnBack = popupPillButton("Back", false) { attemptLeavePdf { dismissGenericOverlay() } }.apply {
             layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f).apply {
                 marginEnd = dp(8)
             }
@@ -3887,7 +3988,7 @@ private fun deletePagesPdf() {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(16) }
         }
-        val btnBack = popupPillButton("Back", false) { dismissGenericOverlay() }.apply {
+        val btnBack = popupPillButton("Back", false) { attemptLeavePdf { dismissGenericOverlay() } }.apply {
             layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f).apply {
                 marginEnd = dp(8)
             }
@@ -4338,7 +4439,7 @@ private fun deletePagesPdf() {
             setTypeface(null, android.graphics.Typeface.BOLD)
             setTextColor(getColor(R.color.hakunaa_text))
             setPadding(dp(4), dp(4), dp(16), dp(4))
-            setOnClickListener { dismissSmartOverlay() }
+            setOnClickListener { attemptLeavePdf { dismissSmartOverlay() } }
         }
         val title = TextView(this).apply {
             text = "Smart Compress"
@@ -4450,7 +4551,7 @@ private fun deletePagesPdf() {
             layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
                 marginEnd = dp(8)
             }
-            setOnClickListener { dismissSmartOverlay() }
+            setOnClickListener { attemptLeavePdf { dismissSmartOverlay() } }
         }
         styleOutlineButton(btnClose)
         val btnDone = MaterialButton(this).apply {
