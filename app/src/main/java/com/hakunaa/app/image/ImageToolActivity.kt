@@ -3167,20 +3167,20 @@ class ImageToolActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT
         )
         dialog.window?.let { w ->
-            // v0.1.144 (Batch 28): REAL root cause of the still-
-            // blackish bar — v0.1.143 set statusBarColor =
-            // TRANSPARENT on this dialog window, but that call
-            // is a NO-OP unless the window has
-            // FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS, and the default
-            // dialog theme never sets it (grep: the flag appears
-            // NOWHERE in the app). So the transparent colour was
-            // silently ignored and the system painted its default
-            // dark scrim. The flag below makes the dialog's own
-            // transparent colour take effect (white content
-            // behind the bar).
+            // v0.1.145 (Batch 29): OPAQUE WHITE — the transparent
+            // approach failed TWICE on the phone (v0.1.143:
+            // transparent alone; v0.1.144: flag + transparent +
+            // activity white) — the bar still showed the theme
+            // grey #F6F7F9. The dialog window does NOT draw
+            // content behind the bar like an activity does, so a
+            // transparent colour has nothing white to reveal.
+            // Opaque white paints the bar solid white directly
+            // and does NOT depend on content drawing behind it.
+            // The flag is still needed so the colour takes
+            // effect at all.
             w.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
             WindowCompat.setDecorFitsSystemWindows(w, false)
-            w.statusBarColor = Color.TRANSPARENT
+            w.statusBarColor = getColor(R.color.hakunaa_surface)
             WindowInsetsControllerCompat(w, w.decorView)
                 .isAppearanceLightStatusBars = true
         }

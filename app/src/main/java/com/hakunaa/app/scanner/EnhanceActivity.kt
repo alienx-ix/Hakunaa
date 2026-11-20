@@ -429,9 +429,14 @@ class EnhanceActivity : AppCompatActivity() {
         }.start()
     }
 
-    /** "2 / 4" in the top bar — only for a batch. */
+    /** "1 / 2" at the RIGHT end of the "Apply to all pages"
+     *  row — only for a batch (v0.1.145, Batch 29: moved
+     *  here from the top bar, slightly bigger, so the top
+     *  bar is just the document name + Compare). The row
+     *  itself is only visible for a batch, so this shows
+     *  exactly when the old top indicator did. */
     private fun updatePageIndicator() {
-        val indicator = findViewById<TextView>(R.id.tvPageIndicator)
+        val indicator = findViewById<TextView>(R.id.tvPageIndicatorBottom)
         if (allPages.size > 1) {
             indicator.visibility = View.VISIBLE
             indicator.text = "${currentPageIndex + 1} / ${allPages.size}"
