@@ -195,6 +195,138 @@ object PdfTools {
         }
     }
 
+    /** One Smart Compress level result (v0.1.149). */
+    data class SmartLevel(
+        val dpi: Int,
+        val quality: Float,
+        val label: String,
+        val file: File,
+        val size: Long,
+        val replaced: Int
+    )
+
+    /**
+     * Smart Compress — ALL FIVE levels (v0.1.149, like Image Smart):
+     * 200 DPI / JPEG 90% (Best quality), 150 DPI / JPEG 82%,
+     * 100 DPI / JPEG 70%, 72 DPI / JPEG 60%, 72 DPI / JPEG 50%
+     * (Smallest). Returns every level that is SMALLER than the
+     * original, best quality first. Levels that are not smaller
+     * are deleted, never shown. The caller picks one to save and
+     * deletes the rest.
+     */
+    fun compressSmartLevels(input: File, outDir: File): List<SmartLevel> {
+        val inputSize = input.length()
+        val levels = listOf(
+            Triple(200, 0.90f, "200 DPI • JPEG 90%"),
+            Triple(150, 0.82f, "150 DPI • JPEG 82%"),
+            Triple(100, 0.70f, "100 DPI • JPEG 70%"),
+            Triple(72, 0.60f, "72 DPI • JPEG 60%"),
+            Triple(72, 0.50f, "72 DPI • JPEG 50%")
+        )
+        val out = mutableListOf<SmartLevel>()
+        for ((dpi, quality, label) in levels) {
+            val candidate = File(outDir, "smart_${dpi}_${(quality * 100).toInt()}.pdf")
+            val replaced = compressSmart(input, candidate, dpi, quality)
+            if (replaced < 0 || !candidate.exists()) {
+                try { candidate.delete() } catch (_: Throwable) { }
+                continue
+            }
+            val size = candidate.length()
+            if (size < inputSize) {
+                out.add(SmartLevel(dpi, quality, label, candidate, size, replaced))
+            } else {
+                try { candidate.delete() } catch (_: Throwable) { }
+            }
+        }
+        return out
+    }
+
+    /** Result of a Custom-size (target) Smart Compress (v0.1.149). */
+    data class SmartTargetResult(
+        val file: File?,
+        val size: Long,
+        val reached: Boolean,
+        val smallestSize: Long
+    )
+
+    /**
+     * Custom-size Smart Compress (v0.1.149, like Image Compress
+     * Target): find the BEST-QUALITY level whose output is at most
+     * [targetBytes], via binary search over the DPI/quality ladder.
+     * Output is never bigger than the original. If no level can
+     * reach the target, returns the SMALLEST level with
+     * reached=false so the UI can say so honestly. If nothing can
+     * shrink the file at all, file is null and smallestSize is the
+     * original size. All other tried candidate files are deleted;
+     * only the returned file (if any) is kept.
+     */
+    fun compressSmartToTarget(input: File, outDir: File, targetBytes: Long): SmartTargetResult {
+        val inputSize = input.length()
+        val ladder = listOf(
+            200 to 0.90f, 150 to 0.82f, 100 to 0.70f, 72 to 0.60f,
+            72 to 0.50f, 72 to 0.40f, 72 to 0.30f, 72 to 0.20f
+        )
+        val files = mutableMapOf<Int, File>()
+        val sizes = mutableMapOf<Int, Long>()
+        fun tryLevel(idx: Int): Long {
+            sizes[idx]?.let { return it }
+            val (dpi, q) = ladder[idx]
+            val f = File(outDir, "target_${dpi}_${(q * 100).toInt()}.pdf")
+            val replaced = compressSmart(input, f, dpi, q)
+            val size = if (replaced < 0 || !f.exists()) -1L else f.length()
+            if (size < 0) {
+                try { f.delete() } catch (_: Throwable) { }
+            } else {
+                files[idx] = f
+            }
+            sizes[idx] = size
+            return size
+        }
+        fun fits(size: Long) = size > 0 && size <= targetBytes && size < inputSize
+        // Binary search: sizes shrink as the index grows, so find
+        // the smallest index (best quality) that fits.
+        var lo = 0
+        var hi = ladder.size - 1
+        var bestIdx = -1
+        while (lo <= hi) {
+            val mid = (lo + hi) / 2
+            if (fits(tryLevel(mid))) {
+                bestIdx = mid
+                hi = mid - 1
+            } else {
+                lo = mid + 1
+            }
+        }
+        // Verify (sizes are not strictly monotonic for every PDF):
+        // walk right from bestIdx until a level that really fits.
+        var idx = bestIdx
+        while (idx >= 0 && idx < ladder.size && !fits(sizes[idx] ?: -1L)) {
+            idx++
+            if (idx < ladder.size) tryLevel(idx)
+        }
+        if (idx in ladder.indices && fits(sizes[idx] ?: -1L)) {
+            val chosen = files[idx]!!
+            for ((i, f) in files) if (i != idx) try { f.delete() } catch (_: Throwable) { }
+            return SmartTargetResult(chosen, sizes[idx]!!, true, sizes[idx]!!)
+        }
+        // No level reached the target — find the smallest produced.
+        var smallestIdx = -1
+        var smallestSize = Long.MAX_VALUE
+        for (i in ladder.indices.reversed()) {
+            val size = tryLevel(i)
+            if (size > 0 && size < inputSize && size < smallestSize) {
+                smallestIdx = i
+                smallestSize = size
+            }
+        }
+        for ((i, f) in files) if (i != smallestIdx) try { f.delete() } catch (_: Throwable) { }
+        return if (smallestIdx >= 0) {
+            SmartTargetResult(files[smallestIdx], smallestSize, false, smallestSize)
+        } else {
+            SmartTargetResult(null, inputSize, false, inputSize)
+        }
+    }
+
     /** Walk a page's XObjects (including nested Form XObjects) and downscale images. Returns the count replaced. */
     private fun downscaleImages(
         doc: PDDocument,

@@ -33,32 +33,41 @@ import java.io.File
 import java.io.FileOutputStream
 
 /**
- * PDF Tools menu (v0.1.148, full redesign): single screen, NO scroll.
+ * PDF Tools menu (v0.1.149): single screen, NO scroll.
  * Top 4 featured cards in 2x2 (Smart / Lossless Compress, Merge /
  * Split), then 12 tools in a 3-per-row grid in the user's order.
- * All 16 cards share the real screen height by weight. Tool inputs
- * that used to live in the old form (rotate angle, watermark text,
- * password, page order) now come from small dialogs. Sign PDF opens
- * as a full-screen overlay inside this activity (no new Activity,
- * no Manifest change). Image Tools and Scanner are untouched.
+ * All 16 cards share the real screen height by weight.
+ *
+ * File pick (v0.1.149, Image Tools pattern): NO file-pick control
+ * at the top of the menu. Each tool opens its own file picker
+ * when tapped. Sign PDF opens as a full-screen overlay inside
+ * this activity (no new Activity, no Manifest change). Smart
+ * Compress shows 5 levels + a Custom size section in an overlay.
+ * Image Tools and Scanner are untouched.
  */
 class PdfToolsActivity : AppCompatActivity() {
-    private val pickedUris = mutableListOf<Uri>()
 
+    // Single-PDF picker, shared by every tool (one callback at a
+    // time — each tool sets it right before launching).
+    private var singlePdfCallback: ((Uri) -> Unit)? = null
+    private val pickSinglePdf =
+        registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            if (uri != null) singlePdfCallback?.invoke(uri)
+            singlePdfCallback = null
+        }
+
+    // Multi-PDF picker, for Merge only.
+    private var multiPdfCallback: ((List<Uri>) -> Unit)? = null
     private val pickPdfs =
         registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
-            pickedUris.clear()
-            pickedUris.addAll(uris)
-            findViewById<TextView>(R.id.tvFiles).text =
-                if (uris.isEmpty()) getString(R.string.ready)
-                else "${uris.size} PDFs selected"
+            multiPdfCallback?.invoke(uris)
+            multiPdfCallback = null
         }
 
     private val pickImageForPdf =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
             if (uri == null) return@registerForActivityResult
-            val status = findViewById<TextView>(R.id.tvStatus)
-            status.text = "Creating PDF from image…"
+            toast("Creating PDF from image…")
             Thread {
                 try {
                     val input = FileUtils.copyUriToCache(this, uri, "image_to_pdf")
@@ -66,21 +75,13 @@ class PdfToolsActivity : AppCompatActivity() {
                     val out = File(outDir, "hakunaa_image_${System.currentTimeMillis()}.pdf")
                     val ok = PdfTools.imageToPdf(input, out) && publishPdf(out)
                     runOnUiThread {
-                        status.text = if (ok) "Done — saved to Documents/Hakunaa/${out.name}"
-                        else "Failed — try another image"
+                        if (ok) showSavedPdfDialog(out, publishPdfUri(out))
+                        else toast("Failed — try another image")
                     }
                 } catch (_: Throwable) {
-                    runOnUiThread { status.text = "Failed — try another image" }
+                    runOnUiThread { toast("Failed — try another image") }
                 }
             }.start()
-        }
-
-    // Single-PDF picker, shared by Repair and the Sign overlay.
-    private var singlePdfCallback: ((Uri) -> Unit)? = null
-    private val pickSinglePdf =
-        registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-            if (uri != null) singlePdfCallback?.invoke(uri)
-            singlePdfCallback = null
         }
 
     // Sign overlay state.
@@ -96,6 +97,21 @@ class PdfToolsActivity : AppCompatActivity() {
     private val positionChips = mutableListOf<MaterialButton>()
     private val sizeChips = mutableListOf<MaterialButton>()
 
+    // Smart Compress overlay state (v0.1.149).
+    private var smartOverlay: View? = null
+    private var smartInput: File? = null
+    private var smartOriginalSize = 0L
+    private var smartLevelFiles = mutableListOf<File>()
+    private var smartRows = mutableListOf<LinearLayout>()
+    private var smartRowFiles = mutableListOf<File?>()
+    private var smartSelected = -1
+    private var smartCustomFile: File? = null
+    private var smartCustomRow: LinearLayout? = null
+    private var tvSmartComputing: TextView? = null
+    private var smartResultsBox: LinearLayout? = null
+    private var tvSmartCustomResult: TextView? = null
+    private var etSmartCustomKb: EditText? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_pdf_tools)
@@ -106,20 +122,19 @@ class PdfToolsActivity : AppCompatActivity() {
         findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar)
             .setNavigationOnClickListener { finish() }
 
-        findViewById<MaterialButton>(R.id.btnPickPdfs)
-            .setOnClickListener { pickPdfs.launch("application/pdf") }
-
         buildMenu()
 
-        // System Back closes the Sign overlay first (same pattern as
-        // the WebP overlay in ImageToolActivity).
+        // System Back closes the Sign / Smart overlay first (same
+        // pattern as the WebP overlay in ImageToolActivity).
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (signOverlay != null) {
-                    dismissSignOverlay()
-                } else {
-                    isEnabled = false
-                    onBackPressedDispatcher.onBackPressed()
+                when {
+                    signOverlay != null -> dismissSignOverlay()
+                    smartOverlay != null -> dismissSmartOverlay()
+                    else -> {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                    }
                 }
             }
         })
@@ -127,10 +142,17 @@ class PdfToolsActivity : AppCompatActivity() {
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
+    private fun toast(msg: String) {
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    }
+
     // ------------------------------------------------------------------
-    // Menu (v0.1.148): top 4 featured 2x2, then 12 tools 3-per-row in
+    // Menu (v0.1.149): top 4 featured 2x2, then 12 tools 3-per-row in
     // the user's exact order. Weight-shared rows = single screen,
-    // no ScrollView, fits any phone.
+    // no ScrollView, fits any phone. v0.1.149 fixes: featured rows
+    // taller (weight 1.25) so subtitles are never clipped, grid
+    // cards stronger contrast (#E9ECEF + border) with 14sp bold
+    // labels so every box is CLEAR.
     // ------------------------------------------------------------------
 
     private data class Tool(
@@ -175,7 +197,7 @@ class PdfToolsActivity : AppCompatActivity() {
                 Tool("Resize Pages", null, PdfIconView.Kind.RESIZE, false) { resizePdf() }
             )
         )
-        for (row in featured) area.addView(buildRow(row, 1.15f))
+        for (row in featured) area.addView(buildRow(row, 1.25f))
         for (row in grid) area.addView(buildRow(row, 1f))
     }
 
@@ -210,7 +232,10 @@ class PdfToolsActivity : AppCompatActivity() {
                     setColor(0xFFE0F2F1.toInt())
                     setStroke((2 * density).toInt(), getColor(R.color.hakunaa_teal))
                 } else {
-                    setColor(Color.parseColor("#F5F5F7"))
+                    // v0.1.149: stronger contrast + border so the
+                    // grid boxes are CLEAR, not washed out.
+                    setColor(Color.parseColor("#E9ECEF"))
+                    setStroke((1 * density).toInt(), Color.parseColor("#CFD8DC"))
                 }
             }
             val params = LinearLayout.LayoutParams(
@@ -219,10 +244,10 @@ class PdfToolsActivity : AppCompatActivity() {
             val m = dp(6)
             params.setMargins(m, m, m, m)
             layoutParams = params
-            setPadding(dp(8), dp(8), dp(8), dp(8))
+            setPadding(dp(6), dp(6), dp(6), dp(6))
             setOnClickListener { tool.action() }
         }
-        val iconSize = if (tool.featured) dp(56) else dp(48)
+        val iconSize = if (tool.featured) dp(52) else dp(40)
         val icon = PdfIconView(this).apply {
             kind = tool.kind
             layoutParams = LinearLayout.LayoutParams(iconSize, iconSize).apply {
@@ -232,12 +257,12 @@ class PdfToolsActivity : AppCompatActivity() {
         card.addView(icon)
         val name = TextView(this).apply {
             text = tool.name
-            textSize = if (tool.featured) 15f else 13f
+            textSize = 14f
             setTypeface(null, android.graphics.Typeface.BOLD)
             setTextColor(getColor(R.color.hakunaa_text))
             gravity = Gravity.CENTER
             maxLines = 2
-            ellipsize = android.text.TextUtils.TruncateAt.END
+            includeFontPadding = false
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -250,6 +275,7 @@ class PdfToolsActivity : AppCompatActivity() {
                 textSize = 12f
                 setTextColor(getColor(R.color.hakunaa_text_secondary))
                 gravity = Gravity.CENTER
+                includeFontPadding = false
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
@@ -312,7 +338,7 @@ class PdfToolsActivity : AppCompatActivity() {
                         }
                         startActivity(view)
                     } catch (_: Throwable) {
-                        Toast.makeText(this, "No PDF viewer found", Toast.LENGTH_SHORT).show()
+                        toast("No PDF viewer found")
                     }
                 }
             }
@@ -321,7 +347,7 @@ class PdfToolsActivity : AppCompatActivity() {
     }
 
     // ------------------------------------------------------------------
-    // Shared helpers (unchanged from the old form UI).
+    // Shared helpers.
     // ------------------------------------------------------------------
 
     // PDF work writes to a temp folder in the app cache; finished files
@@ -335,360 +361,357 @@ class PdfToolsActivity : AppCompatActivity() {
     private fun publishPdfUri(file: File): Uri? =
         MediaStoreSaver.save(this, file, MediaStoreSaver.Kind.DOCUMENT, file.name)
 
-    private fun firstPickedPdf(): File? {
-        val uri = pickedUris.firstOrNull() ?: run {
-            Toast.makeText(this, "Pick a PDF first", Toast.LENGTH_SHORT).show()
-            return null
+    /**
+     * Per-tool file pick (v0.1.149, Image Tools pattern): tap a tool
+     * and the picker opens for THAT tool. The picked PDF is copied
+     * to the cache and handed to [action] on the UI thread.
+     */
+    private fun pickPdfThen(action: (File) -> Unit) {
+        singlePdfCallback = { uri ->
+            Thread {
+                try {
+                    val file = FileUtils.copyUriToCache(this, uri, "single.pdf")
+                    runOnUiThread { action(file) }
+                } catch (_: Throwable) {
+                    runOnUiThread { toast("Could not open this PDF") }
+                }
+            }.start()
         }
-        return FileUtils.copyUriToCache(this, uri, "single.pdf")
+        pickSinglePdf.launch("application/pdf")
     }
 
-    private fun mergePdfs() {
-        if (pickedUris.size < 2) {
-            Toast.makeText(this, getString(R.string.pick_first_pdfs), Toast.LENGTH_SHORT).show()
-            return
-        }
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Merging ${pickedUris.size} PDFs…"
-        Thread {
-            try {
-                val inputs = pickedUris.mapIndexed { index, uri ->
-                    FileUtils.copyUriToCache(this, uri, "merge_$index.pdf")
-                }
-                val out = File(hakunaaCacheDir(), "hakunaa_merged_${System.currentTimeMillis()}.pdf")
-                val ok = PdfTools.merge(inputs, out) && publishPdf(out)
-                runOnUiThread {
-                    status.text = if (ok) "Done — saved to Documents/Hakunaa/${out.name}"
-                    else "Merge failed — check the files and try again"
-                }
-            } catch (_: Throwable) {
-                runOnUiThread { status.text = "Merge failed — check the files and try again" }
+    /** Multi-PDF pick for Merge (v0.1.149). */
+    private fun pickPdfsThen(action: (List<File>) -> Unit) {
+        multiPdfCallback = { uris ->
+            if (uris.isEmpty()) {
+                toast("Pick at least 2 PDFs")
+            } else {
+                Thread {
+                    try {
+                        val files = uris.mapIndexed { index, uri ->
+                            FileUtils.copyUriToCache(this, uri, "merge_$index.pdf")
+                        }
+                        runOnUiThread { action(files) }
+                    } catch (_: Throwable) {
+                        runOnUiThread { toast("Could not open these PDFs") }
+                    }
+                }.start()
             }
-        }.start()
+        }
+        pickPdfs.launch("application/pdf")
+    }
+
+    // ------------------------------------------------------------------
+    // Tools — each entry opens its own file picker (v0.1.149).
+    // ------------------------------------------------------------------
+
+    private fun mergePdfs() {
+        pickPdfsThen { inputs ->
+            if (inputs.size < 2) {
+                toast("Pick at least 2 PDFs")
+                return@pickPdfsThen
+            }
+            toast("Merging ${inputs.size} PDFs…")
+            Thread {
+                try {
+                    val out = File(hakunaaCacheDir(), "hakunaa_merged_${System.currentTimeMillis()}.pdf")
+                    val ok = PdfTools.merge(inputs, out)
+                    val savedUri = if (ok) publishPdfUri(out) else null
+                    runOnUiThread {
+                        if (ok && savedUri != null) showSavedPdfDialog(out, savedUri)
+                        else toast("Merge failed — check the files and try again")
+                    }
+                } catch (_: Throwable) {
+                    runOnUiThread { toast("Merge failed — check the files and try again") }
+                }
+            }.start()
+        }
     }
 
     private fun splitPdf() {
-        val input = firstPickedPdf() ?: return
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Splitting PDF…"
-        Thread {
-            try {
-                val outDir = File(hakunaaCacheDir(), "split_${System.currentTimeMillis()}").apply { mkdirs() }
-                val created = PdfTools.split(input, outDir)
-                val published = created.count { publishPdf(it) }
-                runOnUiThread {
-                    status.text = if (published > 0) "Done — $published pages saved to Documents/Hakunaa"
-                    else "Split failed — check the file and try again"
+        pickPdfThen { input ->
+            toast("Splitting PDF…")
+            Thread {
+                try {
+                    val outDir = File(hakunaaCacheDir(), "split_${System.currentTimeMillis()}").apply { mkdirs() }
+                    val created = PdfTools.split(input, outDir)
+                    val published = created.count { publishPdf(it) }
+                    runOnUiThread {
+                        if (published > 0) toast("Done — $published page(s) saved to Documents/Hakunaa")
+                        else toast("Split failed — check the file and try again")
+                    }
+                } catch (_: Throwable) {
+                    runOnUiThread { toast("Split failed — check the file and try again") }
                 }
-            } catch (_: Throwable) {
-                runOnUiThread { status.text = "Split failed — check the file and try again" }
-            }
-        }.start()
+            }.start()
+        }
     }
 
     private fun compressPdf() {
-        val input = firstPickedPdf() ?: return
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Compressing PDF (lossless)…"
-        Thread {
-            try {
-                val before = input.length()
-                val out = File(hakunaaCacheDir(), "hakunaa_compressed_${System.currentTimeMillis()}.pdf")
-                val savedBytes = PdfTools.compressLossless(input, out)
-                runOnUiThread {
-                    when {
-                        savedBytes > 0 && publishPdf(out) -> {
-                            val after = out.length()
-                            status.text = "Done — ${FileUtils.formatSize(before)} → ${FileUtils.formatSize(after)} " +
-                                "(${FileUtils.savedPercent(before, after)}), saved to Documents/Hakunaa/${out.name}"
-                        }
-                        savedBytes == 0L -> {
-                            status.text = "Already optimized — this PDF is as small as it gets " +
-                                "without losing quality. Try Smart Compress for a smaller file."
-                        }
-                        else -> {
-                            status.text = "Compress failed — check the file and try again"
+        pickPdfThen { input ->
+            toast("Compressing PDF (lossless)…")
+            Thread {
+                try {
+                    val before = input.length()
+                    val out = File(hakunaaCacheDir(), "hakunaa_compressed_${System.currentTimeMillis()}.pdf")
+                    val savedBytes = PdfTools.compressLossless(input, out)
+                    val savedUri = if (savedBytes > 0) publishPdfUri(out) else null
+                    runOnUiThread {
+                        when {
+                            savedBytes > 0 && savedUri != null -> {
+                                val after = out.length()
+                                toast("Done — ${FileUtils.formatSize(before)} → ${FileUtils.formatSize(after)} (${FileUtils.savedPercent(before, after)})")
+                                showSavedPdfDialog(out, savedUri)
+                            }
+                            savedBytes == 0L -> toast("Already optimized — this PDF is as small as it gets without losing quality. Try Smart Compress for a smaller file.")
+                            else -> toast("Compress failed — check the file and try again")
                         }
                     }
+                } catch (_: Throwable) {
+                    runOnUiThread { toast("Compress failed — check the file and try again") }
                 }
-            } catch (_: Throwable) {
-                runOnUiThread { status.text = "Compress failed — check the file and try again" }
-            }
-        }.start()
+            }.start()
+        }
     }
 
     private fun compressSmartPdf() {
-        val input = firstPickedPdf() ?: return
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Compressing PDF (smart)…"
-        Thread {
-            try {
-                val before = input.length()
-                val out = File(hakunaaCacheDir(), "hakunaa_smart_${System.currentTimeMillis()}.pdf")
-                // Best Smart Compress: tries 150 DPI / JPEG 82% first,
-                // and if the result is not smaller it automatically
-                // escalates (100 DPI / 70%, then 72 DPI / 60%) until
-                // the output IS smaller. Never hands back a bigger file.
-                val (replaced, note) = PdfTools.compressSmartBest(input, out)
-                runOnUiThread {
-                    when {
-                        replaced > 0 && out.exists() && publishPdf(out) -> {
-                            val after = out.length()
-                            status.text = "Done — ${FileUtils.formatSize(before)} → ${FileUtils.formatSize(after)} " +
-                                "(${FileUtils.savedPercent(before, after)}), saved to Documents/Hakunaa/${out.name}. $replaced image(s) compressed.$note"
-                        }
-                        replaced == 0 && note == "already" -> {
-                            status.text = "Already optimized — even the strongest Smart settings couldn't shrink this PDF. Try Lossless Compress, or the images are already as small as they get."
-                        }
-                        else -> {
-                            status.text = "Compress failed — check the file and try again"
-                        }
-                    }
-                }
-            } catch (_: Throwable) {
-                runOnUiThread { status.text = "Compress failed — check the file and try again" }
-            }
-        }.start()
+        pickPdfThen { input ->
+            showSmartResults(input)
+        }
     }
 
     private fun rotatePdf() {
-        showSingleChoiceDialog("Rotate by", arrayOf("90°", "180°", "270°")) { which ->
-            val degrees = listOf(90, 180, 270)[which]
-            runRotate(degrees)
-        }
-    }
-
-    private fun runRotate(degrees: Int) {
-        val input = firstPickedPdf() ?: return
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Rotating PDF by $degrees°…"
-        Thread {
-            try {
-                val out = File(hakunaaCacheDir(), "hakunaa_rotated_${System.currentTimeMillis()}.pdf")
-                val ok = PdfTools.rotate(input, out, degrees) && publishPdf(out)
-                runOnUiThread {
-                    status.text = if (ok) "Done — rotated $degrees°, saved to Documents/Hakunaa/${out.name}"
-                    else "Rotate failed — check the file and try again"
-                }
-            } catch (_: Throwable) {
-                runOnUiThread { status.text = "Rotate failed — check the file and try again" }
+        pickPdfThen { input ->
+            showSingleChoiceDialog("Rotate by", arrayOf("90°", "180°", "270°")) { which ->
+                val degrees = listOf(90, 180, 270)[which]
+                toast("Rotating PDF by $degrees°…")
+                Thread {
+                    try {
+                        val out = File(hakunaaCacheDir(), "hakunaa_rotated_${System.currentTimeMillis()}.pdf")
+                        val ok = PdfTools.rotate(input, out, degrees)
+                        val savedUri = if (ok) publishPdfUri(out) else null
+                        runOnUiThread {
+                            if (ok && savedUri != null) showSavedPdfDialog(out, savedUri)
+                            else toast("Rotate failed — check the file and try again")
+                        }
+                    } catch (_: Throwable) {
+                        runOnUiThread { toast("Rotate failed — check the file and try again") }
+                    }
+                }.start()
             }
-        }.start()
+        }
     }
 
     private fun watermarkPdf() {
-        showTextInputDialog(
-            "Watermark text", "e.g. CONFIDENTIAL", InputType.TYPE_CLASS_TEXT
-        ) { text ->
-            if (text.isBlank()) {
-                Toast.makeText(this, "Type a watermark text first", Toast.LENGTH_SHORT).show()
-                return@showTextInputDialog
-            }
-            runWatermark(text.trim())
-        }
-    }
-
-    private fun runWatermark(text: String) {
-        val input = firstPickedPdf() ?: return
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Adding watermark…"
-        Thread {
-            try {
-                val out = File(hakunaaCacheDir(), "hakunaa_watermarked_${System.currentTimeMillis()}.pdf")
-                val ok = PdfTools.watermark(input, out, text) && publishPdf(out)
-                runOnUiThread {
-                    status.text = if (ok) "Done — watermarked, saved to Documents/Hakunaa/${out.name}"
-                    else "Watermark failed — check the file and try again"
+        pickPdfThen { input ->
+            showTextInputDialog(
+                "Watermark text", "e.g. CONFIDENTIAL", InputType.TYPE_CLASS_TEXT
+            ) { text ->
+                if (text.isBlank()) {
+                    toast("Type a watermark text first")
+                    return@showTextInputDialog
                 }
-            } catch (_: Throwable) {
-                runOnUiThread { status.text = "Watermark failed — check the file and try again" }
+                val clean = text.trim()
+                toast("Adding watermark…")
+                Thread {
+                    try {
+                        val out = File(hakunaaCacheDir(), "hakunaa_watermarked_${System.currentTimeMillis()}.pdf")
+                        val ok = PdfTools.watermark(input, out, clean)
+                        val savedUri = if (ok) publishPdfUri(out) else null
+                        runOnUiThread {
+                            if (ok && savedUri != null) showSavedPdfDialog(out, savedUri)
+                            else toast("Watermark failed — check the file and try again")
+                        }
+                    } catch (_: Throwable) {
+                        runOnUiThread { toast("Watermark failed — check the file and try again") }
+                    }
+                }.start()
             }
-        }.start()
+        }
     }
 
     private fun pageNumbersPdf() {
-        val input = firstPickedPdf() ?: return
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Adding page numbers…"
-        Thread {
-            try {
-                val out = File(hakunaaCacheDir(), "hakunaa_numbered_${System.currentTimeMillis()}.pdf")
-                val ok = PdfTools.pageNumbers(input, out) && publishPdf(out)
-                runOnUiThread {
-                    status.text = if (ok) "Done — page numbers added, saved to Documents/Hakunaa/${out.name}"
-                    else "Page numbers failed — check the file and try again"
+        pickPdfThen { input ->
+            toast("Adding page numbers…")
+            Thread {
+                try {
+                    val out = File(hakunaaCacheDir(), "hakunaa_numbered_${System.currentTimeMillis()}.pdf")
+                    val ok = PdfTools.pageNumbers(input, out)
+                    val savedUri = if (ok) publishPdfUri(out) else null
+                    runOnUiThread {
+                        if (ok && savedUri != null) showSavedPdfDialog(out, savedUri)
+                        else toast("Page numbers failed — check the file and try again")
+                    }
+                } catch (_: Throwable) {
+                    runOnUiThread { toast("Page numbers failed — check the file and try again") }
                 }
-            } catch (_: Throwable) {
-                runOnUiThread { status.text = "Page numbers failed — check the file and try again" }
-            }
-        }.start()
+            }.start()
+        }
     }
 
     private fun extractImagesPdf() {
-        val input = firstPickedPdf() ?: return
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Extracting images…"
-        Thread {
-            try {
-                val outDir = File(hakunaaCacheDir(), "images_${System.currentTimeMillis()}").apply { mkdirs() }
-                val created = PdfTools.extractImages(input, outDir)
-                var published = 0
-                for (file in created) {
-                    if (MediaStoreSaver.save(this, file, MediaStoreSaver.Kind.IMAGE, file.name, ImageCompressor.formatOf(file).mime) != null) {
-                        published++
+        pickPdfThen { input ->
+            toast("Extracting images…")
+            Thread {
+                try {
+                    val outDir = File(hakunaaCacheDir(), "images_${System.currentTimeMillis()}").apply { mkdirs() }
+                    val created = PdfTools.extractImages(input, outDir)
+                    var published = 0
+                    for (file in created) {
+                        if (MediaStoreSaver.save(this, file, MediaStoreSaver.Kind.IMAGE, file.name, ImageCompressor.formatOf(file).mime) != null) {
+                            published++
+                        }
                     }
+                    runOnUiThread {
+                        when {
+                            published > 0 -> toast("Done — $published image(s) saved to Pictures/Hakunaa")
+                            created.isEmpty() -> toast("No images found in this PDF")
+                            else -> toast("Extract failed — check the file and try again")
+                        }
+                    }
+                } catch (_: Throwable) {
+                    runOnUiThread { toast("Extract failed — check the file and try again") }
                 }
-                runOnUiThread {
-                    status.text = if (published > 0) "Done — $published image(s) saved to Pictures/Hakunaa"
-                    else if (created.isEmpty()) "No images found in this PDF"
-                    else "Extract failed — check the file and try again"
-                }
-            } catch (_: Throwable) {
-                runOnUiThread { status.text = "Extract failed — check the file and try again" }
-            }
-        }.start()
+            }.start()
+        }
     }
 
     private fun pdfToJpg() {
-        val input = firstPickedPdf() ?: return
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Converting PDF to JPG…"
-        Thread {
-            try {
-                val outDir = File(hakunaaCacheDir(), "jpg_${System.currentTimeMillis()}").apply { mkdirs() }
-                val created = PdfTools.pdfToJpg(input, outDir)
-                var published = 0
-                for (file in created) {
-                    if (MediaStoreSaver.save(this, file, MediaStoreSaver.Kind.IMAGE, file.name, ImageCompressor.formatOf(file).mime) != null) {
-                        published++
+        pickPdfThen { input ->
+            toast("Converting PDF to JPG…")
+            Thread {
+                try {
+                    val outDir = File(hakunaaCacheDir(), "jpg_${System.currentTimeMillis()}").apply { mkdirs() }
+                    val created = PdfTools.pdfToJpg(input, outDir)
+                    var published = 0
+                    for (file in created) {
+                        if (MediaStoreSaver.save(this, file, MediaStoreSaver.Kind.IMAGE, file.name, ImageCompressor.formatOf(file).mime) != null) {
+                            published++
+                        }
                     }
+                    runOnUiThread {
+                        if (published > 0) toast("Done — $published page(s) saved to Pictures/Hakunaa")
+                        else toast("PDF to JPG failed — check the file and try again")
+                    }
+                } catch (_: Throwable) {
+                    runOnUiThread { toast("PDF to JPG failed — check the file and try again") }
                 }
-                runOnUiThread {
-                    status.text = if (published > 0) "Done — $published page(s) saved to Pictures/Hakunaa"
-                    else "PDF to JPG failed — check the file and try again"
-                }
-            } catch (_: Throwable) {
-                runOnUiThread { status.text = "PDF to JPG failed — check the file and try again" }
-            }
-        }.start()
+            }.start()
+        }
     }
 
     private fun extractTextPdf() {
-        val input = firstPickedPdf() ?: return
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Extracting text…"
-        Thread {
-            try {
-                val text = PdfTools.extractText(input)
-                if (text == null) {
-                    runOnUiThread { status.text = "Extract failed — check the file and try again" }
-                    return@Thread
+        pickPdfThen { input ->
+            toast("Extracting text…")
+            Thread {
+                try {
+                    val text = PdfTools.extractText(input)
+                    if (text == null) {
+                        runOnUiThread { toast("Extract failed — check the file and try again") }
+                        return@Thread
+                    }
+                    val out = File(hakunaaCacheDir(), "${input.nameWithoutExtension}.txt")
+                    out.writeText(text)
+                    val saved = MediaStoreSaver.save(this, out, MediaStoreSaver.Kind.DOCUMENT, out.name, "text/plain")
+                    runOnUiThread {
+                        if (saved != null) toast("Done — text saved to Documents/Hakunaa/${out.name} (${text.length} characters)")
+                        else toast("Extract failed — couldn't save the text file")
+                    }
+                } catch (_: Throwable) {
+                    runOnUiThread { toast("Extract failed — check the file and try again") }
                 }
-                val out = File(hakunaaCacheDir(), "${input.nameWithoutExtension}.txt")
-                out.writeText(text)
-                val saved = MediaStoreSaver.save(this, out, MediaStoreSaver.Kind.DOCUMENT, out.name, "text/plain")
-                runOnUiThread {
-                    status.text = if (saved != null) "Done — text saved to Documents/Hakunaa/${out.name} (${text.length} characters)"
-                    else "Extract failed — couldn't save the text file"
-                }
-            } catch (_: Throwable) {
-                runOnUiThread { status.text = "Extract failed — check the file and try again" }
-            }
-        }.start()
+            }.start()
+        }
     }
 
     private fun protectUnlockPdf() {
-        showSingleChoiceDialog("Protect or Unlock?", arrayOf("Protect PDF", "Unlock PDF")) { which ->
-            val isProtect = which == 0
-            showTextInputDialog(
-                if (isProtect) "Protect PDF" else "Unlock PDF",
-                "Type a password",
-                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            ) { password ->
-                if (password.isEmpty()) {
-                    Toast.makeText(this, "Type a password first", Toast.LENGTH_SHORT).show()
-                    return@showTextInputDialog
+        pickPdfThen { input ->
+            showSingleChoiceDialog("Protect or Unlock?", arrayOf("Protect PDF", "Unlock PDF")) { which ->
+                val isProtect = which == 0
+                showTextInputDialog(
+                    if (isProtect) "Protect PDF" else "Unlock PDF",
+                    "Type a password",
+                    InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                ) { password ->
+                    if (password.isEmpty()) {
+                        toast("Type a password first")
+                        return@showTextInputDialog
+                    }
+                    if (isProtect) runProtect(input, password) else runUnlock(input, password)
                 }
-                if (isProtect) runProtect(password) else runUnlock(password)
             }
         }
     }
 
-    private fun runProtect(password: String) {
-        val input = firstPickedPdf() ?: return
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Protecting PDF…"
+    private fun runProtect(input: File, password: String) {
+        toast("Protecting PDF…")
         Thread {
             try {
                 val out = File(hakunaaCacheDir(), "hakunaa_protected_${System.currentTimeMillis()}.pdf")
-                val ok = PdfTools.protect(input, out, password) && publishPdf(out)
+                val ok = PdfTools.protect(input, out, password)
+                val savedUri = if (ok) publishPdfUri(out) else null
                 runOnUiThread {
-                    status.text = if (ok) "Done — protected PDF saved to Documents/Hakunaa/${out.name}"
-                    else "Protect failed — check the file and try again"
+                    if (ok && savedUri != null) showSavedPdfDialog(out, savedUri)
+                    else toast("Protect failed — check the file and try again")
                 }
             } catch (_: Throwable) {
-                runOnUiThread { status.text = "Protect failed — check the file and try again" }
+                runOnUiThread { toast("Protect failed — check the file and try again") }
             }
         }.start()
     }
 
-    private fun runUnlock(password: String) {
-        val input = firstPickedPdf() ?: return
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Unlocking PDF…"
+    private fun runUnlock(input: File, password: String) {
+        toast("Unlocking PDF…")
         Thread {
             try {
                 val out = File(hakunaaCacheDir(), "hakunaa_unlocked_${System.currentTimeMillis()}.pdf")
-                val ok = PdfTools.unlock(input, out, password) && publishPdf(out)
+                val ok = PdfTools.unlock(input, out, password)
+                val savedUri = if (ok) publishPdfUri(out) else null
                 runOnUiThread {
-                    status.text = if (ok) "Done — unlocked PDF saved to Documents/Hakunaa/${out.name}"
-                    else "Unlock failed — wrong password or file not locked"
+                    if (ok && savedUri != null) showSavedPdfDialog(out, savedUri)
+                    else toast("Unlock failed — wrong password or file not locked")
                 }
             } catch (_: Throwable) {
-                runOnUiThread { status.text = "Unlock failed — wrong password or file not locked" }
+                runOnUiThread { toast("Unlock failed — wrong password or file not locked") }
             }
         }.start()
     }
 
     private fun organizePdf() {
-        showTextInputDialog(
-            "New page order", "e.g. 3,1,2", InputType.TYPE_CLASS_TEXT
-        ) { orderText ->
-            val order = orderText.split(",").mapNotNull { it.trim().toIntOrNull() }
-            if (order.isEmpty()) {
-                Toast.makeText(this, "Type the new page order, e.g. 3,1,2", Toast.LENGTH_SHORT).show()
-                return@showTextInputDialog
+        pickPdfThen { input ->
+            showTextInputDialog(
+                "New page order", "e.g. 3,1,2", InputType.TYPE_CLASS_TEXT
+            ) { orderText ->
+                val order = orderText.split(",").mapNotNull { it.trim().toIntOrNull() }
+                if (order.isEmpty()) {
+                    toast("Type the new page order, e.g. 3,1,2")
+                    return@showTextInputDialog
+                }
+                toast("Organizing PDF…")
+                Thread {
+                    try {
+                        val out = File(hakunaaCacheDir(), "hakunaa_organized_${System.currentTimeMillis()}.pdf")
+                        val ok = PdfTools.organize(input, out, order)
+                        val savedUri = if (ok) publishPdfUri(out) else null
+                        runOnUiThread {
+                            if (ok && savedUri != null) showSavedPdfDialog(out, savedUri)
+                            else toast("Organize failed — list every page exactly once, e.g. 3,1,2")
+                        }
+                    } catch (_: Throwable) {
+                        runOnUiThread { toast("Organize failed — list every page exactly once, e.g. 3,1,2") }
+                    }
+                }.start()
             }
-            runOrganize(order)
         }
     }
 
-    private fun runOrganize(order: List<Int>) {
-        val input = firstPickedPdf() ?: return
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Organizing PDF…"
-        Thread {
-            try {
-                val out = File(hakunaaCacheDir(), "hakunaa_organized_${System.currentTimeMillis()}.pdf")
-                val ok = PdfTools.organize(input, out, order) && publishPdf(out)
-                runOnUiThread {
-                    status.text = if (ok) "Done — reorganized PDF saved to Documents/Hakunaa/${out.name}"
-                    else "Organize failed — list every page exactly once, e.g. 3,1,2"
-                }
-            } catch (_: Throwable) {
-                runOnUiThread { status.text = "Organize failed — list every page exactly once, e.g. 3,1,2" }
-            }
-        }.start()
-    }
-
     // ------------------------------------------------------------------
-    // Repair PDF (v0.1.148, new).
+    // Repair PDF (v0.1.148, new). Already per-tool pick.
     // ------------------------------------------------------------------
 
     private fun repairPdf() {
         singlePdfCallback = { uri ->
-            val status = findViewById<TextView>(R.id.tvStatus)
-            status.text = "Repairing PDF…"
+            toast("Repairing PDF…")
             Thread {
                 try {
                     val input = FileUtils.copyUriToCache(this, uri, "repair.pdf")
@@ -696,17 +719,12 @@ class PdfToolsActivity : AppCompatActivity() {
                     val ok = PdfTools.repair(input, out)
                     val savedUri = if (ok) publishPdfUri(out) else null
                     runOnUiThread {
-                        if (ok && savedUri != null) {
-                            status.text = "Done — repaired PDF saved to Documents/Hakunaa/${out.name}"
-                            showSavedPdfDialog(out, savedUri)
-                        } else if (ok) {
-                            status.text = "Done — repaired, but couldn't save it. Try again."
-                        } else {
-                            status.text = "Could not repair — this file is too damaged"
-                        }
+                        if (ok && savedUri != null) showSavedPdfDialog(out, savedUri)
+                        else if (ok) toast("Done — repaired, but couldn't save it. Try again.")
+                        else toast("Could not repair — this file is too damaged")
                     }
                 } catch (_: Throwable) {
-                    runOnUiThread { status.text = "Could not repair — this file is too damaged" }
+                    runOnUiThread { toast("Could not repair — this file is too damaged") }
                 }
             }.start()
         }
@@ -718,66 +736,432 @@ class PdfToolsActivity : AppCompatActivity() {
     // ------------------------------------------------------------------
 
     private fun resizePdf() {
-        val input = firstPickedPdf() ?: return
-        val wrap = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(8), dp(20), dp(4))
-        }
-        val sizeLabel = TextView(this).apply {
-            text = "Page size"
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            textSize = 14f
-        }
-        val rgSize = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
-        val rbA4 = RadioButton(this).apply { text = "A4"; isChecked = true }
-        val rbLetter = RadioButton(this).apply { text = "Letter"; layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(16) } }
-        rgSize.addView(rbA4)
-        rgSize.addView(rbLetter)
-        val orientLabel = TextView(this).apply {
-            text = "Orientation"
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            textSize = 14f
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(16) }
-        }
-        val rgOrient = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
-        val rbPortrait = RadioButton(this).apply { text = "Portrait"; isChecked = true }
-        val rbLandscape = RadioButton(this).apply { text = "Landscape"; layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(16) } }
-        rgOrient.addView(rbPortrait)
-        rgOrient.addView(rbLandscape)
-        wrap.addView(sizeLabel)
-        wrap.addView(rgSize)
-        wrap.addView(orientLabel)
-        wrap.addView(rgOrient)
-        AlertDialog.Builder(this)
-            .setTitle("Resize Pages")
-            .setView(wrap)
-            .setPositiveButton("Resize") { _, _ ->
-                val isA4 = rbA4.isChecked
-                val landscape = rbLandscape.isChecked
-                val w = if (isA4) 595f else 612f
-                val h = if (isA4) 842f else 792f
-                val target = if (landscape) PDRectangle(h, w) else PDRectangle(w, h)
-                runResize(input, target, if (isA4) "A4" else "Letter")
+        pickPdfThen { input ->
+            val wrap = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(20), dp(8), dp(20), dp(4))
             }
-            .setNegativeButton("Cancel", null)
-            .show()
+            val sizeLabel = TextView(this).apply {
+                text = "Page size"
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                textSize = 14f
+            }
+            val rgSize = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
+            val rbA4 = RadioButton(this).apply { text = "A4"; isChecked = true }
+            val rbLetter = RadioButton(this).apply { text = "Letter"; layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(16) } }
+            rgSize.addView(rbA4)
+            rgSize.addView(rbLetter)
+            val orientLabel = TextView(this).apply {
+                text = "Orientation"
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                textSize = 14f
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(16) }
+            }
+            val rgOrient = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
+            val rbPortrait = RadioButton(this).apply { text = "Portrait"; isChecked = true }
+            val rbLandscape = RadioButton(this).apply { text = "Landscape"; layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(16) } }
+            rgOrient.addView(rbPortrait)
+            rgOrient.addView(rbLandscape)
+            wrap.addView(sizeLabel)
+            wrap.addView(rgSize)
+            wrap.addView(orientLabel)
+            wrap.addView(rgOrient)
+            AlertDialog.Builder(this)
+                .setTitle("Resize Pages")
+                .setView(wrap)
+                .setPositiveButton("Resize") { _, _ ->
+                    val isA4 = rbA4.isChecked
+                    val landscape = rbLandscape.isChecked
+                    val w = if (isA4) 595f else 612f
+                    val h = if (isA4) 842f else 792f
+                    val target = if (landscape) PDRectangle(h, w) else PDRectangle(w, h)
+                    runResize(input, target, if (isA4) "A4" else "Letter")
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
     }
 
     private fun runResize(input: File, target: PDRectangle, label: String) {
-        val status = findViewById<TextView>(R.id.tvStatus)
-        status.text = "Resizing pages to $label…"
+        toast("Resizing pages to $label…")
         Thread {
             try {
                 val out = File(hakunaaCacheDir(), "hakunaa_resized_${System.currentTimeMillis()}.pdf")
-                val ok = PdfTools.resizePages(input, out, target) && publishPdf(out)
+                val ok = PdfTools.resizePages(input, out, target)
+                val savedUri = if (ok) publishPdfUri(out) else null
                 runOnUiThread {
-                    status.text = if (ok) "Done — pages resized to $label, saved to Documents/Hakunaa/${out.name}"
-                    else "Resize failed — check the file and try again"
+                    if (ok && savedUri != null) showSavedPdfDialog(out, savedUri)
+                    else toast("Resize failed — check the file and try again")
                 }
             } catch (_: Throwable) {
-                runOnUiThread { status.text = "Resize failed — check the file and try again" }
+                runOnUiThread { toast("Resize failed — check the file and try again") }
             }
         }.start()
+    }
+
+    // ------------------------------------------------------------------
+    // Smart Compress results overlay (v0.1.149, like Image Smart).
+    // 5 levels with REAL sizes, user picks one to save, plus a
+    // Custom size section below (type a target size, e.g. 100 KB).
+    // Full-screen overlay inside this activity — no new Activity.
+    // ------------------------------------------------------------------
+
+    private fun showSmartResults(input: File) {
+        if (smartOverlay != null) return
+        smartInput = input
+        smartOriginalSize = input.length()
+        smartLevelFiles = mutableListOf()
+        smartRows = mutableListOf()
+        smartRowFiles = mutableListOf()
+        smartSelected = -1
+        smartCustomFile = null
+        smartCustomRow = null
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(getColor(R.color.hakunaa_surface))
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val close = TextView(this).apply {
+            text = "✕"
+            textSize = 22f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            setPadding(dp(4), dp(4), dp(16), dp(4))
+            setOnClickListener { dismissSmartOverlay() }
+        }
+        val title = TextView(this).apply {
+            text = "Smart Compress"
+            textSize = 20f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        header.addView(close)
+        header.addView(title)
+        root.addView(header)
+
+        val fileLine = TextView(this).apply {
+            text = "Original: ${input.name} • ${FileUtils.formatSize(smartOriginalSize)}"
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) }
+        }
+        root.addView(fileLine)
+
+        tvSmartComputing = TextView(this).apply {
+            text = "Computing 5 levels…"
+            textSize = 14f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(24) }
+        }
+        root.addView(tvSmartComputing)
+
+        smartResultsBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+        root.addView(smartResultsBox)
+
+        val customLabel = TextView(this).apply {
+            text = "Custom size"
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dp(16)
+                bottomMargin = dp(8)
+            }
+        }
+        root.addView(customLabel)
+        val customRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        etSmartCustomKb = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            hint = "e.g. 100"
+            textSize = 14f
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val kbLabel = TextView(this).apply {
+            text = "KB"
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = dp(8); marginEnd = dp(12) }
+        }
+        val btnCustom = MaterialButton(this).apply {
+            text = "Compress"
+            setOnClickListener { runSmartCustomSize() }
+        }
+        customRow.addView(etSmartCustomKb)
+        customRow.addView(kbLabel)
+        customRow.addView(btnCustom)
+        root.addView(customRow)
+        tvSmartCustomResult = TextView(this).apply {
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+        root.addView(tvSmartCustomResult)
+
+        val spacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            )
+        }
+        root.addView(spacer)
+
+        val btnSave = MaterialButton(this).apply {
+            text = "Save selected"
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(56)
+            ).apply { topMargin = dp(16) }
+            setOnClickListener { saveSmartSelected() }
+        }
+        root.addView(btnSave)
+
+        findViewById<ViewGroup>(android.R.id.content).addView(root)
+        smartOverlay = root
+
+        Thread {
+            try {
+                val levels = PdfTools.compressSmartLevels(input, hakunaaCacheDir())
+                runOnUiThread {
+                    if (levels.isEmpty()) {
+                        tvSmartComputing?.text = "Already optimized — even the strongest Smart settings couldn't shrink this PDF."
+                        return@runOnUiThread
+                    }
+                    tvSmartComputing?.visibility = View.GONE
+                    smartLevelFiles = levels.map { it.file }.toMutableList()
+                    for (level in levels) {
+                        val sizeText = "${FileUtils.formatSize(level.size)} • saved ${FileUtils.savedPercent(smartOriginalSize, level.size)}"
+                        val row = buildSmartResultRow(level.label, sizeText)
+                        smartResultsBox?.addView(row)
+                        smartRows.add(row)
+                        smartRowFiles.add(level.file)
+                    }
+                    // Default: smallest (levels are best quality
+                    // first, so the smallest is the last row).
+                    selectSmartRow(smartRows.size - 1)
+                }
+            } catch (_: Throwable) {
+                runOnUiThread {
+                    tvSmartComputing?.text = "Compress failed — check the file and try again"
+                }
+            }
+        }.start()
+    }
+
+    private fun buildSmartResultRow(label: String, sizeText: String): LinearLayout {
+        val density = resources.displayMetrics.density
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 12f * density
+                setColor(Color.WHITE)
+                setStroke((1 * density).toInt(), Color.parseColor("#CFD8DC"))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(4); bottomMargin = dp(4) }
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            isClickable = true
+            isFocusable = true
+            val outValue = TypedValue()
+            theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
+            foreground = getDrawable(outValue.resourceId)
+        }
+        row.setOnClickListener {
+            val idx = smartRows.indexOf(row)
+            if (idx >= 0) selectSmartRow(idx)
+        }
+        val left = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val tvLabel = TextView(this).apply {
+            text = label
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+        }
+        val tvSize = TextView(this).apply {
+            text = sizeText
+            textSize = 12f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+        }
+        left.addView(tvLabel)
+        left.addView(tvSize)
+        val check = TextView(this).apply {
+            text = "✓"
+            textSize = 20f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_teal))
+            visibility = View.INVISIBLE
+        }
+        row.addView(left)
+        row.addView(check)
+        return row
+    }
+
+    private fun selectSmartRow(index: Int) {
+        smartSelected = index
+        val density = resources.displayMetrics.density
+        for (i in smartRows.indices) {
+            val row = smartRows[i]
+            val selected = i == index
+            row.background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 12f * density
+                if (selected) {
+                    setColor(0xFFE0F2F1.toInt())
+                    setStroke((2 * density).toInt(), getColor(R.color.hakunaa_teal))
+                } else {
+                    setColor(Color.WHITE)
+                    setStroke((1 * density).toInt(), Color.parseColor("#CFD8DC"))
+                }
+            }
+            val check = row.getChildAt(1) as TextView
+            check.visibility = if (selected) View.VISIBLE else View.INVISIBLE
+        }
+    }
+
+    private fun saveSmartSelected() {
+        if (smartSelected < 0 || smartSelected >= smartRowFiles.size) {
+            toast("Pick a result first")
+            return
+        }
+        val file = smartRowFiles[smartSelected] ?: run {
+            toast("Pick a result first")
+            return
+        }
+        if (!file.exists()) {
+            toast("That result is gone — compute again")
+            return
+        }
+        Thread {
+            try {
+                val savedUri = publishPdfUri(file)
+                runOnUiThread {
+                    if (savedUri != null) {
+                        dismissSmartOverlay()
+                        showSavedPdfDialog(file, savedUri)
+                    } else {
+                        toast("Save failed — try again")
+                    }
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { toast("Save failed — try again") }
+            }
+        }.start()
+    }
+
+    private fun runSmartCustomSize() {
+        val input = smartInput ?: return
+        val kb = etSmartCustomKb?.text?.toString()?.trim()?.toIntOrNull()
+        if (kb == null || kb <= 0) {
+            toast("Type a size in KB, e.g. 100")
+            return
+        }
+        val targetBytes = kb.toLong() * 1024L
+        if (targetBytes >= smartOriginalSize) {
+            tvSmartCustomResult?.text = "Already smaller than $kb KB — no need to compress"
+            return
+        }
+        tvSmartCustomResult?.text = "Computing…"
+        Thread {
+            try {
+                val result = PdfTools.compressSmartToTarget(input, hakunaaCacheDir(), targetBytes)
+                runOnUiThread {
+                    val f = result.file
+                    if (f == null) {
+                        tvSmartCustomResult?.text = "Could not shrink this PDF at all"
+                        return@runOnUiThread
+                    }
+                    smartCustomFile?.let { old ->
+                        if (old != f) try { old.delete() } catch (_: Throwable) { }
+                    }
+                    smartCustomFile = f
+                    val sizeText = "${FileUtils.formatSize(result.size)} • saved ${FileUtils.savedPercent(smartOriginalSize, result.size)}"
+                    val label = "Custom • $kb KB"
+                    if (result.reached) {
+                        tvSmartCustomResult?.text = "Done — $sizeText"
+                    } else {
+                        tvSmartCustomResult?.text = "Could not reach $kb KB — smallest is ${FileUtils.formatSize(result.smallestSize)}"
+                    }
+                    updateSmartCustomRow(label, sizeText, f)
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { tvSmartCustomResult?.text = "Custom size failed — try again" }
+            }
+        }.start()
+    }
+
+    private fun updateSmartCustomRow(label: String, sizeText: String, file: File) {
+        val box = smartResultsBox ?: return
+        val row = smartCustomRow
+        if (row == null) {
+            val newRow = buildSmartResultRow(label, sizeText)
+            smartCustomRow = newRow
+            box.addView(newRow)
+            smartRows.add(newRow)
+            smartRowFiles.add(file)
+            selectSmartRow(smartRows.size - 1)
+        } else {
+            val left = row.getChildAt(0) as LinearLayout
+            (left.getChildAt(0) as TextView).text = label
+            (left.getChildAt(1) as TextView).text = sizeText
+            val idx = smartRows.indexOf(row)
+            if (idx >= 0) {
+                smartRowFiles[idx] = file
+                selectSmartRow(idx)
+            }
+        }
+    }
+
+    private fun dismissSmartOverlay() {
+        val overlay = smartOverlay ?: return
+        findViewById<ViewGroup>(android.R.id.content).removeView(overlay)
+        smartOverlay = null
+        for (f in smartLevelFiles) try { f.delete() } catch (_: Throwable) { }
+        smartCustomFile?.let { try { it.delete() } catch (_: Throwable) { } }
+        smartLevelFiles = mutableListOf()
+        smartRows = mutableListOf()
+        smartRowFiles = mutableListOf()
+        smartSelected = -1
+        smartCustomFile = null
+        smartCustomRow = null
+        tvSmartComputing = null
+        smartResultsBox = null
+        tvSmartCustomResult = null
+        etSmartCustomKb = null
+        smartInput = null
     }
 
     // ------------------------------------------------------------------
@@ -1105,8 +1489,6 @@ class PdfToolsActivity : AppCompatActivity() {
                 runOnUiThread {
                     if (ok && savedUri != null) {
                         dismissSignOverlay()
-                        findViewById<TextView>(R.id.tvStatus).text =
-                            "Done — signed PDF saved to Documents/Hakunaa/${out.name}"
                         showSavedPdfDialog(out, savedUri)
                     } else {
                         Toast.makeText(this, "Sign failed — check the file and try again", Toast.LENGTH_SHORT).show()
