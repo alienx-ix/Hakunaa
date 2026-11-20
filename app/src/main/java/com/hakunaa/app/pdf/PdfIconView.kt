@@ -22,8 +22,8 @@ class PdfIconView @JvmOverloads constructor(
 ) : View(context, attrs) {
 
     enum class Kind {
-        SMART, LOSSLESS, MERGE, SPLIT, ORGANIZE, SIGN, JPG, LOCK,
-        REPAIR, PAGE_NO, ROTATE, IMG_PDF, TEXT, WATERMARK, IMG_EXTRACT, RESIZE
+        SMART, LOSSLESS, MERGE, SPLIT, ORGANIZE, SIGN, JPG, LOCK, UNLOCK,
+        REPAIR, PAGE_NO, ROTATE, IMG_PDF, DELETE_PAGES, WATERMARK, IMG_EXTRACT, RESIZE
     }
 
     var kind: Kind = Kind.SMART
@@ -68,11 +68,12 @@ class PdfIconView @JvmOverloads constructor(
             Kind.SIGN -> canvas.sign()
             Kind.JPG -> canvas.jpg()
             Kind.LOCK -> canvas.lock()
+            Kind.UNLOCK -> canvas.unlock()
             Kind.REPAIR -> canvas.repair()
             Kind.PAGE_NO -> canvas.pageNo()
             Kind.ROTATE -> canvas.rotate()
             Kind.IMG_PDF -> canvas.image(yellow)
-            Kind.TEXT -> canvas.textT()
+            Kind.DELETE_PAGES -> canvas.deletePages()
             Kind.WATERMARK -> canvas.watermark()
             Kind.IMG_EXTRACT -> canvas.imageExtract()
             Kind.RESIZE -> canvas.resize()
@@ -143,27 +144,38 @@ class PdfIconView @JvmOverloads constructor(
     }
 
     /** Pen + flowing signature squiggle. */
+    /** Fountain pen, drawn bold so it reads as a pen at a
+     * glance: thick diagonal barrel, clear nib with a slit, and a
+     * flowing signature flourish underneath. (v0.1.153, Fix #19 —
+     * the old pen + squiggle did not read as a signature pen.) */
     private fun Canvas.sign() {
+        // Signature flourish first (behind the pen).
         stroke.color = tealDk
         stroke.strokeWidth = 6f
         val sig = android.graphics.Path().apply {
-            moveTo(14f, 78f)
-            cubicTo(26f, 62f, 34f, 90f, 46f, 74f)
-            cubicTo(54f, 62f, 62f, 88f, 74f, 72f)
-            lineTo(86f, 78f)
+            moveTo(12f, 82f)
+            cubicTo(22f, 64f, 30f, 92f, 42f, 76f)
+            cubicTo(50f, 64f, 56f, 90f, 68f, 74f)
+            cubicTo(74f, 66f, 80f, 80f, 88f, 76f)
         }
         drawPath(sig, stroke)
-        stroke.strokeWidth = 8f
-        drawLine(30f, 52f, 66f, 16f, stroke)
+        // Pen barrel: thick diagonal line, nib end at top-right.
+        stroke.strokeWidth = 11f
+        drawLine(26f, 58f, 58f, 26f, stroke)
+        // Nib: filled triangle + slit line.
         fill.color = tealDk
         val nib = android.graphics.Path().apply {
-            moveTo(66f, 16f)
-            lineTo(88f, 8f)
-            lineTo(80f, 32f)
+            moveTo(58f, 26f)
+            lineTo(88f, 10f)
+            lineTo(76f, 42f)
             close()
         }
         drawPath(nib, fill)
+        stroke.color = Color.WHITE
+        stroke.strokeWidth = 3f
+        drawLine(66f, 30f, 78f, 20f, stroke)
     }
+
 
     /** Yellow file square with folded corner + "JPG". */
     private fun Canvas.jpg() {
@@ -191,14 +203,38 @@ class PdfIconView @JvmOverloads constructor(
         drawRoundRect(RectF(46f, 64f, 54f, 76f), 3f, 3f, fill)
     }
 
+/** Open padlock (unlock): same body as the lock, but the
+     * shackle is drawn open on the right side. */
+    private fun Canvas.unlock() {
+        stroke.color = blue
+        stroke.strokeWidth = 7f
+        drawArc(RectF(32f, 12f, 68f, 48f), 180f, 130f, false, stroke)
+        drawLine(68f, 30f, 68f, 46f, stroke)
+        rr(24f, 44f, 52f, blue, 9f)
+        fill.color = Color.WHITE
+        drawCircle(50f, 62f, 7f, fill)
+        drawRoundRect(RectF(46f, 64f, 54f, 76f), 3f, 3f, fill)
+    }
+
     /** Wrench: open jaw crescent + thick handle. */
+    /** Real open-jaw wrench (v0.1.153, Fix #19 — the old arc +
+     * line did not read as a wrench): a ring with the jaw open at
+     * the top-right, two jaw flats, and a thick handle running
+     * down to the bottom-left. */
     private fun Canvas.repair() {
         stroke.color = tealDk
         stroke.strokeWidth = 10f
-        drawArc(RectF(42f, 8f, 92f, 58f), 300f, 150f, false, stroke)
-        stroke.strokeWidth = 11f
-        drawLine(18f, 84f, 48f, 54f, stroke)
+        // Jaw ring: 270° arc, gap at the top-right.
+        drawArc(RectF(42f, 6f, 94f, 58f), 20f, 270f, false, stroke)
+        // Jaw flats: short lines from the arc ends toward the centre.
+        stroke.strokeWidth = 9f
+        drawLine(85f, 15f, 74f, 26f, stroke)
+        drawLine(90f, 40f, 78f, 37f, stroke)
+        // Handle.
+        stroke.strokeWidth = 12f
+        drawLine(50f, 50f, 16f, 84f, stroke)
     }
+
 
     /** Four numbered mini squares (page numbers). */
     private fun Canvas.pageNo() {
@@ -250,18 +286,39 @@ class PdfIconView @JvmOverloads constructor(
     }
 
     /** Big teal "T" + text lines (extract text). */
-    private fun Canvas.textT() {
-        textPaint.color = tealDk
-        textPaint.textSize = 56f
-        drawText("T", 50f, 56f, textPaint)
-        stroke.color = tealDk
-        stroke.strokeWidth = 6f
-        drawLine(28f, 72f, 72f, 72f, stroke)
-        drawLine(34f, 86f, 66f, 86f, stroke)
-        textPaint.color = Color.WHITE
-    }
 
     /** Rubber stamp in a purple square (watermark). */
+/** Delete Pages: a page outline with a red X badge at the
+     * bottom-right — reads instantly as "remove this page". */
+    private fun Canvas.deletePages() {
+        stroke.color = tealDk
+        stroke.strokeWidth = 6f
+        val doc = android.graphics.Path().apply {
+            moveTo(26f, 12f)
+            lineTo(58f, 12f)
+            lineTo(74f, 28f)
+            lineTo(74f, 84f)
+            lineTo(26f, 84f)
+            close()
+        }
+        drawPath(doc, stroke)
+        stroke.strokeWidth = 5f
+        drawLine(58f, 12f, 58f, 28f, stroke)
+        drawLine(58f, 28f, 74f, 28f, stroke)
+        stroke.color = tealDk
+        stroke.strokeWidth = 5f
+        drawLine(36f, 46f, 64f, 46f, stroke)
+        drawLine(36f, 58f, 64f, 58f, stroke)
+        drawLine(36f, 70f, 54f, 70f, stroke)
+        // Red X badge.
+        fill.color = Color.parseColor("#E85A46")
+        drawCircle(76f, 76f, 16f, fill)
+        stroke.color = Color.WHITE
+        stroke.strokeWidth = 6f
+        drawLine(69f, 69f, 83f, 83f, stroke)
+        drawLine(83f, 69f, 69f, 83f, stroke)
+    }
+
     private fun Canvas.watermark() {
         rr(14f, 14f, 72f, purple, 10f)
         fill.color = Color.WHITE

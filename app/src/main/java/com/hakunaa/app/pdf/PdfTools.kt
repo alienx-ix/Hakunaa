@@ -19,7 +19,7 @@ import com.tom_roush.pdfbox.multipdf.LayerUtility
 import com.tom_roush.pdfbox.multipdf.PDFMergerUtility
 import com.tom_roush.pdfbox.util.Matrix
 import com.tom_roush.pdfbox.rendering.PDFRenderer
-import com.tom_roush.pdfbox.text.PDFTextStripper
+import com.tom_roush.pdfbox.pdmodel.graphics.state.PDExtendedGraphicsState
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import java.io.File
@@ -620,35 +620,77 @@ object PdfTools {
      * semi-transparent light grey, so the content stays readable
      * underneath. Returns true on success.
      */
-    fun watermark(input: File, output: File, text: String): Boolean {
+    /**
+     * Watermark (v0.1.153, Fix #28 — options version).
+     * [opts.position]: 0 = centre diagonal, 1 = centre horizontal,
+     * 2 = top centre, 3 = bottom centre, 4 = top-left, 5 = top-right,
+     * 6 = bottom-left, 7 = bottom-right. Opacity 0..1, rotation in
+     * degrees, colour as 0xRRGGBB. Pages outside fromPage..toPage are
+     * left untouched. The old 3-arg call keeps working via defaults.
+     */
+    data class WatermarkOptions(
+        val position: Int = 0,
+        val opacity: Float = 0.35f,
+        val fontSizePt: Float = 48f,
+        val colorRgb: Int = 0xB4B4B4,
+        val rotationDeg: Float = 45f,
+        val fromPage: Int = 1,
+        val toPage: Int = Int.MAX_VALUE
+    )
+
+    fun watermark(
+        input: File, output: File, text: String,
+        opts: WatermarkOptions = WatermarkOptions()
+    ): Boolean {
         return try {
             PDDocument.load(input).use { doc ->
-                for (page in doc.pages) {
-                    val box = page.mediaBox
+                val total = doc.numberOfPages
+                val to = minOf(opts.toPage, total)
+                val font = PDType1Font.HELVETICA_BOLD
+                val size = opts.fontSizePt
+                val r = (opts.colorRgb shr 16) and 0xFF
+                val g = (opts.colorRgb shr 8) and 0xFF
+                val bl = opts.colorRgb and 0xFF
+                val angle = Math.toRadians(opts.rotationDeg.toDouble())
+                val cos = kotlin.math.cos(angle).toFloat()
+                val sin = kotlin.math.sin(angle).toFloat()
+                for (index in 0 until total) {
+                    val pageNum = index + 1
+                    if (pageNum < opts.fromPage || pageNum > to) continue
+                    val page = doc.getPage(index)
+                    val box = page.cropBox
+                    val textW = font.getStringWidth(text) / 1000f * size
+                    // Centre point of the text, in page coordinates.
+                    val margin = 36f
+                    val cx = when (opts.position) {
+                        4, 6 -> box.lowerLeftX + margin + textW / 2f
+                        5, 7 -> box.lowerLeftX + box.width - margin - textW / 2f
+                        else -> box.lowerLeftX + box.width / 2f
+                    }
+                    val cy = when (opts.position) {
+                        2 -> box.lowerLeftY + box.height - margin - size / 2f
+                        3 -> box.lowerLeftY + margin + size / 2f
+                        4, 5 -> box.lowerLeftY + box.height - margin - size / 2f
+                        6, 7 -> box.lowerLeftY + margin + size / 2f
+                        else -> box.lowerLeftY + box.height / 2f
+                    }
+                    // Text origin = centre moved back half the width
+                    // along the rotated text direction, so the text is
+                    // centred on (cx, cy) whatever the rotation is.
+                    val ox = cx - (textW / 2f) * cos
+                    val oy = cy - (textW / 2f) * sin
                     PDPageContentStream(
                         doc, page,
                         PDPageContentStream.AppendMode.APPEND, true, true
                     ).use { content ->
-                        content.setNonStrokingColor(180, 180, 180)
+                        val gs = PDExtendedGraphicsState()
+                        gs.nonStrokingAlphaConstant = opts.opacity.coerceIn(0.05f, 1f)
+                        content.setGraphicsStateParameters(gs)
+                        content.setNonStrokingColor(r, g, bl)
                         content.beginText()
-                        // Centre of the page, rotated 45 degrees.
+                        content.setFont(font, size)
                         content.setTextMatrix(
-                            com.tom_roush.pdfbox.util.Matrix.getRotateInstance(
-                                Math.toRadians(45.0),
-                                box.width / 2f, box.height / 2f
-                            )
-                        )
-                        content.setFont(
-                            com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA_BOLD, 48f
-                        )
-                        // Centre the text on the rotation point.
-                        val textWidth = com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA_BOLD
-                            .getStringWidth(text) / 1000f * 48f
-                        content.setTextMatrix(
-                            com.tom_roush.pdfbox.util.Matrix.getRotateInstance(
-                                Math.toRadians(45.0),
-                                box.width / 2f - textWidth / 2f, box.height / 2f
-                            )
+                            Matrix.getRotateInstance(angle, ox, oy)
                         )
                         content.showText(text)
                         content.endText()
@@ -656,49 +698,124 @@ object PdfTools {
                 }
                 doc.save(output)
             }
-            true
+            output.exists() && output.length() > 0
         } catch (_: Throwable) {
             false
         }
     }
 
+
     /**
      * Page Numbers: stamp "Page X of Y" at the bottom centre of
      * every page. Returns true on success.
      */
-    fun pageNumbers(input: File, output: File): Boolean {
+    /**
+     * Page Numbers (v0.1.153, Fix #24 — rewritten).
+     * ROOT CAUSE of "suthama work aagala": the old version stamped
+     * from the page's mediaBox with newLineAtOffset, ignoring the
+     * cropBox AND the page rotation. On PDFs whose cropBox is offset
+     * or whose pages carry rotation (very common for scanned / phone
+     * PDFs), the number landed OUTSIDE the visible area — the file
+     * saved fine, but the user saw nothing. This version positions
+     * from the cropBox, converts the wanted visual position into PDF
+     * coordinates for the page's rotation, draws the text upright
+     * (text matrix counter-rotated), isolates per-page failures, and
+     * returns false unless the output file exists and is non-empty.
+     */
+    data class PageNumberOptions(
+        val format: Int = 2, // 0 = "1", 1 = "Page 1", 2 = "Page 1 of 10"
+        val position: Int = 4, // 0 TL, 1 TC, 2 TR, 3 BL, 4 BC, 5 BR
+        val fontSizePt: Float = 12f,
+        val colorRgb: Int = 0x111827,
+        val skipCover: Boolean = false,
+        val startNumber: Int = 1,
+        val fromPage: Int = 1,
+        val toPage: Int = Int.MAX_VALUE
+    )
+
+    fun pageNumbers(
+        input: File, output: File,
+        opts: PageNumberOptions = PageNumberOptions()
+    ): Boolean {
         return try {
+            var stamped = 0
             PDDocument.load(input).use { doc ->
                 val total = doc.numberOfPages
-                var index = 1
-                for (page in doc.pages) {
-                    val box = page.mediaBox
-                    val label = "Page $index of $total"
-                    PDPageContentStream(
-                        doc, page,
-                        PDPageContentStream.AppendMode.APPEND, true, true
-                    ).use { content ->
-                        content.beginText()
-                        content.setFont(
-                            com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA, 10f
-                        )
-                        val textWidth = com.tom_roush.pdfbox.pdmodel.font.PDType1Font.HELVETICA
-                            .getStringWidth(label) / 1000f * 10f
-                        content.newLineAtOffset(
-                            (box.width - textWidth) / 2f, 20f
-                        )
-                        content.showText(label)
-                        content.endText()
+                val to = minOf(opts.toPage, total)
+                for (index in 0 until total) {
+                    val pageNum = index + 1
+                    if (pageNum < opts.fromPage || pageNum > to) continue
+                    if (opts.skipCover && pageNum == 1) continue
+                    val displayNum = opts.startNumber + (pageNum - 1)
+                    val label = when (opts.format) {
+                        0 -> "$displayNum"
+                        1 -> "Page $displayNum"
+                        else -> "Page $displayNum of $total"
                     }
-                    index++
+                    try {
+                        val page = doc.getPage(index)
+                        val crop = page.cropBox
+                        val rot = ((page.rotation % 360) + 360) % 360
+                        val w = crop.width
+                        val h = crop.height
+                        // Visual (display) size after rotation.
+                        val dispW = if (rot == 90 || rot == 270) h else w
+                        val dispH = if (rot == 90 || rot == 270) w else h
+                        val font = PDType1Font.HELVETICA
+                        val size = opts.fontSizePt
+                        val textW = font.getStringWidth(label) / 1000f * size
+                        val margin = 24f
+                        // Wanted visual point of the label's LEFT edge,
+                        // measured from the top-left of the displayed page.
+                        val dx = when (opts.position % 3) {
+                            0 -> margin
+                            1 -> (dispW - textW) / 2f
+                            else -> dispW - margin - textW
+                        }
+                        val dy = if (opts.position < 3) margin + size else dispH - margin
+                        // Convert display point -> PDF user-space point.
+                        val pdfX: Float
+                        val pdfY: Float
+                        when (rot) {
+                            90 -> { pdfX = crop.lowerLeftX + (dispH - dy); pdfY = crop.lowerLeftY + dx }
+                            180 -> { pdfX = crop.lowerLeftX + (dispW - dx - textW); pdfY = crop.lowerLeftY + dy }
+                            270 -> { pdfX = crop.lowerLeftX + dy; pdfY = crop.lowerLeftY + (dispW - dx - textW) }
+                            else -> { pdfX = crop.lowerLeftX + dx; pdfY = crop.lowerLeftY + (dispH - dy) }
+                        }
+                        PDPageContentStream(
+                            doc, page,
+                            PDPageContentStream.AppendMode.APPEND, true, true
+                        ).use { content ->
+                            content.beginText()
+                            content.setFont(font, size)
+                            val r = (opts.colorRgb shr 16) and 0xFF
+                            val g = (opts.colorRgb shr 8) and 0xFF
+                            val bl = opts.colorRgb and 0xFF
+                            content.setNonStrokingColor(r, g, bl)
+                            // Counter-rotate so the text reads upright
+                            // after the viewer applies the page rotation.
+                            content.setTextMatrix(
+                                Matrix.getRotateInstance(
+                                    Math.toRadians((-rot).toDouble()),
+                                    pdfX, pdfY
+                                )
+                            )
+                            content.showText(label)
+                            content.endText()
+                        }
+                        stamped++
+                    } catch (_: Throwable) {
+                        // One bad page must not kill the whole file.
+                    }
                 }
-                doc.save(output)
+                if (stamped > 0) doc.save(output)
             }
-            true
+            stamped > 0 && output.exists() && output.length() > 0
         } catch (_: Throwable) {
             false
         }
     }
+
 
     /**
      * Delete Pages: remove the given 1-based [pages] from the PDF.
@@ -876,15 +993,6 @@ object PdfTools {
      * Extract TXT: pull all text out of the PDF. Returns the text,
      * or null on failure. The caller saves it as a .txt file.
      */
-    fun extractText(input: File): String? {
-        return try {
-            PDDocument.load(input).use { doc ->
-                PDFTextStripper().getText(doc)
-            }
-        } catch (_: Throwable) {
-            null
-        }
-    }
 
     /**
      * Protect PDF: lock the PDF with a user [password]. Anyone
@@ -1068,17 +1176,91 @@ object PdfTools {
      * the bitmap, or null on failure. Call off the UI thread —
      * rendering a page takes a moment.
      */
-    fun renderFirstPageThumb(input: File, maxWidthPx: Int): Bitmap? {
+    /**
+     * Page thumbnail for ANY page (v0.1.153, for Organize / Sign /
+     * Delete Pages grids): renders page [pageIndex] (0-based) at a
+     * DPI chosen so the width is about [maxWidthPx]. Returns the
+     * bitmap, or null on failure. Call off the UI thread.
+     */
+    fun renderPageThumb(input: File, pageIndex: Int, maxWidthPx: Int): Bitmap? {
         return try {
             PDDocument.load(input).use { doc ->
-                if (doc.numberOfPages < 1) return null
-                val pageW = doc.getPage(0).mediaBox.width
+                if (pageIndex !in 0 until doc.numberOfPages) return null
+                val pageW = doc.getPage(pageIndex).mediaBox.width
                 if (pageW <= 0) return null
                 val dpi = (72f * maxWidthPx / pageW).coerceIn(36f, 150f)
-                PDFRenderer(doc).renderImageWithDPI(0, dpi)
+                PDFRenderer(doc).renderImageWithDPI(pageIndex, dpi)
             }
         } catch (_: Throwable) {
             null
         }
     }
+
+    /**
+     * First-page thumbnail (v0.1.150, for the Smart / Lossless
+     * preview at the top of the result screens): renders page 0
+     * at a DPI chosen so the width is about [maxWidthPx]. Returns
+     * the bitmap, or null on failure. Call off the UI thread —
+     * rendering a page takes a moment.
+     */
+    fun renderFirstPageThumb(input: File, maxWidthPx: Int): Bitmap? {
+        return renderPageThumb(input, 0, maxWidthPx)
+    }
+
+    /** One page reference for rebuildPages: [file], 0-based [page],
+     * and a clockwise [rotation] delta (0/90/180/270) to apply. */
+    data class PageRef(val file: File, val page: Int, val rotation: Int)
+
+    /**
+     * Rebuild a PDF from an ordered list of pages (v0.1.153, for
+     * Organize): pages may come from more than one file, may repeat
+     * (duplicate), may be omitted (delete), and each may carry its
+     * own rotation. Vector/text content stays vector — pages are
+     * imported as forms, never rasterised. Returns true on success.
+     */
+    fun rebuildPages(items: List<PageRef>, output: File): Boolean {
+        return try {
+            if (items.isEmpty()) return false
+            PDDocument().use { dst ->
+                val layer = LayerUtility(dst)
+                val docs = mutableMapOf<File, PDDocument>()
+                try {
+                    for (item in items) {
+                        val src = docs.getOrPut(item.file) { PDDocument.load(item.file) }
+                        val srcPage = src.getPage(item.page)
+                        val box = srcPage.mediaBox
+                        val rot = ((item.rotation % 360) + 360) % 360
+                        val newPage = if (rot == 90 || rot == 270) {
+                            PDPage(PDRectangle(box.height, box.width))
+                        } else {
+                            PDPage(PDRectangle(box.width, box.height))
+                        }
+                        dst.addPage(newPage)
+                        val form = layer.importPageAsForm(src, srcPage)
+                        PDPageContentStream(dst, newPage).use { cs ->
+                            cs.saveGraphicsState()
+                            if (rot != 0) {
+                                val cx = newPage.mediaBox.width / 2f
+                                val cy = newPage.mediaBox.height / 2f
+                                cs.transform(Matrix.getTranslateInstance(cx, cy))
+                                cs.transform(Matrix.getRotateInstance(Math.toRadians((-rot).toDouble()), 0f, 0f))
+                                cs.transform(Matrix.getTranslateInstance(-box.width / 2f, -box.height / 2f))
+                            }
+                            cs.drawForm(form)
+                            cs.restoreGraphicsState()
+                        }
+                    }
+                    dst.save(output)
+                } finally {
+                    for (d in docs.values) {
+                        try { d.close() } catch (_: Throwable) { }
+                    }
+                }
+            }
+            output.exists() && output.length() > 0
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
 }

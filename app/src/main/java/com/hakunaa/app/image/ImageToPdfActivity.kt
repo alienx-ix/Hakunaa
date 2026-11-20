@@ -53,7 +53,8 @@ class ImageToPdfActivity : AppCompatActivity() {
         val file: File,
         val name: String,
         val size: Long,
-        var thumb: Bitmap? = null
+        var thumb: Bitmap? = null,
+        var selected: Boolean = true
     )
 
     private val pages = mutableListOf<PageItem>()
@@ -62,6 +63,11 @@ class ImageToPdfActivity : AppCompatActivity() {
     private lateinit var tvCount: TextView
     private lateinit var tvEmpty: TextView
     private lateinit var btnCreate: MaterialButton
+    private lateinit var optionsBox: LinearLayout
+    private lateinit var pagesList: RecyclerView
+    private lateinit var bottomBar: LinearLayout
+    private lateinit var sizeStep: LinearLayout
+    private lateinit var sizeStepList: LinearLayout
     private var creating = false
     private var saving = false
     /** The 3 built sizes (Normal / Compress / Extreme), for cleanup after save. */
@@ -124,7 +130,7 @@ class ImageToPdfActivity : AppCompatActivity() {
         root.addView(topBar)
 
         // Options: page size + orientation.
-        val optionsBox = LinearLayout(this).apply {
+        optionsBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(
                 (16 * density).toInt(), (4 * density).toInt(),
@@ -195,6 +201,7 @@ class ImageToPdfActivity : AppCompatActivity() {
             }
         })
         itemTouchHelper.attachToRecyclerView(list)
+        pagesList = list
         root.addView(list)
 
         // Empty state.
@@ -210,6 +217,50 @@ class ImageToPdfActivity : AppCompatActivity() {
             visibility = View.GONE
         }
         root.addView(tvEmpty)
+
+        // In-screen size step (v0.1.153, Fix #20): the old
+        // 3-size chooser was a Dialog over the pages — now it is
+        // an in-screen step. Hidden until Create PDF builds the
+        // three sizes.
+        sizeStep = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(
+                (16 * density).toInt(), (12 * density).toInt(),
+                (16 * density).toInt(), 0
+            )
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            )
+        }
+        sizeStep.addView(TextView(this).apply {
+            text = "Choose PDF size"
+            textSize = 18f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+        })
+        sizeStep.addView(TextView(this).apply {
+            text = "Each size is built for real — tap one to save it."
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            setPadding(0, (4 * density).toInt(), 0, (8 * density).toInt())
+        })
+        sizeStepList = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        sizeStep.addView(sizeStepList)
+        val sizeBack = TextView(this).apply {
+            text = "‹  Back to pages"
+            textSize = 15f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_teal))
+            setPadding(0, (16 * density).toInt(), 0, (8 * density).toInt())
+            isClickable = true
+            isFocusable = true
+        }
+        sizeBack.setOnClickListener { showPagesStep() }
+        sizeStep.addView(sizeBack)
+        root.addView(sizeStep)
 
         // Bottom bar: Add images / Create PDF.
         val bottomBar = LinearLayout(this).apply {
@@ -243,6 +294,7 @@ class ImageToPdfActivity : AppCompatActivity() {
         btnCreate.setOnClickListener { createPdf() }
         bottomBar.addView(addBtn)
         bottomBar.addView(btnCreate)
+        this.bottomBar = bottomBar
         root.addView(bottomBar)
 
         setContentView(root)
@@ -411,10 +463,30 @@ class ImageToPdfActivity : AppCompatActivity() {
 
     /** Page count, empty state, Create button. */
     private fun refreshState() {
+        val selected = pages.count { it.selected }
         tvCount.text = if (pages.isEmpty()) "" else
-            "${pages.size} page${if (pages.size == 1) "" else "s"}  •  Long-press a page to drag & reorder"
+            "${pages.size} page${if (pages.size == 1) "" else "s"}  •  $selected selected  •  Tap a page to select, long-press to drag"
         tvEmpty.visibility = if (pages.isEmpty()) View.VISIBLE else View.GONE
-        btnCreate.isEnabled = pages.isNotEmpty() && !creating
+        btnCreate.isEnabled = selected > 0 && !creating
+    }
+
+    /** Switch between the pages step and the in-screen size step. */
+    private fun showSizeStep() {
+        optionsBox.visibility = View.GONE
+        tvCount.visibility = View.GONE
+        pagesList.visibility = View.GONE
+        tvEmpty.visibility = View.GONE
+        bottomBar.visibility = View.GONE
+        sizeStep.visibility = View.VISIBLE
+    }
+
+    private fun showPagesStep() {
+        sizeStep.visibility = View.GONE
+        optionsBox.visibility = View.VISIBLE
+        tvCount.visibility = View.VISIBLE
+        pagesList.visibility = View.VISIBLE
+        bottomBar.visibility = View.VISIBLE
+        refreshState()
     }
 
     /** Create PDF — but do NOT save directly (v0.1.133, Batch
@@ -427,7 +499,13 @@ class ImageToPdfActivity : AppCompatActivity() {
         creating = true
         refreshState()
         Toast.makeText(this, "Preparing sizes…", Toast.LENGTH_SHORT).show()
-        val files = pages.map { it.file }
+        val files = pages.filter { it.selected }.map { it.file }
+        if (files.isEmpty()) {
+            creating = false
+            refreshState()
+            Toast.makeText(this, "Select at least one image", Toast.LENGTH_SHORT).show()
+            return
+        }
         val base = if (pageSize == "Letter") PDRectangle.LETTER else PDRectangle.A4
         val rect = if (orientation == "Landscape") {
             PDRectangle(base.height, base.width)
@@ -471,8 +549,10 @@ class ImageToPdfActivity : AppCompatActivity() {
         }.start()
     }
 
-    /** Size chooser: one row per built size, with its real file
-     *  size — tap a row to save that PDF (scanner export style). */
+    /** Size step (in-screen, v0.1.153): one row per built size,
+     *  with its real file size — tap a row to save that PDF. The
+     *  old chooser was a Dialog over the pages; the step lives in
+     *  the screen now. */
     private fun showSizeChooser(built: List<Pair<String, File>>) {
         val density = resources.displayMetrics.density
         val notes = mapOf(
@@ -480,52 +560,26 @@ class ImageToPdfActivity : AppCompatActivity() {
             "Compress" to "Balanced — crisp at print size",
             "Extreme" to "Smallest file — for sharing"
         )
-        // v0.1.134 (Batch 18): a THEMED dialog, not the system
-        // AlertDialog — the old one rendered plain white with a
-        // blue Cancel, nothing like the app's theme. Custom Dialog
-        // with a plain GradientDrawable card (no M3 dialog tint
-        // can darken it, v0.1.131 finding), teal accents, 20dp
-        // corners, teal Cancel — same 3 options, same real sizes,
-        // same tap-to-save behaviour.
-        val dialog = Dialog(this)
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
-        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
-        dialog.setCancelable(true)
-        val outer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding((24 * density).toInt(), 0, (24 * density).toInt(), 0)
-        }
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = 20f * density
-                setColor(getColor(R.color.hakunaa_surface))
-            }
-            elevation = 8f * density
-            clipToOutline = true
-        }
-        val inner = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(
-                (24 * density).toInt(), (24 * density).toInt(),
-                (24 * density).toInt(), (16 * density).toInt()
-            )
-        }
-        inner.addView(TextView(this).apply {
-            text = "Choose PDF size"
-            textSize = 18f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(getColor(R.color.hakunaa_text))
-        })
-        val list = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, (8 * density).toInt(), 0, 0)
-        }
+        sizeStepList.removeAllViews()
         for ((name, file) in built) {
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(0, (12 * density).toInt(), 0, (12 * density).toInt())
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 12f * density
+                    setColor(getColor(R.color.hakunaa_surface))
+                    setStroke((1 * density).toInt(), getColor(R.color.hakunaa_outline))
+                }
+                setPadding(
+                    (16 * density).toInt(), (14 * density).toInt(),
+                    (16 * density).toInt(), (14 * density).toInt()
+                )
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = (8 * density).toInt() }
+                isClickable = true
+                isFocusable = true
             }
             val topRow = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -552,39 +606,10 @@ class ImageToPdfActivity : AppCompatActivity() {
                 setTextColor(getColor(R.color.hakunaa_text_secondary))
                 setPadding(0, (2 * density).toInt(), 0, 0)
             })
-            row.setOnClickListener {
-                dialog.dismiss()
-                saveChosen(file)
-            }
-            list.addView(row)
-            // Divider between rows.
-            if (name != built.last().first) {
-                list.addView(View(this).apply {
-                    setBackgroundColor(getColor(R.color.hakunaa_outline))
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        (1 * density).toInt()
-                    )
-                })
-            }
+            row.setOnClickListener { saveChosen(file) }
+            sizeStepList.addView(row)
         }
-        inner.addView(list)
-        // Teal Cancel (not the system's blue).
-        val cancel = TextView(this).apply {
-            text = "Cancel"
-            textSize = 15f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(getColor(R.color.hakunaa_teal))
-            gravity = Gravity.END
-            setPadding(0, (16 * density).toInt(), 0, (4 * density).toInt())
-            isClickable = true
-        }
-        cancel.setOnClickListener { dialog.dismiss() }
-        inner.addView(cancel)
-        card.addView(inner)
-        outer.addView(card)
-        dialog.setContentView(outer)
-        dialog.show()
+        showSizeStep()
     }
 
     /** Save the chosen size to Documents (prevents double taps). */
@@ -594,9 +619,9 @@ class ImageToPdfActivity : AppCompatActivity() {
         Toast.makeText(this, "Saving…", Toast.LENGTH_SHORT).show()
         Thread {
             try {
-                val saved = MediaStoreSaver.save(
+                val savedUri = MediaStoreSaver.save(
                     this, chosen, MediaStoreSaver.Kind.DOCUMENT, chosen.name
-                ) != null
+                )
                 // Drop the other built sizes (best effort).
                 for (file in builtVariants) {
                     if (file != chosen) {
@@ -604,12 +629,8 @@ class ImageToPdfActivity : AppCompatActivity() {
                     }
                 }
                 runOnUiThread {
-                    if (saved) {
-                        Toast.makeText(
-                            this, "PDF saved to Documents/Hakunaa",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                        finish()
+                    if (savedUri != null) {
+                        showSavedDialog(chosen, savedUri)
                     } else {
                         saving = false
                         Toast.makeText(
@@ -627,6 +648,141 @@ class ImageToPdfActivity : AppCompatActivity() {
         }.start()
     }
 
+    /** Professional Saved dialog (v0.1.153, Fix #20): green check
+     *  + file name + location/size + Open / Share / Done. The old
+     *  flow just toasted and closed the screen. */
+    private fun showSavedDialog(file: File, uri: Uri) {
+        val density = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.setCancelable(false)
+        val outer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((24 * density).toInt(), 0, (24 * density).toInt(), 0)
+        }
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 20f * density
+                setColor(getColor(R.color.hakunaa_surface))
+            }
+            elevation = 8f * density
+            clipToOutline = true
+            setPadding(
+                (24 * density).toInt(), (24 * density).toInt(),
+                (24 * density).toInt(), (16 * density).toInt()
+            )
+        }
+        val check = TextView(this).apply {
+            text = "✓"
+            textSize = 28f
+            setTypeface(null, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setTextColor(getColor(android.R.color.white))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(0xFF2E7D32.toInt())
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                (56 * density).toInt(), (56 * density).toInt()
+            )
+        }
+        card.addView(check)
+        card.addView(TextView(this).apply {
+            text = "Saved"
+            textSize = 18f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            gravity = Gravity.CENTER
+            setPadding(0, (12 * density).toInt(), 0, (2 * density).toInt())
+        })
+        card.addView(TextView(this).apply {
+            text = file.name
+            textSize = 14f
+            setTextColor(getColor(R.color.hakunaa_text))
+            gravity = Gravity.CENTER
+        })
+        card.addView(TextView(this).apply {
+            text = "Documents/Hakunaa  •  ${FileUtils.formatSize(file.length())}"
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            gravity = Gravity.CENTER
+            setPadding(0, (4 * density).toInt(), 0, (8 * density).toInt())
+        })
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        val openBtn = TextView(this).apply {
+            text = "Open"
+            textSize = 15f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_teal))
+            setPadding((16 * density).toInt(), (12 * density).toInt(), (16 * density).toInt(), (12 * density).toInt())
+            isClickable = true
+            isFocusable = true
+        }
+        openBtn.setOnClickListener {
+            try {
+                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "application/pdf")
+                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(intent)
+            } catch (_: Throwable) {
+                Toast.makeText(this, "No PDF viewer found", Toast.LENGTH_SHORT).show()
+            }
+        }
+        val shareBtn = TextView(this).apply {
+            text = "Share"
+            textSize = 15f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_teal))
+            setPadding((16 * density).toInt(), (12 * density).toInt(), (16 * density).toInt(), (12 * density).toInt())
+            isClickable = true
+            isFocusable = true
+        }
+        shareBtn.setOnClickListener {
+            try {
+                val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "application/pdf"
+                    putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(android.content.Intent.createChooser(intent, "Share PDF"))
+            } catch (_: Throwable) { }
+        }
+        val doneBtn = TextView(this).apply {
+            text = "Done"
+            textSize = 15f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(getColor(android.R.color.white))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 20f * density
+                setColor(getColor(R.color.hakunaa_teal))
+            }
+            gravity = Gravity.CENTER
+            setPadding((20 * density).toInt(), (12 * density).toInt(), (20 * density).toInt(), (12 * density).toInt())
+            isClickable = true
+            isFocusable = true
+        }
+        doneBtn.setOnClickListener {
+            dialog.dismiss()
+            finish()
+        }
+        btnRow.addView(openBtn)
+        btnRow.addView(shareBtn)
+        btnRow.addView(doneBtn)
+        card.addView(btnRow)
+        outer.addView(card)
+        dialog.setContentView(outer)
+        dialog.show()
+    }
+
     /** One page row: drag handle + thumbnail + Page N / name • size + remove. */
     private inner class PagesAdapter : RecyclerView.Adapter<PagesAdapter.PageHolder>() {
 
@@ -635,6 +791,7 @@ class ImageToPdfActivity : AppCompatActivity() {
             val thumb: ImageView = row.findViewWithTag("thumb")!!
             val title: TextView = row.findViewWithTag("title")!!
             val sub: TextView = row.findViewWithTag("sub")!!
+            val check: TextView = row.findViewWithTag("check")!!
             val remove: ImageView = row.findViewWithTag("remove")!!
         }
 
@@ -705,6 +862,19 @@ class ImageToPdfActivity : AppCompatActivity() {
                 setPadding(0, (2 * density).toInt(), 0, 0)
             })
             inner.addView(textCol)
+            // Selection badge (v0.1.153, Fix #20): teal ✓ when the
+            // page is selected, grey ring when it is not.
+            val checkTv = TextView(parent.context).apply {
+                tag = "check"
+                text = "✓"
+                textSize = 15f
+                setTypeface(null, Typeface.BOLD)
+                gravity = Gravity.CENTER
+                layoutParams = LinearLayout.LayoutParams(
+                    (28 * density).toInt(), (28 * density).toInt()
+                ).apply { marginEnd = (8 * density).toInt() }
+            }
+            inner.addView(checkTv)
             val removeIv = ImageView(parent.context).apply {
                 tag = "remove"
                 setImageResource(R.drawable.ic_close)
@@ -732,6 +902,33 @@ class ImageToPdfActivity : AppCompatActivity() {
             holder.title.text = "Page ${position + 1}"
             holder.sub.text = "${page.name} • ${FileUtils.formatSize(page.size)}"
             if (page.thumb != null) holder.thumb.setImageBitmap(page.thumb)
+            // Selection state: unselected pages are dimmed.
+            val density2 = holder.row.resources.displayMetrics.density
+            holder.row.alpha = if (page.selected) 1f else 0.45f
+            holder.check.background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                if (page.selected) {
+                    setColor(getColor(R.color.hakunaa_teal))
+                } else {
+                    setColor(getColor(R.color.hakunaa_surface))
+                    setStroke((1 * density2).toInt(), getColor(R.color.hakunaa_outline))
+                }
+            }
+            holder.check.setTextColor(
+                if (page.selected) getColor(android.R.color.white)
+                else getColor(R.color.hakunaa_text_secondary)
+            )
+            // Tap the card to select / deselect (drag handle and
+            // remove keep their own actions).
+            holder.row.setOnClickListener {
+                val pos = holder.bindingAdapterPosition
+                if (pos == RecyclerView.NO_POSITION) return@setOnClickListener
+                pages[pos].selected = !pages[pos].selected
+                notifyItemChanged(pos)
+                refreshState()
+            }
+            holder.dragHandle.isClickable = true
+            holder.dragHandle.setOnClickListener { }
             holder.dragHandle.setOnTouchListener { _, event ->
                 if (event.actionMasked == MotionEvent.ACTION_DOWN) {
                     itemTouchHelper.startDrag(holder)
