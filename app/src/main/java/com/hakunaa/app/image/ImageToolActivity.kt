@@ -3,6 +3,7 @@ package com.hakunaa.app.image
 import android.app.Dialog
 import android.content.res.ColorStateList
 import android.graphics.BitmapFactory
+import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
@@ -17,6 +18,9 @@ import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.hakunaa.app.R
 import com.hakunaa.app.core.FileUtils
 import com.hakunaa.app.core.MediaStoreSaver
@@ -2774,7 +2778,19 @@ class ImageToolActivity : AppCompatActivity() {
         dialog.setCancelable(true)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(getColor(R.color.hakunaa_background))
+            // v0.1.143 (Batch 27): UNIFORM WHITE like Smart —
+            // the user saw this window's status bar blackish
+            // while Smart's is a professional clean white, and
+            // rejected a white strip standing out from grey
+            // content ("Color Different theriya kootathu top
+            // la. Same smart mari"). So the whole window is ONE
+            // seamless white: root AND window background are
+            // both hakunaa_surface white (was hakunaa_background
+            // #F6F7F9), and the status bar is transparent below
+            // (see window setup before show()). The Batch 26
+            // Results-header white fill is now the same white,
+            // so it blends in — no boundary at the top.
+            setBackgroundColor(getColor(R.color.hakunaa_surface))
             // v0.1.138 (Batch 22): FULL-SCREEN like Smart — the
             // floating dialog (WRAP_CONTENT, v0.1.137) was the
             // visible difference the user kept seeing (user:
@@ -3113,12 +3129,34 @@ class ImageToolActivity : AppCompatActivity() {
         // The dialog's decor applies the system insets, so
         // the top bar sits below the status bar and Save
         // above the nav bar.
-        dialog.window?.setBackgroundDrawableResource(R.color.hakunaa_background)
+        // v0.1.143 (Batch 27): EDGE-TO-EDGE + transparent
+        // status bar — a Dialog window does NOT draw behind
+        // the status bar by default, so the system painted
+        // the bar dark ("blackish") while Smart's (an
+        // Activity with StatusBar.setup) is clean white.
+        // The window now draws behind a TRANSPARENT status
+        // bar with DARK icons (light status bar), and the
+        // root takes the status bar inset as padding (same
+        // pattern as StatusBar.setup for activities) — so
+        // the content still sits below the bar and Save
+        // above the nav bar, while the white background
+        // runs seamlessly behind the bar: one uniform white
+        // from the very top, exactly like Smart. WebP window
+        // only — no other screen's status bar is touched.
+        dialog.window?.setBackgroundDrawableResource(R.color.hakunaa_surface)
         dialog.window?.setDimAmount(0f)
         dialog.window?.setLayout(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
         )
+        dialog.window?.let { w ->
+            WindowCompat.setDecorFitsSystemWindows(w, false)
+            w.statusBarColor = Color.TRANSPARENT
+            WindowInsetsControllerCompat(w, w.decorView)
+                .isAppearanceLightStatusBars = true
+        }
+        root.fitsSystemWindows = true
+        ViewCompat.requestApplyInsets(root)
         dialog.show()
         // This window's own selection (independent of the main list).
         var selectedWebp: ImageCompressor.LevelResult? = null
