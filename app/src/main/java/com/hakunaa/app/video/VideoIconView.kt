@@ -20,11 +20,11 @@ import android.view.View
  * Every icon is drawn in a 100x100 box and scaled to the view size.
  * Layout/cards unchanged (2x5, #FFF5F8, 48dp).
  *
- * v0.1.166 fixes (user live feedback on v0.1.165, mockup v33):
- * - QUICK/SMART/ADVANCED: ALL 4 corner arrows moved INWARD (tips at ±33,
- *   from ±40 thick / ±38 thin) — arrows were poking outside the rounded
- *   square's curved corners. Now perfectly inside, premium look.
- *   Quick/Smart keep OLD thin (4.5f); Advanced keeps thick (6f).
+ * v0.1.167 fixes (user live feedback on v0.1.166, mockup v36):
+ * - ADVANCED: HEART moved DOWN ~0.2mm (2.5 units, OY 23.2 -> 25.7) —
+ *   nothing else touched.
+ * - SMART: BOLD sparkle EVEN SMALLER (scale 0.78, spans 29.7-70.3) —
+ *   both edges were touching the square; now clear space all round.
  */
 class VideoIconView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null
@@ -207,14 +207,14 @@ class VideoIconView @JvmOverloads constructor(
         gradRect(8.3f, 8.3f, 83.3f, smartG)
         fill.color = tintSmart
         val star = Path().apply {
-            moveTo(50f, 24f)
-            lineTo(57f, 43f)
-            lineTo(76f, 50f)
-            lineTo(57f, 57f)
-            lineTo(50f, 76f)
-            lineTo(43f, 57f)
-            lineTo(24f, 50f)
-            lineTo(43f, 43f)
+            moveTo(50f, 29.7f)
+            lineTo(55.5f, 44.5f)
+            lineTo(70.3f, 50f)
+            lineTo(55.5f, 55.5f)
+            lineTo(50f, 70.3f)
+            lineTo(44.5f, 55.5f)
+            lineTo(29.7f, 50f)
+            lineTo(44.5f, 44.5f)
             close()
         }
         drawPath(star, fill)
@@ -227,15 +227,15 @@ class VideoIconView @JvmOverloads constructor(
         gradRect(8.3f, 8.3f, 83.3f, advG)
         fill.color = tintAdv
         val heart = Path().apply {
-            moveTo(50.0f, 70.17f)
-            lineTo(46.81f, 67.27f)
-            cubicTo(35.48f, 56.99f, 28.0f, 50.22f, 28.0f, 41.9f)
-            cubicTo(28.0f, 35.12f, 33.32f, 29.8f, 40.1f, 29.8f)
-            cubicTo(43.93f, 29.8f, 47.6f, 31.58f, 50.0f, 34.4f)
-            cubicTo(52.4f, 31.58f, 56.07f, 29.8f, 59.9f, 29.8f)
-            cubicTo(66.68f, 29.8f, 72.0f, 35.12f, 72.0f, 41.9f)
-            cubicTo(72.0f, 50.22f, 64.52f, 56.99f, 53.19f, 67.27f)
-            lineTo(50.0f, 70.17f)
+            moveTo(50.0f, 72.67f)
+            lineTo(46.81f, 69.77f)
+            cubicTo(35.48f, 59.49f, 28.0f, 52.72f, 28.0f, 44.4f)
+            cubicTo(28.0f, 37.62f, 33.32f, 32.3f, 40.1f, 32.3f)
+            cubicTo(43.93f, 32.3f, 47.6f, 34.08f, 50.0f, 36.9f)
+            cubicTo(52.4f, 34.08f, 56.07f, 32.3f, 59.9f, 32.3f)
+            cubicTo(66.68f, 32.3f, 72.0f, 37.62f, 72.0f, 44.4f)
+            cubicTo(72.0f, 52.72f, 64.52f, 59.49f, 53.19f, 69.77f)
+            lineTo(50.0f, 72.67f)
             close()
         }
         drawPath(heart, fill)
