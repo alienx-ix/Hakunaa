@@ -20,16 +20,14 @@ import android.view.View
  * Every icon is drawn in a 100x100 box and scaled to the view size.
  * Layout/cards unchanged (2x5, #FFF5F8, 48dp).
  *
- * v0.1.164 fixes (user live feedback on v0.1.163):
- * - QUICK/SMART: symbol centred at correct size, corner arrows thicker + clearer.
- * - ADVANCED: HEART in the centre (Material heart, small, perfectly centred)
- *   instead of the gear, + 4 corner arrows.
- * - CONVERT: previous 2 straight-line swap arrows (v0.1.162 style).
- * - ROTATE: the PDF Rotate traced double-arrow (v0.1.158, user-approved).
- * - AUDIO: single big music note, refined proportions.
- * - CUTTER: OPEN scissors (wide V), no bottom dashed line.
- * - THUMB: frame centred at (50,50).
- * - CROP: sparkle at bottom-right removed.
+ * v0.1.165 fixes (user live feedback on v0.1.164, mockup v31):
+ * - QUICK/SMART: corner arrows back to OLD thin (v0.1.163, 4.5f) — thick looked worst.
+ * - ADVANCED: HEART even SMALLER (Material path scale 2.2, centred) + colour
+ *   swapped to red/pink (was blue); Cutter swapped to blue (was red/pink).
+ * - AUDIO: music note SMALLER + centred.
+ * - CUTTER: OPEN scissors (wide V), no bottom dashed line (kept from v0.1.164).
+ * - THUMB: frame centred (50,50) (kept). CROP: no sparkle (kept).
+ * - ROTATE: PDF Rotate traced double-arrow (kept). CONVERT: straight arrows (kept).
  */
 class VideoIconView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null
@@ -55,23 +53,23 @@ class VideoIconView @JvmOverloads constructor(
     // Gradient pairs (light -> dark, diagonal) per icon, from the reference.
     private val quickG = "#FFB74D" to "#EF6C00"
     private val smartG = "#4DB6AC" to "#00695C"
-    private val advG = "#5C6BC0" to "#283593"
+    private val advG = "#EC407A" to "#AD1457"
     private val convG = "#42A5F5" to "#1565C0"
     private val rotG = "#4DB6AC" to "#00695C"
     private val colorG = "#3A2A5E" to "#1A0A2E"
     private val audioG = "#7E57C2" to "#4527A0"
-    private val cutG = "#EC407A" to "#AD1457"
+    private val cutG = "#5C6BC0" to "#283593"
     private val thumbG = "#FFCA28" to "#FF8F00"
     private val cropG = "#26C6DA" to "#006064"
 
     // Light-tint glyph colours, from the reference.
     private val tintQuick = Color.parseColor("#FFE082")
     private val tintSmart = Color.parseColor("#B2DFDB")
-    private val tintAdv = Color.parseColor("#BBDEFB")
+    private val tintAdv = Color.parseColor("#F8BBD0")
     private val tintConv = Color.parseColor("#BBDEFB")
     private val tintRot = Color.parseColor("#B2DFDB")
     private val tintAudio = Color.parseColor("#D1C4E9")
-    private val tintCut = Color.parseColor("#F8BBD0")
+    private val tintCut = Color.parseColor("#BBDEFB")
     private val tintThumb = Color.parseColor("#FFECB3")
     private val tintCrop = Color.parseColor("#B2EBF2")
 
@@ -128,6 +126,26 @@ class VideoIconView @JvmOverloads constructor(
         cornerArrow(50f, 50f, 1f, 1f, color)
     }
 
+    /** OLD thin corner arrow (v0.1.163) — Quick/Smart. */
+    private fun Canvas.cornerArrowOld(cx: Float, cy: Float, sx: Float, sy: Float, color: Int) {
+        val x0 = cx + sx * 38f
+        val y0 = cy + sy * 38f
+        val dx = -sx * 10f
+        val dy = -sy * 10f
+        stroke.color = color
+        stroke.strokeWidth = 4.5f
+        drawLine(x0, y0, x0 + dx, y0 + dy, stroke)
+        drawLine(x0, y0, x0 - sx * 9f, y0, stroke)
+        drawLine(x0, y0, x0, y0 - sy * 9f, stroke)
+    }
+
+    private fun Canvas.fourCornerArrowsOld(color: Int) {
+        cornerArrowOld(50f, 50f, -1f, -1f, color)
+        cornerArrowOld(50f, 50f, 1f, -1f, color)
+        cornerArrowOld(50f, 50f, -1f, 1f, color)
+        cornerArrowOld(50f, 50f, 1f, 1f, color)
+    }
+
     /** Orange gradient + yellow bolt (refined, bolder) + 4 yellow inward arrows. */
     private fun Canvas.quick() {
         gradRect(8.3f, 8.3f, 83.3f, quickG)
@@ -142,10 +160,10 @@ class VideoIconView @JvmOverloads constructor(
             close()
         }
         drawPath(bolt, fill)
-        fourCornerArrows(tintQuick)
+        fourCornerArrowsOld(tintQuick)
     }
 
-    /** Teal gradient + light sparkle + 4 light inward arrows. */
+    /** Teal gradient + light sparkle + 4 light OLD thin inward arrows. */
     private fun Canvas.smart() {
         gradRect(8.3f, 8.3f, 83.3f, smartG)
         fill.color = tintSmart
@@ -161,24 +179,24 @@ class VideoIconView @JvmOverloads constructor(
             close()
         }
         drawPath(star, fill)
-        fourCornerArrows(tintSmart)
+        fourCornerArrowsOld(tintSmart)
     }
 
-    /** Blue gradient + PERFECT smooth HEART (Material "favorite", small,
-     * centred) + 4 light inward arrows. */
+    /** Red/pink gradient + PERFECT smooth HEART (Material "favorite",
+     * SMALL, perfectly centred) + 4 light inward arrows. */
     private fun Canvas.advanced() {
         gradRect(8.3f, 8.3f, 83.3f, advG)
         fill.color = tintAdv
         val heart = Path().apply {
-            moveTo(50.0f, 75.68f)
-            lineTo(45.94f, 71.98f)
-            cubicTo(31.52f, 58.91f, 22.0f, 50.28f, 22.0f, 39.7f)
-            cubicTo(22.0f, 31.08f, 28.78f, 24.3f, 37.4f, 24.3f)
-            cubicTo(42.27f, 24.3f, 46.95f, 26.57f, 50.0f, 30.15f)
-            cubicTo(53.05f, 26.57f, 57.73f, 24.3f, 62.6f, 24.3f)
-            cubicTo(71.22f, 24.3f, 78.0f, 31.08f, 78.0f, 39.7f)
-            cubicTo(78.0f, 50.28f, 68.48f, 58.91f, 54.06f, 71.98f)
-            lineTo(50.0f, 75.68f)
+            moveTo(50.0f, 70.17f)
+            lineTo(46.81f, 67.27f)
+            cubicTo(35.48f, 56.99f, 28.0f, 50.22f, 28.0f, 41.9f)
+            cubicTo(28.0f, 35.12f, 33.32f, 29.8f, 40.1f, 29.8f)
+            cubicTo(43.93f, 29.8f, 47.6f, 31.58f, 50.0f, 34.4f)
+            cubicTo(52.4f, 31.58f, 56.07f, 29.8f, 59.9f, 29.8f)
+            cubicTo(66.68f, 29.8f, 72.0f, 35.12f, 72.0f, 41.9f)
+            cubicTo(72.0f, 50.22f, 64.52f, 56.99f, 53.19f, 67.27f)
+            lineTo(50.0f, 70.17f)
             close()
         }
         drawPath(heart, fill)
@@ -302,28 +320,28 @@ class VideoIconView @JvmOverloads constructor(
         drawCircle(50f, 62f, r, stroke)
     }
 
-    /** Purple gradient + ONE big bold music note (simple style, refined). */
+    /** Purple gradient + ONE big music note (simple style, SMALLER + centred). */
     private fun Canvas.audio() {
         gradRect(8.3f, 8.3f, 83.3f, audioG)
         fill.color = tintAudio
         // Note head.
-        drawOval(RectF(28f, 60f, 54f, 80f), fill)
+        drawOval(RectF(33f, 63f, 53f, 79f), fill)
         // Stem.
         stroke.color = tintAudio
-        stroke.strokeWidth = 6f
-        drawLine(52f, 68f, 52f, 16f, stroke)
+        stroke.strokeWidth = 5f
+        drawLine(51f, 70f, 51f, 28f, stroke)
         // Flag.
         fill.color = tintAudio
         val flag = Path().apply {
-            moveTo(52f, 16f)
-            lineTo(74f, 28f)
-            lineTo(52f, 38f)
+            moveTo(51f, 28f)
+            lineTo(67f, 37f)
+            lineTo(51f, 45f)
             close()
         }
         drawPath(flag, fill)
     }
 
-    /** Red gradient + OPEN scissors (wide V), centred, no dashed line. */
+    /** Blue gradient + OPEN scissors (wide V), centred, no dashed line. */
     private fun Canvas.cutter() {
         gradRect(8.3f, 8.3f, 83.3f, cutG)
         stroke.color = tintCut
