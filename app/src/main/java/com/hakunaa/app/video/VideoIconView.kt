@@ -20,11 +20,10 @@ import android.view.View
  * Every icon is drawn in a 100x100 box and scaled to the view size.
  * Layout/cards unchanged (2x5, #FFF5F8, 48dp).
  *
- * v0.1.167 fixes (user live feedback on v0.1.166, mockup v36):
- * - ADVANCED: HEART moved DOWN ~0.2mm (2.5 units, OY 23.2 -> 25.7) —
- *   nothing else touched.
- * - SMART: BOLD sparkle EVEN SMALLER (scale 0.78, spans 29.7-70.3) —
- *   both edges were touching the square; now clear space all round.
+ * v0.1.168 fixes (user live feedback on v0.1.167, mockup v40):
+ * - QUICK: bolt SMALL like Smart (scale 0.78, same as Smart sparkle).
+ *   (v38's Smart 0.72 was REJECTED by user — Smart stays at 0.78.)
+ * - Kept from v0.1.167: ADVANCED heart down ~0.2mm; SMART sparkle 0.78.
  */
 class VideoIconView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null
@@ -190,12 +189,12 @@ class VideoIconView @JvmOverloads constructor(
         gradRect(8.3f, 8.3f, 83.3f, quickG)
         fill.color = tintQuick
         val bolt = Path().apply {
-            moveTo(57f, 12f)
-            lineTo(33f, 54f)
-            lineTo(47f, 54f)
-            lineTo(41f, 88f)
-            lineTo(67f, 44f)
-            lineTo(53f, 44f)
+            moveTo(55.5f, 20.4f)
+            lineTo(36.7f, 53.1f)
+            lineTo(47.7f, 53.1f)
+            lineTo(43f, 79.6f)
+            lineTo(63.3f, 45.3f)
+            lineTo(52.3f, 45.3f)
             close()
         }
         drawPath(bolt, fill)
