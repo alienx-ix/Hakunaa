@@ -3,7 +3,7 @@
     android:height="96dp"
     android:viewportWidth="96"
     android:viewportHeight="96">
-    <path android:pathData="M24,4 H72 A20,20 0 0 1 92,24 V72 A20,20 0 0 1 72,92 H24 A20,20 0 0 1 4,72 V24 A20,20 0 0 1 24,4 Z" android:fillColor="#FFFFFF">
+    <path android:pathData="M24,4 H72 A20,20 0 0 1 92,24 V72 A20,20 0 0 1 72,92 H24 A20,20 0 0 1 4,72 V24 A20,20 0 0 1 24,4 Z">
         <gradient android:type="linear" android:startX="48" android:startY="4" android:endX="48" android:endY="92" android:startColor="#66BB6A" android:endColor="#2E7D32"/>
     </path>
     <path android:fillColor="#FFFFFF" android:pathData="M30,27 H39 A3,3 0 0 1 42,30 V39 A3,3 0 0 1 39,42 H30 A3,3 0 0 1 27,39 V30 A3,3 0 0 1 30,27 Z"/><path android:fillColor="#FFFFFF" android:pathData="M57,27 H66 A3,3 0 0 1 69,30 V39 A3,3 0 0 1 66,42 H57 A3,3 0 0 1 54,39 V30 A3,3 0 0 1 57,27 Z"/><path android:fillColor="#FFFFFF" android:pathData="M30,54 H39 A3,3 0 0 1 42,57 V66 A3,3 0 0 1 39,69 H30 A3,3 0 0 1 27,66 V57 A3,3 0 0 1 30,54 Z"/><path android:fillColor="#FFFFFF" android:pathData="M57,54 H66 A3,3 0 0 1 69,57 V66 A3,3 0 0 1 66,69 H57 A3,3 0 0 1 54,66 V57 A3,3 0 0 1 57,54 Z"/>
