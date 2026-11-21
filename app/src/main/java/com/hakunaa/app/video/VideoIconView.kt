@@ -20,14 +20,11 @@ import android.view.View
  * Every icon is drawn in a 100x100 box and scaled to the view size.
  * Layout/cards unchanged (2x5, #FFF5F8, 48dp).
  *
- * v0.1.165 fixes (user live feedback on v0.1.164, mockup v31):
- * - QUICK/SMART: corner arrows back to OLD thin (v0.1.163, 4.5f) — thick looked worst.
- * - ADVANCED: HEART even SMALLER (Material path scale 2.2, centred) + colour
- *   swapped to red/pink (was blue); Cutter swapped to blue (was red/pink).
- * - AUDIO: music note SMALLER + centred.
- * - CUTTER: OPEN scissors (wide V), no bottom dashed line (kept from v0.1.164).
- * - THUMB: frame centred (50,50) (kept). CROP: no sparkle (kept).
- * - ROTATE: PDF Rotate traced double-arrow (kept). CONVERT: straight arrows (kept).
+ * v0.1.166 fixes (user live feedback on v0.1.165, mockup v33):
+ * - QUICK/SMART/ADVANCED: ALL 4 corner arrows moved INWARD (tips at ±33,
+ *   from ±40 thick / ±38 thin) — arrows were poking outside the rounded
+ *   square's curved corners. Now perfectly inside, premium look.
+ *   Quick/Smart keep OLD thin (4.5f); Advanced keeps thick (6f).
  */
 class VideoIconView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null
@@ -126,6 +123,27 @@ class VideoIconView @JvmOverloads constructor(
         cornerArrow(50f, 50f, 1f, 1f, color)
     }
 
+    /** Thick corner arrow moved INWARD (tips at ±33) — Advanced.
+     * Tips stay well inside the rounded square, never poking outside. */
+    private fun Canvas.cornerArrowIn(cx: Float, cy: Float, sx: Float, sy: Float, color: Int) {
+        val x0 = cx + sx * 33f
+        val y0 = cy + sy * 33f
+        val dx = -sx * 11f
+        val dy = -sy * 11f
+        stroke.color = color
+        stroke.strokeWidth = 6f
+        drawLine(x0, y0, x0 + dx, y0 + dy, stroke)
+        drawLine(x0, y0, x0 - sx * 8f, y0, stroke)
+        drawLine(x0, y0, x0, y0 - sy * 8f, stroke)
+    }
+
+    private fun Canvas.fourCornerArrowsIn(color: Int) {
+        cornerArrowIn(50f, 50f, -1f, -1f, color)
+        cornerArrowIn(50f, 50f, 1f, -1f, color)
+        cornerArrowIn(50f, 50f, -1f, 1f, color)
+        cornerArrowIn(50f, 50f, 1f, 1f, color)
+    }
+
     /** OLD thin corner arrow (v0.1.163) — Quick/Smart. */
     private fun Canvas.cornerArrowOld(cx: Float, cy: Float, sx: Float, sy: Float, color: Int) {
         val x0 = cx + sx * 38f
@@ -146,6 +164,27 @@ class VideoIconView @JvmOverloads constructor(
         cornerArrowOld(50f, 50f, 1f, 1f, color)
     }
 
+    /** OLD thin corner arrow moved INWARD (tips at ±33) — Quick/Smart.
+     * Tips stay well inside the rounded square, never poking outside. */
+    private fun Canvas.cornerArrowOldIn(cx: Float, cy: Float, sx: Float, sy: Float, color: Int) {
+        val x0 = cx + sx * 33f
+        val y0 = cy + sy * 33f
+        val dx = -sx * 11f
+        val dy = -sy * 11f
+        stroke.color = color
+        stroke.strokeWidth = 4.5f
+        drawLine(x0, y0, x0 + dx, y0 + dy, stroke)
+        drawLine(x0, y0, x0 - sx * 8f, y0, stroke)
+        drawLine(x0, y0, x0, y0 - sy * 8f, stroke)
+    }
+
+    private fun Canvas.fourCornerArrowsOldIn(color: Int) {
+        cornerArrowOldIn(50f, 50f, -1f, -1f, color)
+        cornerArrowOldIn(50f, 50f, 1f, -1f, color)
+        cornerArrowOldIn(50f, 50f, -1f, 1f, color)
+        cornerArrowOldIn(50f, 50f, 1f, 1f, color)
+    }
+
     /** Orange gradient + yellow bolt (refined, bolder) + 4 yellow inward arrows. */
     private fun Canvas.quick() {
         gradRect(8.3f, 8.3f, 83.3f, quickG)
@@ -160,7 +199,7 @@ class VideoIconView @JvmOverloads constructor(
             close()
         }
         drawPath(bolt, fill)
-        fourCornerArrowsOld(tintQuick)
+        fourCornerArrowsOldIn(tintQuick)
     }
 
     /** Teal gradient + light sparkle + 4 light OLD thin inward arrows. */
@@ -179,7 +218,7 @@ class VideoIconView @JvmOverloads constructor(
             close()
         }
         drawPath(star, fill)
-        fourCornerArrowsOld(tintSmart)
+        fourCornerArrowsOldIn(tintSmart)
     }
 
     /** Red/pink gradient + PERFECT smooth HEART (Material "favorite",
@@ -200,7 +239,7 @@ class VideoIconView @JvmOverloads constructor(
             close()
         }
         drawPath(heart, fill)
-        fourCornerArrows(tintAdv)
+        fourCornerArrowsIn(tintAdv)
     }
 
     /** Blue gradient + previous 2 STRAIGHT swap arrows (v0.1.162 style). */
