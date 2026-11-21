@@ -8,7 +8,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.hakunaa.app.image.ImageCompressActivity
 import com.hakunaa.app.pdf.PdfToolsActivity
 import com.hakunaa.app.scanner.ScannerActivity
-import com.hakunaa.app.video.VideoCompressActivity
+import com.hakunaa.app.video.VideoToolsActivity
 import com.hakunaa.app.whatsapp.WhatsAppOptimizeActivity
 import com.hakunaa.app.core.StatusBar
 
@@ -34,7 +34,7 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, ImageCompressActivity::class.java))
         }
         findViewById<View>(R.id.cardVideo).setOnClickListener {
-            startActivity(Intent(this, VideoCompressActivity::class.java))
+            startActivity(Intent(this, VideoToolsActivity::class.java))
         }
         findViewById<View>(R.id.cardScanner).setOnClickListener {
             startActivity(Intent(this, ScannerActivity::class.java))

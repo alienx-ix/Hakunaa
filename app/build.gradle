@@ -19,7 +19,7 @@ android {
         // Runs on newer Android versions too when they release.
         targetSdk = 36
         versionCode = 159
-        versionName = "0.1.158"
+        versionName = "0.1.159"
     }
 
     buildTypes {

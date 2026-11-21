@@ -32,6 +32,7 @@
         <activity android:name=".image.ImageToPdfActivity" android:exported="false" />
         <activity android:name=".image.ImageEditActivity" android:exported="false" />
         <activity android:name=".video.VideoCompressActivity" android:exported="false" />
+        <activity android:name=".video.VideoToolsActivity" android:exported="false" />
         <activity android:name=".whatsapp.WhatsAppOptimizeActivity" android:exported="false" />
         <activity android:name=".scanner.ScannerActivity" android:exported="false"
             android:screenOrientation="portrait" />
