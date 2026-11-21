@@ -39,8 +39,8 @@ import java.io.File
 
 /**
  * Video Tools menu (v0.1.159): single screen, NO scroll. 10 tools in
- * 2 cols x 5 rows, ALL the same size, lite pink cards (#FCE4EC) +
- * pink border, premium gradient-square vector icons + white glyphs.
+ * 2 cols x 5 rows, ALL the same size, lite pink cards (#FFF5F8) +
+ * pink border, code-drawn PDF-theme icons (VideoIconView) + white glyphs.
  * Every tool: intro popup (name + bullets + Pick Video / Back) ->
  * pick video -> full-screen tool screen with ALL options inside.
  * Compress tools share one screen with Quick / Smart / Advanced
@@ -50,16 +50,16 @@ import java.io.File
  */
 class VideoToolsActivity : AppCompatActivity() {
 
-    // Lite pink (user-picked shade A, 2026-11-21 — same intensity
+    // Lightest pink (user-picked shade A, 2026-11-21 — same intensity
     // as the PDF menu's teal #E0F2F1) + pink border.
-    private val pinkCard = 0xFFFCE4EC.toInt()
+    private val pinkCard = 0xFFFFF5F8.toInt()
     private val pinkBorder = 0xFFF06292.toInt()
     private val pinkDark = 0xFFEC407A.toInt()
 
     private data class Tool(
         val name: String,
         val subtitle: String,
-        val iconRes: Int,
+        val iconKind: VideoIconView.Kind,
         val explain: String,
         val action: () -> Unit
     )
@@ -417,43 +417,43 @@ class VideoToolsActivity : AppCompatActivity() {
     private fun buildMenu() {
         val area = findViewById<LinearLayout>(R.id.contentArea)
         val tools = listOf(
-            Tool("Quick Compress", "Pick quality", R.drawable.ic_vt_quick,
+            Tool("Quick Compress", "Pick quality", VideoIconView.Kind.QUICK,
                 "• Pick a video, pick a quality\n• High / Balanced / Low / Lowest\n• Smaller file, same look") {
                 pickVideoThen { showCompressScreen(0) }
             },
-            Tool("Smart Compress", "Auto best size", R.drawable.ic_vt_smart,
+            Tool("Smart Compress", "Auto best size", VideoIconView.Kind.SMART,
                 "• Automatic — best size for your video\n• 3 results: 1080p, 720p, 480p\n• Real sizes, pick the best one") {
                 pickVideoThen { showCompressScreen(1) }
             },
-            Tool("Advanced Compress", "Full manual control", R.drawable.ic_vt_advanced,
+            Tool("Advanced Compress", "Full manual control", VideoIconView.Kind.ADVANCED,
                 "• CRF slider or exact bitrate\n• Two-pass, preset, denoise, sharpen\n• Every setting in one place") {
                 pickVideoThen { showCompressScreen(2) }
             },
-            Tool("Convert", "13 formats", R.drawable.ic_vt_convert,
+            Tool("Convert", "13 formats", VideoIconView.Kind.CONVERT,
                 "• MP4, 3GP, MOV, FLV, MKV, AVI\n• MTS, TS, M4V, WebM, GIF, WMV, MPG") {
                 pickVideoThen { showConvertScreen() }
             },
-            Tool("Rotate", "Rotate video", R.drawable.ic_vt_rotate,
+            Tool("Rotate", "Rotate video", VideoIconView.Kind.ROTATE,
                 "• 90° clockwise or counter-clockwise\n• 180°, flip horizontal / vertical\n• Audio stays untouched") {
                 pickVideoThen { showRotateScreen() }
             },
-            Tool("Color Grading", "Brightness & color", R.drawable.ic_vt_color,
+            Tool("Color Grading", "Brightness & color", VideoIconView.Kind.COLOR,
                 "• Brightness, contrast, saturation\n• Hue, sharpness, temperature\n• Preview one frame first") {
                 pickVideoThen { showColorScreen() }
             },
-            Tool("Video to Audio", "Video to MP3", R.drawable.ic_vt_audio,
+            Tool("Video to Audio", "Video to MP3", VideoIconView.Kind.AUDIO,
                 "• Pull the audio out of a video\n• MP3, M4A, WAV, OGG, FLAC\n• Saved to Music/Hakunaa") {
                 pickVideoThen { showAudioScreen() }
             },
-            Tool("Video Cutter", "Cut & Split", R.drawable.ic_vt_cutter,
+            Tool("Video Cutter", "Cut & Split", VideoIconView.Kind.CUTTER,
                 "• Cut a clip out of your video\n• Split a long video into parts\n• Fast — no re-encode") {
                 pickVideoThen { showCutterScreen() }
             },
-            Tool("Custom Thumbnail", "Set video cover", R.drawable.ic_vt_thumb,
+            Tool("Custom Thumbnail", "Set video cover", VideoIconView.Kind.THUMB,
                 "• Pick any frame of your video\n• Set it as the video cover\n• Shows in your gallery") {
                 pickVideoThen { showThumbnailScreen() }
             },
-            Tool("Video Crop", "Crop frame", R.drawable.ic_vt_crop,
+            Tool("Video Crop", "Crop frame", VideoIconView.Kind.CROP,
                 "• Crop the video frame\n• 16:9, 1:1, 9:16, 4:3\n• Centered, keeps the audio") {
                 pickVideoThen { showCropScreen() }
             }
@@ -505,9 +505,9 @@ class VideoToolsActivity : AppCompatActivity() {
             // picker directly (PDF pattern, v0.1.150).
             setOnClickListener { showToolPopup(tool) }
         }
-        val icon = ImageView(this).apply {
-            setImageResource(tool.iconRes)
-            layoutParams = LinearLayout.LayoutParams(dp(56), dp(56)).apply {
+        val icon = VideoIconView(this).apply {
+            kind = tool.iconKind
+            layoutParams = LinearLayout.LayoutParams(dp(48), dp(48)).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
             }
         }
@@ -584,9 +584,9 @@ class VideoToolsActivity : AppCompatActivity() {
                 gravity = Gravity.CENTER_HORIZONTAL
             }
         }
-        val icon = ImageView(this).apply {
-            setImageResource(tool.iconRes)
-            layoutParams = LinearLayout.LayoutParams(dp(56), dp(56))
+        val icon = VideoIconView(this).apply {
+            kind = tool.iconKind
+            layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
         }
         iconWrap.addView(icon)
         card.addView(iconWrap)
