@@ -3,9 +3,7 @@
     android:height="96dp"
     android:viewportWidth="96"
     android:viewportHeight="96">
-    <path android:pathData="M24,4 H72 A20,20 0 0 1 92,24 V72 A20,20 0 0 1 72,92 H24 A20,20 0 0 1 4,72 V24 A20,20 0 0 1 24,4 Z">
-        <gradient android:type="linear" android:startX="48" android:startY="4" android:endX="48" android:endY="92" android:startColor="#5C6BC0" android:endColor="#283593"/>
-    </path>
+    <path android:pathData="M24,4 H72 A20,20 0 0 1 92,24 V72 A20,20 0 0 1 72,92 H24 A20,20 0 0 1 4,72 V24 A20,20 0 0 1 24,4 Z" android:fillColor="#3949AB"/>
     <path android:fillColor="#00000000" android:strokeColor="#FFFFFF" android:strokeWidth="3" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M30,34 H66 M30,48 H66 M30,62 H66"/>
     <path android:fillColor="#FFFFFF" android:pathData="M47,34 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0 Z"/>
     <path android:fillColor="#FFFFFF" android:pathData="M35,48 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0 Z"/>
