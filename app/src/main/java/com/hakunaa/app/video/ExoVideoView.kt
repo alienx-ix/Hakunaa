@@ -47,6 +47,13 @@ class ExoVideoView @JvmOverloads constructor(
     val currentPosition: Int
         get() = player?.currentPosition?.toInt() ?: 0
 
+    /** Total duration in ms (like VideoView.duration); 0 if unknown. */
+    val duration: Long
+        get() {
+            val d = player?.duration ?: return 0L
+            return if (d < 0) 0L else d
+        }
+
     /** Set the video source (like VideoView.setVideoURI). Prepares but does not auto-play. */
     fun setVideoURI(uri: Uri) {
         ensurePlayer()

@@ -9,6 +9,8 @@ import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
@@ -16,6 +18,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.Window
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.GridLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -130,7 +133,9 @@ class VideoToolsActivity : AppCompatActivity() {
         // back to the menu.
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (toolOverlay != null) {
+                if (fullScreenRoot != null) {
+                    closeFullScreenPlayer()
+                } else if (toolOverlay != null) {
                     attemptLeaveVideo { dismissToolOverlay() }
                 } else {
                     isEnabled = false
@@ -712,6 +717,7 @@ class VideoToolsActivity : AppCompatActivity() {
     }
 
     private fun dismissToolOverlay() {
+        closeFullScreenPlayer()
         val overlay = toolOverlay ?: return
         try {
             findViewById<ViewGroup>(android.R.id.content).removeView(overlay)
@@ -735,6 +741,167 @@ class VideoToolsActivity : AppCompatActivity() {
             }
         }
         overlayBitmaps = mutableListOf()
+    }
+
+    /** Full-screen in-app video player (user 2026-11-24): every
+     * Play / preview in Video Tools opens this professional
+     * full-screen player — video fills the screen, X closes,
+     * bottom bar has Play/Pause + SeekBar + time. Auto-plays on
+     * open. Tap the video toggles play / pause. Back closes the
+     * player first (no leave dialog). */
+    private fun showFullScreenPlayer(uri: Uri) {
+        closeFullScreenPlayer()
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+            isClickable = true
+            isFocusable = true
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+        val player = ExoVideoView(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+        root.addView(player)
+        // Bottom control bar (semi-transparent black).
+        val controls = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#CC000000"))
+            setPadding(dp(12), dp(8), dp(12), dp(10))
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply { gravity = Gravity.BOTTOM }
+        }
+        val seek = SeekBar(this).apply {
+            max = 1000
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        val bottomRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(2) }
+        }
+        val playPause = TextView(this).apply {
+            text = "❚❚"
+            textSize = 22f
+            setTextColor(Color.WHITE)
+            setPadding(dp(8), dp(4), dp(16), dp(4))
+        }
+        val time = TextView(this).apply {
+            text = "00:00 / 00:00"
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        bottomRow.addView(playPause)
+        bottomRow.addView(time)
+        controls.addView(seek)
+        controls.addView(bottomRow)
+        root.addView(controls)
+        // Top close button.
+        val close = TextView(this).apply {
+            text = "✕"
+            textSize = 26f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                topMargin = statusBarHeightPx()
+            }
+            setOnClickListener { closeFullScreenPlayer() }
+        }
+        root.addView(close)
+        // Play / pause toggle (button + tap on the video).
+        val togglePlay: () -> Unit = {
+            try {
+                if (player.isPlaying()) player.pause() else player.start()
+            } catch (_: Throwable) {
+            }
+        }
+        playPause.setOnClickListener { togglePlay() }
+        player.setOnClickListener { togglePlay() }
+        root.setOnClickListener { togglePlay() }
+        // Seek bar: drag to seek; live update while playing.
+        var userSeeking = false
+        seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    val d = player.duration
+                    if (d > 0) {
+                        try {
+                            player.seekTo((p * d / 1000).toInt())
+                        } catch (_: Throwable) {
+                        }
+                    }
+                }
+            }
+
+            override fun onStartTrackingTouch(s: SeekBar?) {
+                userSeeking = true
+            }
+
+            override fun onStopTrackingTouch(s: SeekBar?) {
+                userSeeking = false
+            }
+        })
+        val handler = Handler(Looper.getMainLooper())
+        val tick = object : Runnable {
+            override fun run() {
+                if (fullScreenPlayer !== player) return
+                try {
+                    val d = player.duration
+                    val pos = player.currentPosition.toLong()
+                    if (d > 0 && !userSeeking) {
+                        seek.progress = ((pos * 1000) / d).toInt().coerceIn(0, 1000)
+                    }
+                    time.text = "${formatClock(pos)} / ${formatClock(d)}"
+                    playPause.text = if (player.isPlaying()) "❚❚" else "▶"
+                } catch (_: Throwable) {
+                }
+                handler.postDelayed(this, 500)
+            }
+        }
+        fullScreenHandler = handler
+        fullScreenTick = tick
+        fullScreenRoot = root
+        fullScreenPlayer = player
+        findViewById<ViewGroup>(android.R.id.content).addView(root)
+        player.onError = { toast("Couldn't play this video") }
+        player.setVideoURI(uri)
+        player.start()
+        handler.post(tick)
+    }
+
+    private fun closeFullScreenPlayer() {
+        val root = fullScreenRoot ?: return
+        fullScreenTick?.let { fullScreenHandler?.removeCallbacks(it) }
+        fullScreenTick = null
+        fullScreenHandler = null
+        try {
+            fullScreenPlayer?.stopPlayback()
+        } catch (_: Throwable) {
+        }
+        fullScreenPlayer = null
+        try {
+            findViewById<ViewGroup>(android.R.id.content).removeView(root)
+        } catch (_: Throwable) {
+        }
+        fullScreenRoot = null
     }
 
     /** Leave confirmation (PDF pattern, v0.1.155): "!" in a pink
@@ -935,11 +1102,8 @@ class VideoToolsActivity : AppCompatActivity() {
             toast("Couldn't play this video")
         }
         preview.setOnClickListener {
-            try {
-                if (preview.isPlaying()) preview.pause() else preview.start()
-            } catch (_: Throwable) {
-                toast("Couldn't play this video")
-            }
+            val uri = inputUri ?: return@setOnClickListener
+            showFullScreenPlayer(uri)
         }
         activeVideoViews.add(preview)
         card.addView(preview)
@@ -1221,6 +1385,7 @@ class VideoToolsActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        closeFullScreenPlayer()
         VideoCompressor.cancel()
         VideoToolsEngine.cancel()
         super.onDestroy()
@@ -1233,6 +1398,13 @@ class VideoToolsActivity : AppCompatActivity() {
 
     private var activeVideoViews = mutableListOf<ExoVideoView>()
     private var smartPreviewView: ExoVideoView? = null
+
+    // Full-screen player (user 2026-11-24): every Play / preview
+    // opens this professional full-screen player.
+    private var fullScreenRoot: ViewGroup? = null
+    private var fullScreenPlayer: ExoVideoView? = null
+    private var fullScreenHandler: Handler? = null
+    private var fullScreenTick: Runnable? = null
 
     private fun showCompressScreen(tab: Int) {
         compressTab = tab
@@ -1528,11 +1700,7 @@ class VideoToolsActivity : AppCompatActivity() {
         content.addView(preview)
         activeVideoViews.add(preview)
         val playBtn = popupPillButton("▶  Play preview", false) {
-            try {
-                preview.start()
-            } catch (_: Throwable) {
-                toast("Couldn't play this video")
-            }
+            showFullScreenPlayer(Uri.fromFile(out))
         }.apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(48)
@@ -1639,10 +1807,7 @@ class VideoToolsActivity : AppCompatActivity() {
         smartPreviewView = preview
         activeVideoViews.add(preview)
         val playPreview = popupPillButton("▶  Play preview", false) {
-            try {
-                preview.start()
-            } catch (_: Throwable) {
-            }
+            inputUri?.let { showFullScreenPlayer(it) }
         }.apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(48)
@@ -1816,12 +1981,7 @@ class VideoToolsActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             val play = popupPillButton("▶ Play", false) {
-                try {
-                    smartPreviewView?.setVideoURI(Uri.fromFile(r.file))
-                    smartPreviewView?.start()
-                } catch (_: Throwable) {
-                    toast("Couldn't play this version")
-                }
+                showFullScreenPlayer(Uri.fromFile(r.file))
             }.apply {
                 layoutParams = LinearLayout.LayoutParams(dp(96), dp(40))
             }
@@ -2326,10 +2486,7 @@ class VideoToolsActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(s: SeekBar?) {}
         })
         val playBtn = popupPillButton("▶  Play", false) {
-            try {
-                preview.start()
-            } catch (_: Throwable) {
-            }
+            inputUri?.let { showFullScreenPlayer(it) }
         }.apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(48)
@@ -2566,10 +2723,7 @@ class VideoToolsActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(s: SeekBar?) {}
         })
         val playBtn = popupPillButton("▶  Play", false) {
-            try {
-                preview.start()
-            } catch (_: Throwable) {
-            }
+            inputUri?.let { showFullScreenPlayer(it) }
         }.apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(48)
