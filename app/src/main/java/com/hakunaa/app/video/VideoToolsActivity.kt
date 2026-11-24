@@ -22,6 +22,7 @@ import android.widget.FrameLayout
 import android.widget.GridLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
@@ -1013,6 +1014,11 @@ class VideoToolsActivity : AppCompatActivity() {
             inputUri = uri
             inputSize = FileUtils.fileSize(contentResolver, uri)
             inputName = FileUtils.fileName(contentResolver, uri)
+            // Convert default (user 2026-11-24): a new video always
+            // starts on MP4. (Reset here, not in showConvertScreen,
+            // so Back from the result screen keeps the chosen format.)
+            convertFormat = VideoToolsEngine.ConvertFormat.MP4
+            convertRes = VideoCompressor.Resolution.ORIGINAL
             try {
                 inputFile = FileUtils.copyUriToCache(
                     this, uri, "input_${System.currentTimeMillis()}.mp4"
@@ -2232,6 +2238,12 @@ class VideoToolsActivity : AppCompatActivity() {
 
     private var convertFormat = VideoToolsEngine.ConvertFormat.MP4
     private var convertRes = VideoCompressor.Resolution.ORIGINAL
+    // Inline result area on the Convert screen (user 2026-11-24):
+    // the space between Resolution and the Convert button. Shows a
+    // loading card while converting, then the output preview +
+    // View button on the side + Save — same as the Image result.
+    // GONE (no space) until a convert runs.
+    private var convertResultArea: LinearLayout? = null
 
     /** Convert top: square preview on the LEFT + video info beside
      * it + a small badge showing the CURRENT (input) format, so it
@@ -2303,17 +2315,20 @@ class VideoToolsActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(4) }
         }
-        // Current (input) format badge — small, professional.
-        val ext = (inputFile?.extension ?: "").uppercase().ifEmpty { "VIDEO" }
+        // Current (input) format badge — LIGHT + professional
+        // (user 2026-11-24: no solid pink box). White pill with a
+        // thin pink outline + pink text.
+        val ext = inputName.substringAfterLast('.', "").uppercase().ifEmpty { "VIDEO" }
         val badge = TextView(this).apply {
             text = ext
             textSize = 12f
             setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(Color.WHITE)
+            setTextColor(pinkDark)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(10).toFloat()
-                setColor(pinkDark)
+                setColor(Color.WHITE)
+                setStroke(dp(1), pinkBorder)
             }
             setPadding(dp(10), dp(4), dp(10), dp(4))
             layoutParams = LinearLayout.LayoutParams(
@@ -2384,6 +2399,9 @@ class VideoToolsActivity : AppCompatActivity() {
                 convertBtn.text = "Convert to ${convertFormat.label}"
                 detailsTitle.text = fmt.label
                 detailsText.text = fmt.details
+                // Stale result — it was for the old format.
+                convertResultArea?.visibility = View.GONE
+                convertResultArea?.removeAllViews()
             }
             val lp = GridLayout.LayoutParams().apply {
                 width = 0
@@ -2398,7 +2416,23 @@ class VideoToolsActivity : AppCompatActivity() {
         content.addView(grid)
         content.addView(detailsBox)
         content.addView(sectionLabel("RESOLUTION"))
-        content.addView(resolutionChips(convertRes) { convertRes = it })
+        content.addView(resolutionChips(convertRes) {
+            convertRes = it
+            convertResultArea?.visibility = View.GONE
+            convertResultArea?.removeAllViews()
+        })
+        // Inline RESULT area — the space between Resolution and the
+        // Convert button. Empty (GONE) until a convert runs.
+        val resultArea = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(4) }
+        }
+        convertResultArea = resultArea
+        content.addView(resultArea)
         content.addView(convertBtn)
     }
 
@@ -2407,22 +2441,65 @@ class VideoToolsActivity : AppCompatActivity() {
         if (!engineGuard()) return
         val fmt = convertFormat
         val out = File(cacheDir, "hakunaa_convert_${System.currentTimeMillis()}.${fmt.extension}")
-        val loading = showCompressLoadingDialog(
-            "To ${fmt.label}  •  ${convertRes.label}", "Converting…"
-        )
+        // Loading card INSIDE the inline result area (no popup).
+        val area = convertResultArea ?: return
+        area.removeAllViews()
+        area.visibility = View.VISIBLE
+        area.addView(sectionLabel("RESULT"))
+        val loadCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(12).toFloat()
+                setColor(pinkCard)
+                setStroke(dp(2), pinkBorder)
+            }
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+        val loadTitle = TextView(this).apply {
+            text = "Converting to ${fmt.label}…"
+            textSize = 15f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+        }
+        val loadBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progress = 0
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(10) }
+        }
+        val loadPct = TextView(this).apply {
+            text = "0%"
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(6) }
+        }
+        loadCard.addView(loadTitle)
+        loadCard.addView(loadBar)
+        loadCard.addView(loadPct)
+        area.addView(loadCard)
         VideoToolsEngine.convert12(
             input.absolutePath, out.absolutePath, fmt, convertRes,
-            { p -> runOnUiThread { loading.progress.progress = p; loading.percent.text = "$p%" } },
+            { p -> runOnUiThread { loadBar.progress = p; loadPct.text = "$p%" } },
             { ok, msg ->
                 runOnUiThread {
-                    try {
-                        loading.dialog.dismiss()
-                    } catch (_: Throwable) {
-                    }
                     if (ok && out.exists() && out.length() > 0) {
-                        // No direct save — result screen first.
-                        showConvertResult(out, fmt)
+                        // No direct save — result INSIDE the Convert
+                        // screen (output preview + View + Save).
+                        showConvertResultInline(area, out, fmt)
                     } else {
+                        area.visibility = View.GONE
+                        area.removeAllViews()
                         toast("Convert failed: $msg")
                     }
                 }
@@ -2430,29 +2507,16 @@ class VideoToolsActivity : AppCompatActivity() {
         )
     }
 
-    /** Convert result — NEW screen, NO direct save (user 2026-11-24).
-     * Small top preview + saved size + Play preview. Save saves
-     * (then the professional Saved popup); Back returns to the
-     * Convert options with the same video and settings. */
-    private fun showConvertResult(out: File, fmt: VideoToolsEngine.ConvertFormat) {
-        val after = out.length()
-        val content = newToolOverlay("Result")
-        val preview = ExoVideoView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(180)
-            ).apply { topMargin = dp(12) }
-        }
-        preview.setVideoURI(Uri.fromFile(out))
-        content.addView(preview)
-        activeVideoViews.add(preview)
-        val playBtn = popupPillButton("▶  Play preview", false) {
-            showFullScreenPlayer(Uri.fromFile(out))
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(48)
-            ).apply { topMargin = dp(8) }
-        }
-        content.addView(playBtn)
+    /** Convert result — INLINE in the Convert screen's result area
+     * (user 2026-11-24, approved mockup convert-result-mockup-v1).
+     * Output preview + info + View button on the side + Save,
+     * same as the Image result. NO direct save. */
+    private fun showConvertResultInline(
+        area: LinearLayout, out: File, fmt: VideoToolsEngine.ConvertFormat
+    ) {
+        area.removeAllViews()
+        area.visibility = View.VISIBLE
+        area.addView(sectionLabel("RESULT"))
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
@@ -2465,53 +2529,75 @@ class VideoToolsActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(16) }
+            ).apply { topMargin = dp(8) }
+        }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        val preview = ExoVideoView(this).apply {
+            resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            layoutParams = LinearLayout.LayoutParams(dp(120), dp(120))
+        }
+        preview.setVideoURI(Uri.fromFile(out))
+        preview.onPrepared = {
+            try {
+                preview.seekTo(1000)
+            } catch (_: Throwable) {
+            }
+        }
+        preview.onError = {
+            toast("Couldn't play this video")
+        }
+        preview.setOnClickListener { showFullScreenPlayer(Uri.fromFile(out)) }
+        row.addView(preview)
+        activeVideoViews.add(preview)
+        val after = out.length()
+        val info = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+            ).apply { marginStart = dp(12); marginEnd = dp(12) }
+        }
+        val name = TextView(this).apply {
+            text = out.name
+            textSize = 15f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
         }
         val sizes = TextView(this).apply {
             text = "${FileUtils.formatSize(inputSize)}  →  ${FileUtils.formatSize(after)}"
-            textSize = 17f
-            setTypeface(null, android.graphics.Typeface.BOLD)
+            textSize = 13f
             setTextColor(getColor(R.color.hakunaa_text))
-            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(4) }
         }
         val saved = TextView(this).apply {
-            text = FileUtils.savedPercent(inputSize, after)
-            textSize = 15f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(getColor(R.color.hakunaa_success))
-            gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(6) }
-        }
-        val detail = TextView(this).apply {
-            text = "${fmt.label}  •  ${convertRes.label}"
-            textSize = 13f
+            text = "${FileUtils.savedPercent(inputSize, after)}  •  ${fmt.label}  •  ${convertRes.label}"
+            textSize = 12f
             setTextColor(getColor(R.color.hakunaa_text_secondary))
-            gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(6) }
+            ).apply { topMargin = dp(4) }
         }
-        card.addView(sizes)
-        card.addView(saved)
-        card.addView(detail)
-        content.addView(card)
-        val bottom = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(20) }
+        info.addView(name)
+        info.addView(sizes)
+        info.addView(saved)
+        row.addView(info)
+        val viewBtn = popupPillButton("▶  View", true) {
+            showFullScreenPlayer(Uri.fromFile(out))
         }
-        val backBtn = popupPillButton("Back", false) {
-            showConvertScreen()
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f)
-                .apply { marginEnd = dp(6) }
-        }
+        row.addView(viewBtn)
+        card.addView(row)
         val saveBtn = popupPillButton("Save", true) {
             if (fmt.isGif) {
                 saveVideoAndShow(out, "Pictures/Hakunaa", "GIF", fmt.mime, MediaStoreSaver.Kind.IMAGE)
@@ -2519,12 +2605,12 @@ class VideoToolsActivity : AppCompatActivity() {
                 saveVideoAndShow(out, "Movies/Hakunaa", fmt.label, fmt.mime)
             }
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f)
-                .apply { marginStart = dp(6) }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(48)
+            ).apply { topMargin = dp(12) }
         }
-        bottom.addView(backBtn)
-        bottom.addView(saveBtn)
-        content.addView(bottom)
+        card.addView(saveBtn)
+        area.addView(card)
     }
 
     // ------------------------------------------------------------------
