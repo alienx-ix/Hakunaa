@@ -3,28 +3,36 @@ package com.hakunaa.app.video
 import android.content.Context
 import android.graphics.Color
 import android.net.Uri
-import android.view.SurfaceView
 import android.widget.FrameLayout
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 
 /**
  * In-app video player (ExoPlayer / Media3) — drop-in replacement
- * for VideoView in VideoToolsActivity. SurfaceView + ExoPlayer:
- * hardware-accelerated, ultra smooth, 0 lag, plays far more
- * formats than VideoView (MP4, MKV, WebM, MOV, 3GP...). The video
- * stays inside Hakunaa — no external app, no "Can't play this
- * video" dialog. Same call shape as VideoView (setVideoURI,
- * start, pause, seekTo, stopPlayback) so every play button in
- * Video Tools works unchanged.
+ * for VideoView in VideoToolsActivity. PlayerView (no controller)
+ * + ExoPlayer: hardware-accelerated, ultra smooth, 0 lag, plays
+ * far more formats than VideoView (MP4, MKV, WebM, MOV, 3GP...).
+ * The video stays inside Hakunaa — no external app, no "Can't
+ * play this video" dialog. Same call shape as VideoView
+ * (setVideoURI, start, pause, seekTo, stopPlayback) so every
+ * play button in Video Tools works unchanged.
+ *
+ * Aspect ratio is always correct (user 2026-11-24): PlayerView
+ * preserves the video's own aspect — FIT letterboxes / pillars
+ * (full-screen player + all inline previews), ZOOM center-crops
+ * to fill (the square Quick header preview). No stretching.
  */
 class ExoVideoView @JvmOverloads constructor(
     context: Context
 ) : FrameLayout(context) {
 
-    private val surfaceView = SurfaceView(context).apply {
+    private val playerView = PlayerView(context).apply {
+        useController = false
+        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
         layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
     }
 
@@ -38,21 +46,19 @@ class ExoVideoView @JvmOverloads constructor(
     /** Called on a playback error (unplayable file). */
     var onError: (() -> Unit)? = null
 
+    /** Aspect handling — FIT (default): whole video, correct
+     * aspect, black bars where needed. ZOOM: center-crop to fill
+     * the view (square thumbnail). */
+    var resizeMode: Int
+        get() = playerView.resizeMode
+        set(value) {
+            playerView.resizeMode = value
+        }
+
     init {
         setBackgroundColor(Color.BLACK)
-        addView(surfaceView)
+        addView(playerView)
     }
-
-    /** Current playback position in ms (like VideoView.currentPosition). */
-    val currentPosition: Int
-        get() = player?.currentPosition?.toInt() ?: 0
-
-    /** Total duration in ms (like VideoView.duration); 0 if unknown. */
-    val duration: Long
-        get() {
-            val d = player?.duration ?: return 0L
-            return if (d < 0) 0L else d
-        }
 
     /** Set the video source (like VideoView.setVideoURI). Prepares but does not auto-play. */
     fun setVideoURI(uri: Uri) {
@@ -87,6 +93,17 @@ class ExoVideoView @JvmOverloads constructor(
         p.seekTo(ms.toLong())
     }
 
+    /** Current playback position in ms (like VideoView.currentPosition). */
+    val currentPosition: Int
+        get() = player?.currentPosition?.toInt() ?: 0
+
+    /** Total duration in ms (like VideoView.duration); 0 if unknown. */
+    val duration: Long
+        get() {
+            val d = player?.duration ?: return 0L
+            return if (d < 0) 0L else d
+        }
+
     /** Stop and release (like VideoView.stopPlayback). */
     fun stopPlayback() {
         releasePlayer()
@@ -100,7 +117,6 @@ class ExoVideoView @JvmOverloads constructor(
     private fun ensurePlayer() {
         if (player != null) return
         val p = ExoPlayer.Builder(context).build().apply {
-            setVideoSurfaceView(surfaceView)
             playWhenReady = false
             addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(state: Int) {
@@ -120,9 +136,14 @@ class ExoVideoView @JvmOverloads constructor(
             })
         }
         player = p
+        playerView.player = p
     }
 
     private fun releasePlayer() {
+        try {
+            playerView.player = null
+        } catch (_: Throwable) {
+        }
         try {
             player?.release()
         } catch (_: Throwable) {

@@ -27,6 +27,7 @@ import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.AppCompatTextView
@@ -1087,7 +1088,10 @@ class VideoToolsActivity : AppCompatActivity() {
             ).apply { topMargin = dp(12) }
         }
         val preview = ExoVideoView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(112), dp(84))
+            // Square thumbnail (user 2026-11-24): video center-crops
+            // to fill the square, professional — never stretched.
+            layoutParams = LinearLayout.LayoutParams(dp(96), dp(96))
+            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
         }
         inputUri?.let { preview.setVideoURI(it) }
         // In-app playback (user 2026-11-24): tap toggles play /
