@@ -901,6 +901,90 @@ class VideoToolsActivity : AppCompatActivity() {
         return card
     }
 
+    /** Quick Compress top (user 2026-11-24): SMALL preview on the
+     * LEFT + video info beside it (name, size, duration,
+     * resolution). Tap the preview to play / pause it. */
+    private fun quickHeaderCard(): LinearLayout {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(12).toFloat()
+                setColor(Color.WHITE)
+                setStroke(dp(1), Color.parseColor("#CFD8DC"))
+            }
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) }
+        }
+        val preview = VideoView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(112), dp(84))
+            setBackgroundColor(Color.BLACK)
+        }
+        inputUri?.let { preview.setVideoURI(it) }
+        preview.setOnPreparedListener { mp ->
+            try {
+                mp.seekTo(1000)
+            } catch (_: Throwable) {
+            }
+        }
+        preview.setOnClickListener {
+            try {
+                if (preview.isPlaying) preview.pause() else preview.start()
+            } catch (_: Throwable) {
+            }
+        }
+        activeVideoViews.add(preview)
+        card.addView(preview)
+        val info = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+            ).apply { marginStart = dp(12) }
+        }
+        val name = TextView(this).apply {
+            text = inputName
+            textSize = 15f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        val p = probeInfo
+        val details = StringBuilder(FileUtils.formatSize(inputSize))
+        if (p != null) {
+            if (p.durationMs > 0) details.append("  •  ").append(formatDuration(p.durationMs))
+            if (p.width > 0 && p.height > 0) details.append("  •  ${p.width}×${p.height}")
+            if (!p.hasAudio) details.append("  •  no audio")
+        }
+        val meta = TextView(this).apply {
+            text = details.toString()
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(4) }
+        }
+        val hint = TextView(this).apply {
+            text = "Tap preview to play"
+            textSize = 12f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(4) }
+        }
+        info.addView(name)
+        info.addView(meta)
+        info.addView(hint)
+        card.addView(info)
+        return card
+    }
+
     private data class ProgressViews(
         val progress: LinearProgressIndicator,
         val status: TextView,
@@ -1150,13 +1234,23 @@ class VideoToolsActivity : AppCompatActivity() {
         compressTab = tab
         smartRunning = false
         val content = newToolOverlay("Compress Video")
-        // Tabs
-        val tabs = chipRow(listOf("Quick", "Smart", "Advanced"), compressTab) { i ->
-            compressTab = i
-            showCompressScreen(i)
+        // Tabs — Quick has NO tabs (user 2026-11-24: remove the
+        // Quick / Smart / Advanced buttons from Quick Compress).
+        // Smart / Advanced keep them for now.
+        if (compressTab != 0) {
+            val tabs = chipRow(listOf("Quick", "Smart", "Advanced"), compressTab) { i ->
+                compressTab = i
+                showCompressScreen(i)
+            }
+            content.addView(tabs)
         }
-        content.addView(tabs)
-        content.addView(fileInfoCard())
+        // Top — Quick gets a small left preview + info beside it;
+        // Smart / Advanced keep the full-width info card.
+        if (compressTab == 0) {
+            content.addView(quickHeaderCard())
+        } else {
+            content.addView(fileInfoCard())
+        }
         val optionsBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
@@ -1281,55 +1375,217 @@ class VideoToolsActivity : AppCompatActivity() {
         actionBox.addView(btn)
     }
 
+    /** Professional compress loading popup (Quick, user 2026-11-24):
+     * title + status + progress bar + percent. Non-cancelable
+     * while compressing. */
+    private class CompressLoadingDialog(
+        val dialog: Dialog,
+        val progress: LinearProgressIndicator,
+        val percent: TextView
+    )
+
+    private fun showCompressLoadingDialog(statusText: String): CompressLoadingDialog {
+        val dialog = Dialog(this)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.setCancelable(false)
+        dialog.setCanceledOnTouchOutside(false)
+        val outer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), 0, dp(24), 0)
+        }
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(20).toFloat()
+                setColor(Color.WHITE)
+            }
+            setPadding(dp(24), dp(24), dp(24), dp(24))
+        }
+        val title = TextView(this).apply {
+            text = "Compressing…"
+            textSize = 18f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            gravity = Gravity.CENTER
+        }
+        val status = TextView(this).apply {
+            text = statusText
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+        val progress = LinearProgressIndicator(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(20) }
+        }
+        val percent = TextView(this).apply {
+            text = "0%"
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(pinkDark)
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+        card.addView(title)
+        card.addView(status)
+        card.addView(progress)
+        card.addView(percent)
+        outer.addView(card)
+        dialog.setContentView(outer)
+        dialog.window?.setLayout(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        dialog.show()
+        return CompressLoadingDialog(dialog, progress, percent)
+    }
+
     private fun runQuick(pv: ProgressViews, resultBox: LinearLayout) {
         val input = inputFile ?: return
         if (!engineGuard()) return
-        pv.progress.visibility = View.VISIBLE
-        pv.progress.progress = 0
-        pv.status.text = "Compressing… CRF $quickCrf, ${quickCodec.name}, ${quickRes.label}"
-        pv.result.text = ""
         resultBox.removeAllViews()
         val out = File(cacheDir, "hakunaa_quick_${System.currentTimeMillis()}.mp4")
+        val loading = showCompressLoadingDialog(
+            "CRF $quickCrf  •  ${quickCodec.name}  •  ${quickRes.label}"
+        )
         // compressBest: the existing ladder — tries the user's
         // settings first, escalates only if the result is not
         // smaller. Never hands back a bigger file.
+        // (Algorithm untouched — only the UI around it changed.)
         VideoCompressor.compressBest(
             input.absolutePath, out.absolutePath, inputSize, quickCrf, quickCodec, quickRes,
-            onProgress = { p -> runOnUiThread { pv.progress.progress = p } },
+            onProgress = { p ->
+                runOnUiThread {
+                    loading.progress.progress = p
+                    loading.percent.text = "$p%"
+                }
+            },
             onDone = { ok, note ->
                 runOnUiThread {
-                    pv.progress.visibility = View.GONE
+                    try {
+                        loading.dialog.dismiss()
+                    } catch (_: Throwable) {
+                    }
                     if (ok) {
-                        val after = out.length()
-                        pv.status.text = "Done — saved to Movies/Hakunaa$note"
-                        pv.result.text = "${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(after)} " +
-                            "(${FileUtils.savedPercent(inputSize, after)})"
-                        val more = popupPillButton("More Compress", false) {
-                            showCompressScreen(2)
-                        }.apply {
-                            layoutParams = LinearLayout.LayoutParams(
-                                LinearLayout.LayoutParams.MATCH_PARENT, dp(52)
-                            ).apply { topMargin = dp(16) }
-                        }
-                        resultBox.addView(more)
-                        val hint = TextView(this).apply {
-                            text = "Want it even smaller? More Compress opens Advanced."
-                            textSize = 13f
-                            setTextColor(getColor(R.color.hakunaa_text_secondary))
-                            gravity = Gravity.CENTER
-                            layoutParams = LinearLayout.LayoutParams(
-                                LinearLayout.LayoutParams.MATCH_PARENT,
-                                LinearLayout.LayoutParams.WRAP_CONTENT
-                            ).apply { topMargin = dp(8) }
-                        }
-                        resultBox.addView(hint)
-                        saveVideoAndShow(out, "Movies/Hakunaa", "MP4", "video/mp4")
+                        // No direct save — result screen first.
+                        showQuickResult(out)
                     } else {
                         pv.status.text = "Failed: $note"
+                        toast("Compress failed: $note")
                     }
                 }
             }
         )
+    }
+
+    /** Quick result — NEW screen, NO direct save (user 2026-11-24).
+     * Small top preview + saved size + Play preview. Save saves
+     * (then the professional Saved popup); Back returns to the
+     * Quick options with the same video and settings. */
+    private fun showQuickResult(out: File) {
+        val after = out.length()
+        val content = newToolOverlay("Result")
+        val preview = VideoView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(180)
+            ).apply { topMargin = dp(12) }
+            setBackgroundColor(Color.BLACK)
+        }
+        preview.setVideoURI(Uri.fromFile(out))
+        content.addView(preview)
+        activeVideoViews.add(preview)
+        val playBtn = popupPillButton("▶  Play preview", false) {
+            try {
+                preview.start()
+            } catch (_: Throwable) {
+                toast("Couldn't play this video")
+            }
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(48)
+            ).apply { topMargin = dp(8) }
+        }
+        content.addView(playBtn)
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(12).toFloat()
+                setColor(pinkCard)
+                setStroke(dp(2), pinkBorder)
+            }
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(16) }
+        }
+        val sizes = TextView(this).apply {
+            text = "${FileUtils.formatSize(inputSize)}  →  ${FileUtils.formatSize(after)}"
+            textSize = 17f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            gravity = Gravity.CENTER
+        }
+        val saved = TextView(this).apply {
+            text = FileUtils.savedPercent(inputSize, after)
+            textSize = 15f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_success))
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(6) }
+        }
+        val detail = TextView(this).apply {
+            text = "CRF $quickCrf  •  ${quickCodec.name}  •  ${quickRes.label}"
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(6) }
+        }
+        card.addView(sizes)
+        card.addView(saved)
+        card.addView(detail)
+        content.addView(card)
+        val bottom = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(20) }
+        }
+        val backBtn = popupPillButton("Back", false) {
+            showCompressScreen(0)
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f)
+                .apply { marginEnd = dp(6) }
+        }
+        val saveBtn = popupPillButton("Save", true) {
+            saveVideoAndShow(out, "Movies/Hakunaa", "MP4", "video/mp4")
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f)
+                .apply { marginStart = dp(6) }
+        }
+        bottom.addView(backBtn)
+        bottom.addView(saveBtn)
+        content.addView(bottom)
     }
 
     // ---- Smart ----
