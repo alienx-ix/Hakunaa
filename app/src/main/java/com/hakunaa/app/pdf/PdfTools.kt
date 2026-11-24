@@ -22,7 +22,6 @@ import com.tom_roush.pdfbox.rendering.PDFRenderer
 import com.tom_roush.pdfbox.pdmodel.graphics.state.PDExtendedGraphicsState
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -439,38 +438,40 @@ object PdfTools {
             } else {
                 bitmap
             }
-            // v0.1.177 FIX 2 (poor compression on screenshots): pick
-            // the better codec per image. Photos compress far better
-            // as JPEG; screenshots / line art (flat colours, sharp
-            // text) compress far better lossless (PNG/Flate). The old
-            // code only tried JPEG, so a screenshot PDF could only
-            // shrink ~26% even at 72 DPI / JPEG 50%. Both are measured
-            // in memory first (no document objects for the loser, so
-            // no orphan bloat) and only the smaller one is created.
-            // Lossless is only attempted for modest sizes (<= 3 MP) —
-            // for huge photos JPEG wins anyway and a PNG encode would
-            // be very slow.
+            // v0.1.178 FIX (v0.1.177 regression — 26% became 1%):
+            // pick the better codec per image by comparing the
+            // ACTUAL factory outputs. v0.1.177 measured PNG bytes
+            // (which use per-row filters) as a proxy for
+            // LosslessFactory, but LosslessFactory writes raw RGB +
+            // Flate with NO predictor, so it was far bigger than the
+            // proxy said. Now both real outputs are created and
+            // their true stream lengths compared; the loser is
+            // closed (the pattern LosslessFactory itself uses, and
+            // PDFBox does not write unreferenced objects, verified
+            // by test — so no bloat). Photos win as JPEG;
+            // screenshots / line art win lossless. Lossless is only
+            // attempted for modest opaque sizes (<= 3 MP, no alpha)
+            // — for huge photos JPEG wins anyway and Flate would be
+            // very slow.
+            val jpeg = try { JPEGFactory.createFromImage(doc, scaled, quality) } catch (_: Throwable) { null }
+            var result = jpeg
             val scaledPixels = scaled.width.toLong() * scaled.height.toLong()
-            val useLossless = if (scaledPixels <= 3_000_000L) {
-                val jpegBytes = try {
-                    val out = ByteArrayOutputStream()
-                    val ok = scaled.compress(Bitmap.CompressFormat.JPEG, (quality * 100).toInt(), out)
-                    if (ok) out.size().toLong() else Long.MAX_VALUE
-                } catch (_: Throwable) { Long.MAX_VALUE }
-                val pngBytes = try {
-                    val out = ByteArrayOutputStream()
-                    val ok = scaled.compress(Bitmap.CompressFormat.PNG, 100, out)
-                    if (ok) out.size().toLong() else Long.MAX_VALUE
-                } catch (_: Throwable) { Long.MAX_VALUE }
-                pngBytes in 1 until jpegBytes
-            } else {
-                false
-            }
-            val result = if (useLossless) {
-                try { LosslessFactory.createFromImage(doc, scaled) }
-                catch (_: Throwable) { JPEGFactory.createFromImage(doc, scaled, quality) }
-            } else {
-                JPEGFactory.createFromImage(doc, scaled, quality)
+            if (!scaled.hasAlpha() && scaledPixels <= 3_000_000L) {
+                val lossless = try { LosslessFactory.createFromImage(doc, scaled) } catch (_: Throwable) { null }
+                if (lossless != null) {
+                    if (jpeg == null) {
+                        result = lossless
+                    } else {
+                        val jpegSize = try { jpeg.getCOSStream().getLength() } catch (_: Throwable) { -1L }
+                        val losslessSize = try { lossless.getCOSStream().getLength() } catch (_: Throwable) { -1L }
+                        if (losslessSize > 0 && (jpegSize <= 0 || losslessSize < jpegSize)) {
+                            try { jpeg.getCOSStream().close() } catch (_: Throwable) { }
+                            result = lossless
+                        } else {
+                            try { lossless.getCOSStream().close() } catch (_: Throwable) { }
+                        }
+                    }
+                }
             }
             if (scaled !== bitmap) scaled.recycle()
             result
