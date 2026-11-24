@@ -4,7 +4,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -92,8 +91,7 @@ class ImageCompressActivity : AppCompatActivity() {
     private data class ToolDef(
         val title: String,
         val subtitle: String,
-        val iconRes: Int,
-        val iconRotation: Float = 0f,
+        val iconKind: ImageIconView.Kind,
         val fullWidth: Boolean = false,
         val action: () -> Unit
     )
@@ -111,39 +109,40 @@ class ImageCompressActivity : AppCompatActivity() {
 
         toolDefs = listOf(
             // Smart Compress FIRST (v0.1.125) — top-left, ahead
-            // of Compress.
-            ToolDef("Smart Compress", "Try all levels, pick the best", R.drawable.ic_bolt) {
+            // of Compress. Icons: code-drawn gradient (v0.1.169,
+            // user-approved mockup v40) — ImageIconView.Kind.
+            ToolDef("Smart Compress", "Try all levels, pick the best", ImageIconView.Kind.SMART) {
                 withImage { openTool(ImageToolActivity.MODE_SMART) }
             },
-            ToolDef("Compress", "Reduce file size", R.drawable.ic_arrow_right, 90f) {
+            ToolDef("Compress", "Reduce file size", ImageIconView.Kind.COMPRESS) {
                 withImage { openTool(ImageToolActivity.MODE_COMPRESS) }
             },
-            ToolDef("Crop", "Remove unwanted parts", R.drawable.ic_crop) {
+            ToolDef("Crop", "Remove unwanted parts", ImageIconView.Kind.CROP) {
                 withImage { openCrop() }
             },
-            ToolDef("Resize", "Change photo resolution", R.drawable.ic_text_resize) {
+            ToolDef("Resize", "Change photo resolution", ImageIconView.Kind.RESIZE) {
                 withImage { openTool(ImageToolActivity.MODE_RESIZE) }
             },
-            ToolDef("Social Media Crop", "1:1, 9:16, 4:5", R.drawable.ic_frame) {
+            ToolDef("Social Media Crop", "1:1, 9:16, 4:5", ImageIconView.Kind.SOCIAL) {
                 withImage { openTool(ImageToolActivity.MODE_FIT_SOCIAL) }
             },
-            ToolDef("Convert", "PNG, JPG, WebP", R.drawable.ic_convert) {
+            ToolDef("Convert", "PNG, JPG, WebP", ImageIconView.Kind.CONVERT) {
                 withImage { openTool(ImageToolActivity.MODE_CONVERT) }
             },
-            ToolDef("Color Correction", "Adjust colors, light & more", R.drawable.ic_markup) {
+            ToolDef("Color Correction", "Adjust colors, light & more", ImageIconView.Kind.COLOR) {
                 withImage { openEdit() }
             },
-            ToolDef("DP Crop", "Circle & Square", R.drawable.ic_profile) {
+            ToolDef("DP Crop", "Circle & Square", ImageIconView.Kind.DP) {
                 withImage { openTool(ImageToolActivity.MODE_DP) }
             },
-            ToolDef("Image to PDF", "Photo to PDF", R.drawable.ic_doc) {
+            ToolDef("Image to PDF", "Photo to PDF", ImageIconView.Kind.PDF) {
                 // v0.1.132 (Batch 16): multi-page screen — pick
                 // MULTIPLE images, drag to reorder, then Create
                 // PDF. The old single-image flow is gone.
                 launchedTool = true
                 startActivity(Intent(this, ImageToPdfActivity::class.java))
             },
-            ToolDef("Remove Metadata", "Strip location & metadata", R.drawable.ic_shield) {
+            ToolDef("Remove Metadata", "Strip location & metadata", ImageIconView.Kind.META) {
                 withImage { openTool(ImageToolActivity.MODE_METADATA) }
             }
         )
@@ -183,9 +182,8 @@ class ImageCompressActivity : AppCompatActivity() {
 
     private fun makeToolCard(tool: ToolDef): View {
         val card = layoutInflater.inflate(R.layout.item_image_tool, null) as MaterialCardView
-        val icon = card.findViewById<ImageView>(R.id.ivIcon)
-        icon.setImageResource(tool.iconRes)
-        icon.rotation = tool.iconRotation
+        val icon = card.findViewById<ImageIconView>(R.id.ivIcon)
+        icon.kind = tool.iconKind
         card.findViewById<TextView>(R.id.tvTitle).text = tool.title
         card.findViewById<TextView>(R.id.tvSubtitle).text = tool.subtitle
         card.setOnClickListener { tool.action() }
