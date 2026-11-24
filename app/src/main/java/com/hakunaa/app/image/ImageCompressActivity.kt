@@ -150,10 +150,17 @@ class ImageCompressActivity : AppCompatActivity() {
         buildToolGrid()
     }
 
+    /** dp -> px, same helper as VideoToolsActivity. */
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
     /** Build the box grid (2 per row; a full-width card gets its own row).
      *  v0.1.122: every row shares the screen height equally (weight),
      *  and each card fills its row — the grid FILLS the full screen,
-     *  no empty space at the bottom. */
+     *  no empty space at the bottom.
+     *  v0.1.170: EXACT Video Tools measurements — card margins dp(6)
+     *  on all sides (the old setMargins(6, 4, 6, 4) was RAW PIXELS,
+     *  not dp — that is why the Image cards were bigger with tiny
+     *  gaps while the Video cards had proper 12dp gaps). */
     private fun buildToolGrid() {
         val container = findViewById<LinearLayout>(R.id.toolsContainer)
         container.removeAllViews()
@@ -167,8 +174,9 @@ class ImageCompressActivity : AppCompatActivity() {
                     LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
                 )
             }
+            val m = dp(6)
             val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
-                .apply { setMargins(6, 4, 6, 4) }
+                .apply { setMargins(m, m, m, m) }
             row.addView(makeToolCard(tool), lp)
             if (!tool.fullWidth && i + 1 < tools.size && !tools[i + 1].fullWidth) {
                 row.addView(makeToolCard(tools[i + 1]), lp)

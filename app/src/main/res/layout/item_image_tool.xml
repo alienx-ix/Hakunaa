@@ -3,14 +3,17 @@
      lite blue card #F5F8FF + blue border #1E88E5, code-drawn gradient
      icon (ImageIconView, 48dp) + bold title + grey subtitle.
      Stretches to fill the screen (v0.1.122): the inner content is
-     vertically centred, so tall cards still look balanced. -->
+     vertically centred, so tall cards still look balanced.
+     v0.1.170: EXACT Video Tools card measurements (buildCard):
+     corner radius 16dp, inner padding 6dp, title marginTop 6dp,
+     subtitle 12sp, no font padding. -->
 <com.google.android.material.card.MaterialCardView
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     app:cardBackgroundColor="#F5F8FF"
-    app:cardCornerRadius="14dp"
+    app:cardCornerRadius="16dp"
     app:cardElevation="2dp"
     app:strokeColor="#1E88E5"
     app:strokeWidth="2dp">
@@ -20,7 +23,7 @@
         android:layout_height="match_parent"
         android:gravity="center"
         android:orientation="vertical"
-        android:padding="12dp">
+        android:padding="6dp">
 
         <com.hakunaa.app.image.ImageIconView
             android:id="@+id/ivIcon"
@@ -31,8 +34,9 @@
             android:id="@+id/tvTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="6dp"
             android:ellipsize="end"
+            android:includeFontPadding="false"
             android:maxLines="1"
             android:textColor="@color/hakunaa_text"
             android:textSize="14sp"
@@ -44,8 +48,9 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
             android:ellipsize="end"
+            android:includeFontPadding="false"
             android:maxLines="1"
             android:textColor="@color/hakunaa_text_secondary"
-            android:textSize="11sp" />
+            android:textSize="12sp" />
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>
