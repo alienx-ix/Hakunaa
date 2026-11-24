@@ -659,12 +659,12 @@ class VideoToolsActivity : AppCompatActivity() {
     // X + title, and a ScrollView content area.
     // ------------------------------------------------------------------
 
-    private fun newToolOverlay(title: String): LinearLayout {
+    private fun newToolOverlay(title: String, topExtraDp: Int = 16): LinearLayout {
         dismissToolOverlay()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(getColor(R.color.hakunaa_surface))
-            setPadding(dp(16), statusBarHeightPx() + dp(16), dp(16), dp(16))
+            setPadding(dp(16), statusBarHeightPx() + dp(topExtraDp), dp(16), dp(16))
             isClickable = true
             isFocusable = true
             layoutParams = ViewGroup.LayoutParams(
@@ -925,6 +925,9 @@ class VideoToolsActivity : AppCompatActivity() {
             setBackgroundColor(Color.BLACK)
         }
         inputUri?.let { preview.setVideoURI(it) }
+        // Never show VideoView's own "Can't play this video"
+        // dialog (user 2026-11-24) — tap opens the default app.
+        preview.setOnErrorListener { _, _, _ -> true }
         preview.setOnPreparedListener { mp ->
             try {
                 mp.seekTo(1000)
@@ -932,9 +935,15 @@ class VideoToolsActivity : AppCompatActivity() {
             }
         }
         preview.setOnClickListener {
+            val uri = inputUri ?: return@setOnClickListener
             try {
-                if (preview.isPlaying) preview.pause() else preview.start()
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "video/*")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(intent)
             } catch (_: Throwable) {
+                toast("No app can open this video")
             }
         }
         activeVideoViews.add(preview)
@@ -970,7 +979,7 @@ class VideoToolsActivity : AppCompatActivity() {
             ).apply { topMargin = dp(4) }
         }
         val hint = TextView(this).apply {
-            text = "Tap preview to play"
+            text = "Tap preview to open"
             textSize = 12f
             setTextColor(getColor(R.color.hakunaa_text_secondary))
             layoutParams = LinearLayout.LayoutParams(
@@ -1233,7 +1242,9 @@ class VideoToolsActivity : AppCompatActivity() {
     private fun showCompressScreen(tab: Int) {
         compressTab = tab
         smartRunning = false
-        val content = newToolOverlay("Compress Video")
+        // Header a little higher (user 2026-11-24): top extra
+        // 16dp -> 8dp.
+        val content = newToolOverlay("Compress Video", 8)
         // Tabs — Quick has NO tabs (user 2026-11-24: remove the
         // Quick / Smart / Advanced buttons from Quick Compress).
         // Smart / Advanced keep them for now.
@@ -1268,6 +1279,12 @@ class VideoToolsActivity : AppCompatActivity() {
         content.addView(optionsBox)
         content.addView(actionBox)
         val pv = addProgressViews(content)
+        // Quick: no "Ready" status line (user 2026-11-24) — the
+        // Compress button is the last thing on the screen.
+        if (compressTab == 0) {
+            pv.status.visibility = View.GONE
+            pv.result.visibility = View.GONE
+        }
         val resultBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
@@ -1361,16 +1378,26 @@ class VideoToolsActivity : AppCompatActivity() {
         optionsBox.addView(resolutionChips(quickRes) { quickRes = it })
         optionsBox.addView(sectionLabel("CODEC"))
         optionsBox.addView(codecChips(quickCodec) { quickCodec = it })
-        val note = TextView(this).apply {
-            text = "4K videos are reduced to 1080p automatically."
-            textSize = 13f
-            setTextColor(getColor(R.color.hakunaa_text_secondary))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(12) }
+        // Instructions (user 2026-11-24) — SMALL and simple,
+        // above the Compress button, where the 4K note was.
+        optionsBox.addView(sectionLabel("INSTRUCTIONS"))
+        val lines = listOf(
+            "Pick a quality, resolution and codec, then press Compress.",
+            "4K videos are reduced to 1080p automatically.",
+            "Preview the result, then press Save."
+        )
+        for (line in lines) {
+            val tv = TextView(this).apply {
+                text = "•  $line"
+                textSize = 13f
+                setTextColor(getColor(R.color.hakunaa_text_secondary))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(4) }
+            }
+            optionsBox.addView(tv)
         }
-        optionsBox.addView(note)
         val btn = actionButton("Compress") { runQuick(pv, resultBox) }
         actionBox.addView(btn)
     }
