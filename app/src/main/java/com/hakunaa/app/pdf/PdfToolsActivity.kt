@@ -214,13 +214,13 @@ class PdfToolsActivity : AppCompatActivity() {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(12).toFloat()
                 if (filled) {
-                    setColor(getColor(R.color.hakunaa_teal))
+                    setColor(getColor(R.color.hakunaa_blue))
                 } else {
                     setColor(Color.WHITE)
-                    setStroke(dp(1), getColor(R.color.hakunaa_teal))
+                    setStroke(dp(1), getColor(R.color.hakunaa_blue))
                 }
             }
-            setTextColor(if (filled) Color.WHITE else getColor(R.color.hakunaa_teal))
+            setTextColor(if (filled) Color.WHITE else getColor(R.color.hakunaa_blue))
             setOnClickListener { onClick() }
         }
     }
@@ -350,10 +350,10 @@ class PdfToolsActivity : AppCompatActivity() {
             textSize = 20f
             setTypeface(null, android.graphics.Typeface.BOLD)
             gravity = Gravity.CENTER
-            setTextColor(getColor(R.color.hakunaa_teal))
+            setTextColor(getColor(R.color.hakunaa_blue))
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(0xFFE0F2F1.toInt())
+                setColor(0xFFF5F8FF.toInt())
             }
             layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
         }
@@ -631,7 +631,11 @@ class PdfToolsActivity : AppCompatActivity() {
                     "• Rotate all pages 90°, 180° or 270°\n• Content stays exactly the same") { rotatePdf() },
                 Tool("Image to PDF", null, PdfIconView.Kind.IMG_PDF, false,
                     "• Turn your photos into a PDF\n• Pick the ones you want, reorder them", "Pick Images") {
-                    startActivity(Intent(this, ImageToPdfActivity::class.java))
+                    // v0.1.176: blue theme — Image to PDF follows the PDF
+                    // menu theme when opened from here.
+                    startActivity(Intent(this, ImageToPdfActivity::class.java).apply {
+                        putExtra("blueTheme", true)
+                    })
                 },
                 Tool("Delete Pages", null, PdfIconView.Kind.DELETE_PAGES, false,
                     "• Delete pages you don't need\n• Tap pages to select, then delete") { deletePagesPdf() }
@@ -798,7 +802,7 @@ class PdfToolsActivity : AppCompatActivity() {
             gravity = Gravity.CENTER
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(0xFFE0F2F1.toInt())
+                setColor(0xFFF5F8FF.toInt())
             }
             layoutParams = LinearLayout.LayoutParams(dp(76), dp(76)).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
@@ -887,7 +891,7 @@ class PdfToolsActivity : AppCompatActivity() {
 
     /** Teal filled button (white text) — the app's primary action. */
     private fun styleFilledButton(btn: MaterialButton) {
-        btn.backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+        btn.backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_blue))
         btn.setTextColor(Color.WHITE)
         btn.strokeWidth = 0
         btn.cornerRadius = dp(12)
@@ -896,8 +900,8 @@ class PdfToolsActivity : AppCompatActivity() {
     /** Teal outline button (white fill, teal text) — secondary action. */
     private fun styleOutlineButton(btn: MaterialButton) {
         btn.backgroundTintList = ColorStateList.valueOf(Color.WHITE)
-        btn.setTextColor(getColor(R.color.hakunaa_teal))
-        btn.strokeColor = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+        btn.setTextColor(getColor(R.color.hakunaa_blue))
+        btn.strokeColor = ColorStateList.valueOf(getColor(R.color.hakunaa_blue))
         btn.strokeWidth = dp(1)
         btn.cornerRadius = dp(12)
     }
@@ -950,13 +954,13 @@ class PdfToolsActivity : AppCompatActivity() {
             text = "View"
             textSize = 13f
             setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(getColor(R.color.hakunaa_teal))
+            setTextColor(getColor(R.color.hakunaa_blue))
             gravity = Gravity.CENTER
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 10f * density
                 setColor(getColor(R.color.hakunaa_surface))
-                setStroke((1 * density).toInt(), getColor(R.color.hakunaa_teal))
+                setStroke((1 * density).toInt(), getColor(R.color.hakunaa_blue))
             }
             layoutParams = LinearLayout.LayoutParams(dp(64), dp(40))
             setOnClickListener { onClick() }
@@ -1006,7 +1010,7 @@ class PdfToolsActivity : AppCompatActivity() {
             setTextColor(Color.WHITE)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(getColor(R.color.hakunaa_teal))
+                setColor(getColor(R.color.hakunaa_blue))
             }
             layoutParams = LinearLayout.LayoutParams(
                 (48 * density).toInt(), (48 * density).toInt()
@@ -1065,11 +1069,11 @@ class PdfToolsActivity : AppCompatActivity() {
                 }
                 if (filled) {
                     setTextColor(Color.WHITE)
-                    backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+                    backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_blue))
                 } else {
-                    setTextColor(getColor(R.color.hakunaa_teal))
+                    setTextColor(getColor(R.color.hakunaa_blue))
                     backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_surface))
-                    strokeColor = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+                    strokeColor = ColorStateList.valueOf(getColor(R.color.hakunaa_blue))
                     strokeWidth = (1 * density).toInt()
                 }
             }
@@ -1391,7 +1395,7 @@ class PdfToolsActivity : AppCompatActivity() {
                 gravity = Gravity.CENTER
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
-                    setColor(getColor(R.color.hakunaa_teal))
+                    setColor(getColor(R.color.hakunaa_blue))
                 }
                 layoutParams = LinearLayout.LayoutParams(dp(28), dp(28)).apply {
                     marginEnd = dp(12)
@@ -1516,12 +1520,12 @@ class PdfToolsActivity : AppCompatActivity() {
                     textSize = 36f
                     setTypeface(null, android.graphics.Typeface.BOLD)
                     gravity = Gravity.CENTER
-                    setTextColor(getColor(R.color.hakunaa_teal))
+                    setTextColor(getColor(R.color.hakunaa_blue))
                     background = GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
                         cornerRadius = 12f * density
-                        setColor(Color.parseColor("#E0F2F1"))
-                        setStroke((1 * density).toInt(), getColor(R.color.hakunaa_teal))
+                        setColor(Color.parseColor("#F5F8FF"))
+                        setStroke((1 * density).toInt(), getColor(R.color.hakunaa_blue))
                     }
                     layoutParams = LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
@@ -1582,7 +1586,7 @@ class PdfToolsActivity : AppCompatActivity() {
                 setTextColor(Color.WHITE)
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
-                    setColor(getColor(R.color.hakunaa_teal))
+                    setColor(getColor(R.color.hakunaa_blue))
                 }
                 layoutParams = FrameLayout.LayoutParams(
                     (26 * density).toInt(), (26 * density).toInt()
@@ -1618,7 +1622,7 @@ class PdfToolsActivity : AppCompatActivity() {
                 if (isSel) {
                     setStroke(
                         (2 * holder.root.resources.displayMetrics.density).toInt(),
-                        getColor(R.color.hakunaa_teal)
+                        getColor(R.color.hakunaa_blue)
                     )
                 }
             }
@@ -1929,7 +1933,7 @@ class PdfToolsActivity : AppCompatActivity() {
             text = "✓"
             textSize = 20f
             setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(getColor(R.color.hakunaa_teal))
+            setTextColor(getColor(R.color.hakunaa_blue))
             visibility = View.INVISIBLE
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -1952,8 +1956,8 @@ class PdfToolsActivity : AppCompatActivity() {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 12f * density
                 if (selected) {
-                    setColor(0xFFE0F2F1.toInt())
-                    setStroke((2 * density).toInt(), getColor(R.color.hakunaa_teal))
+                    setColor(0xFFF5F8FF.toInt())
+                    setStroke((2 * density).toInt(), getColor(R.color.hakunaa_blue))
                 } else {
                     setColor(Color.WHITE)
                     setStroke((1 * density).toInt(), Color.parseColor("#CFD8DC"))
@@ -2204,7 +2208,7 @@ class PdfToolsActivity : AppCompatActivity() {
                 text = "✓"
                 textSize = 20f
                 setTypeface(null, android.graphics.Typeface.BOLD)
-                setTextColor(getColor(R.color.hakunaa_teal))
+                setTextColor(getColor(R.color.hakunaa_blue))
                 visibility = View.GONE
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -2296,8 +2300,8 @@ class PdfToolsActivity : AppCompatActivity() {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 12f * density
                 if (isSel) {
-                    setColor(0xFFE0F2F1.toInt())
-                    setStroke((2 * density).toInt(), getColor(R.color.hakunaa_teal))
+                    setColor(0xFFF5F8FF.toInt())
+                    setStroke((2 * density).toInt(), getColor(R.color.hakunaa_blue))
                 } else {
                     setColor(Color.WHITE)
                     setStroke((1 * density).toInt(), Color.parseColor("#CFD8DC"))
@@ -2872,8 +2876,8 @@ class PdfToolsActivity : AppCompatActivity() {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 12f * resources.displayMetrics.density
-                setColor(0xFFE0F2F1.toInt())
-                setStroke(dp(1), getColor(R.color.hakunaa_teal))
+                setColor(0xFFF5F8FF.toInt())
+                setStroke(dp(1), getColor(R.color.hakunaa_blue))
             }
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -3495,7 +3499,7 @@ class PdfToolsActivity : AppCompatActivity() {
                     setTextColor(Color.WHITE)
                     background = GradientDrawable().apply {
                         shape = GradientDrawable.OVAL
-                        setColor(parent.context.getColor(R.color.hakunaa_teal))
+                        setColor(parent.context.getColor(R.color.hakunaa_blue))
                     }
                     layoutParams = FrameLayout.LayoutParams(dp(28), dp(28)).apply {
                         gravity = Gravity.END or Gravity.TOP
@@ -3517,7 +3521,7 @@ class PdfToolsActivity : AppCompatActivity() {
                 cell.background = GradientDrawable().apply {
                     shape = GradientDrawable.RECTANGLE
                     cornerRadius = dp(10).toFloat()
-                    if (item.selected) setStroke(dp(2), cell.context.getColor(R.color.hakunaa_teal))
+                    if (item.selected) setStroke(dp(2), cell.context.getColor(R.color.hakunaa_blue))
                     else setStroke(dp(1), Color.parseColor("#CFD8DC"))
                 }
                 cell.setOnClickListener {
@@ -3573,7 +3577,7 @@ class PdfToolsActivity : AppCompatActivity() {
                     runOnUiThread {
                         if (published > 0 && firstUri != null && firstFile != null) {
                             dismissGenericOverlay()
-                            SavedDialog.show(this@PdfToolsActivity, firstFile, firstUri, ImageCompressor.formatOf(firstFile))
+                            SavedDialog.show(this@PdfToolsActivity, firstFile, firstUri, ImageCompressor.formatOf(firstFile), accentRes = R.color.hakunaa_blue)
                         } else {
                             status.text = "Save failed — check the file and try again"
                         }
@@ -3736,8 +3740,8 @@ class PdfToolsActivity : AppCompatActivity() {
                     shape = GradientDrawable.RECTANGLE
                     cornerRadius = dp(12).toFloat()
                     if (sel) {
-                        setColor(0xFFE0F2F1.toInt())
-                        setStroke(dp(2), getColor(R.color.hakunaa_teal))
+                        setColor(0xFFF5F8FF.toInt())
+                        setStroke(dp(2), getColor(R.color.hakunaa_blue))
                     } else {
                         setColor(Color.WHITE)
                         setStroke(dp(1), Color.parseColor("#CFD8DC"))
@@ -4274,7 +4278,7 @@ private fun deletePagesPdf() {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(10).toFloat()
                 if (selected) {
-                    setColor(getColor(R.color.hakunaa_teal))
+                    setColor(getColor(R.color.hakunaa_blue))
                 } else {
                     setColor(Color.WHITE)
                     setStroke(dp(1), Color.parseColor("#CFD8DC"))
@@ -4291,7 +4295,7 @@ private fun deletePagesPdf() {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = dp(10).toFloat()
             if (selected) {
-                setColor(getColor(R.color.hakunaa_teal))
+                setColor(getColor(R.color.hakunaa_blue))
             } else {
                 setColor(Color.WHITE)
                 setStroke(dp(1), Color.parseColor("#CFD8DC"))
@@ -4493,7 +4497,7 @@ private fun deletePagesPdf() {
                     shape = GradientDrawable.RECTANGLE
                     cornerRadius = dp(10).toFloat()
                     if (selected) {
-                        setColor(getColor(R.color.hakunaa_teal))
+                        setColor(getColor(R.color.hakunaa_blue))
                     } else {
                         setColor(Color.WHITE)
                         setStroke(dp(1), Color.parseColor("#CFD8DC"))
@@ -4526,7 +4530,7 @@ private fun deletePagesPdf() {
                     shape = GradientDrawable.RECTANGLE
                     cornerRadius = dp(10).toFloat()
                     if (selected) {
-                        setColor(getColor(R.color.hakunaa_teal))
+                        setColor(getColor(R.color.hakunaa_blue))
                     } else {
                         setColor(Color.WHITE)
                         setStroke(dp(1), Color.parseColor("#CFD8DC"))
@@ -4558,7 +4562,7 @@ private fun deletePagesPdf() {
                     shape = GradientDrawable.RECTANGLE
                     cornerRadius = dp(10).toFloat()
                     if (selected) {
-                        setColor(getColor(R.color.hakunaa_teal))
+                        setColor(getColor(R.color.hakunaa_blue))
                     } else {
                         setColor(Color.WHITE)
                         setStroke(dp(1), Color.parseColor("#CFD8DC"))
@@ -4952,7 +4956,7 @@ private fun deletePagesPdf() {
             text = "✓"
             textSize = 20f
             setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(getColor(R.color.hakunaa_teal))
+            setTextColor(getColor(R.color.hakunaa_blue))
             visibility = View.INVISIBLE
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -4975,8 +4979,8 @@ private fun deletePagesPdf() {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 12f * density
                 if (selected) {
-                    setColor(0xFFE0F2F1.toInt())
-                    setStroke((2 * density).toInt(), getColor(R.color.hakunaa_teal))
+                    setColor(0xFFF5F8FF.toInt())
+                    setStroke((2 * density).toInt(), getColor(R.color.hakunaa_blue))
                 } else {
                     setColor(Color.WHITE)
                     setStroke((1 * density).toInt(), Color.parseColor("#CFD8DC"))
@@ -5207,13 +5211,13 @@ private fun deletePagesPdf() {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(16).toFloat()
                 if (selected) {
-                    setColor(getColor(R.color.hakunaa_teal))
+                    setColor(getColor(R.color.hakunaa_blue))
                 } else {
                     setColor(Color.WHITE)
-                    setStroke(dp(1), getColor(R.color.hakunaa_teal))
+                    setStroke(dp(1), getColor(R.color.hakunaa_blue))
                 }
             }
-            pill.setTextColor(if (selected) Color.WHITE else getColor(R.color.hakunaa_teal))
+            pill.setTextColor(if (selected) Color.WHITE else getColor(R.color.hakunaa_blue))
         }
     }
 
@@ -5420,7 +5424,7 @@ private fun deletePagesPdf() {
         fun selectedSigBorder(): GradientDrawable {
             return GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                setStroke(dp(2), getColor(R.color.hakunaa_teal))
+                setStroke(dp(2), getColor(R.color.hakunaa_blue))
             }
         }
 
@@ -5481,7 +5485,7 @@ private fun deletePagesPdf() {
                 setTextColor(Color.WHITE)
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
-                    setColor(getColor(R.color.hakunaa_teal))
+                    setColor(getColor(R.color.hakunaa_blue))
                 }
             }
             handle.layoutParams = FrameLayout.LayoutParams(dp(28), dp(28)).apply {
@@ -5714,7 +5718,7 @@ private fun deletePagesPdf() {
                     cornerRadius = 8f * resources.displayMetrics.density
                     setColor(Color.parseColor("#F1F3F4"))
                     if (i == signPageIndex) {
-                        setStroke(dp(2), getColor(R.color.hakunaa_teal))
+                        setStroke(dp(2), getColor(R.color.hakunaa_blue))
                     }
                 }
             }
@@ -5809,7 +5813,7 @@ private fun deletePagesPdf() {
             pill.background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(8).toFloat()
-                if (active) setColor(getColor(R.color.hakunaa_teal))
+                if (active) setColor(getColor(R.color.hakunaa_blue))
                 else {
                     setColor(Color.WHITE)
                     setStroke(dp(1), Color.parseColor("#CFD8DC"))
@@ -5870,7 +5874,7 @@ private fun deletePagesPdf() {
                     shape = GradientDrawable.OVAL
                     setColor(penColors[i])
                     if (penColors[i] == signSigColor) {
-                        setStroke(dp(2), getColor(R.color.hakunaa_teal))
+                        setStroke(dp(2), getColor(R.color.hakunaa_blue))
                     }
                 }
             }
@@ -6030,7 +6034,7 @@ private fun deletePagesPdf() {
                 text = "Use saved signature"
                 textSize = 13f
                 setTypeface(null, android.graphics.Typeface.BOLD)
-                setTextColor(getColor(R.color.hakunaa_teal))
+                setTextColor(getColor(R.color.hakunaa_blue))
                 gravity = Gravity.CENTER
                 setPadding(dp(8), dp(10), dp(8), dp(10))
                 isClickable = true

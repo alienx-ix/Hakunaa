@@ -37,7 +37,10 @@ object SavedDialog {
         savedUri: Uri,
         format: ImageCompressor.Format,
         thumbFile: File? = null,
-        onDismiss: (() -> Unit)? = null
+        onDismiss: (() -> Unit)? = null,
+        // v0.1.176: theme accent — teal by default (Image tools);
+        // PDF tools pass R.color.hakunaa_blue.
+        accentRes: Int = R.color.hakunaa_teal
     ) {
         val density = activity.resources.displayMetrics.density
         val dialog = Dialog(activity)
@@ -69,7 +72,7 @@ object SavedDialog {
             setTextColor(activity.getColor(android.R.color.white))
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(activity.getColor(R.color.hakunaa_teal))
+                setColor(activity.getColor(accentRes))
             }
             layoutParams = LinearLayout.LayoutParams(
                 (48 * density).toInt(), (48 * density).toInt()
@@ -132,11 +135,11 @@ object SavedDialog {
                 }
                 if (filled) {
                     setTextColor(activity.getColor(android.R.color.white))
-                    backgroundTintList = ColorStateList.valueOf(activity.getColor(R.color.hakunaa_teal))
+                    backgroundTintList = ColorStateList.valueOf(activity.getColor(accentRes))
                 } else {
-                    setTextColor(activity.getColor(R.color.hakunaa_teal))
+                    setTextColor(activity.getColor(accentRes))
                     backgroundTintList = ColorStateList.valueOf(activity.getColor(R.color.hakunaa_surface))
-                    strokeColor = ColorStateList.valueOf(activity.getColor(R.color.hakunaa_teal))
+                    strokeColor = ColorStateList.valueOf(activity.getColor(accentRes))
                     strokeWidth = (1 * density).toInt()
                 }
             }

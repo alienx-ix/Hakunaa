@@ -83,6 +83,12 @@ class ImageToPdfActivity : AppCompatActivity() {
     private val sizeChips = mutableListOf<TextView>()
     private val orientationChips = mutableListOf<TextView>()
 
+    // v0.1.176: theme-aware accent — blue when opened from the PDF
+    // menu (blueTheme extra), teal when opened from the Image menu.
+    private val blueTheme by lazy { intent.getBooleanExtra("blueTheme", false) }
+    private fun accent() = getColor(if (blueTheme) R.color.hakunaa_blue else R.color.hakunaa_teal)
+    private fun accentBg() = if (blueTheme) 0xFFF5F8FF.toInt() else 0xFFE0F2F1.toInt()
+
     private val pickMultiple =
         registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
             if (uris.isNotEmpty()) addUris(uris)
@@ -256,7 +262,7 @@ class ImageToPdfActivity : AppCompatActivity() {
             text = "‹  Back to pages"
             textSize = 15f
             setTypeface(null, Typeface.BOLD)
-            setTextColor(getColor(R.color.hakunaa_teal))
+            setTextColor(accent())
             setPadding(0, (16 * density).toInt(), 0, (8 * density).toInt())
             isClickable = true
             isFocusable = true
@@ -275,9 +281,9 @@ class ImageToPdfActivity : AppCompatActivity() {
         }
         val addBtn = MaterialButton(this).apply {
             text = "Add images"
-            setTextColor(getColor(R.color.hakunaa_teal))
+            setTextColor(accent())
             backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_surface))
-            strokeColor = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+            strokeColor = ColorStateList.valueOf(accent())
             strokeWidth = (2 * density).toInt()
             cornerRadius = (12 * density).toInt()
             layoutParams = LinearLayout.LayoutParams(
@@ -288,7 +294,7 @@ class ImageToPdfActivity : AppCompatActivity() {
         btnCreate = MaterialButton(this).apply {
             text = "Create PDF"
             setTextColor(getColor(android.R.color.white))
-            backgroundTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_teal))
+            backgroundTintList = ColorStateList.valueOf(accent())
             cornerRadius = (12 * density).toInt()
             layoutParams = LinearLayout.LayoutParams(
                 0, (56 * density).toInt(), 1f
@@ -391,15 +397,15 @@ class ImageToPdfActivity : AppCompatActivity() {
                 chip.background = GradientDrawable().apply {
                     shape = GradientDrawable.RECTANGLE
                     cornerRadius = 20f * density
-                    if (selected) setColor(getColor(R.color.hakunaa_teal))
+                    if (selected) setColor(accent())
                     else {
                         setColor(getColor(R.color.hakunaa_surface))
-                        setStroke((1 * density).toInt(), getColor(R.color.hakunaa_teal))
+                        setStroke((1 * density).toInt(), accent())
                     }
                 }
                 chip.setTextColor(
                     if (selected) getColor(android.R.color.white)
-                    else getColor(R.color.hakunaa_teal)
+                    else accent()
                 )
             }
         }
@@ -607,7 +613,7 @@ class ImageToPdfActivity : AppCompatActivity() {
                 text = FileUtils.formatSize(file.length())
                 textSize = 15f
                 setTypeface(null, Typeface.BOLD)
-                setTextColor(getColor(R.color.hakunaa_teal))
+                setTextColor(accent())
             })
             row.addView(topRow)
             row.addView(TextView(this).apply {
@@ -701,10 +707,10 @@ class ImageToPdfActivity : AppCompatActivity() {
             textSize = 20f
             setTypeface(null, Typeface.BOLD)
             gravity = Gravity.CENTER
-            setTextColor(getColor(R.color.hakunaa_teal))
+            setTextColor(accent())
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(0xFFE0F2F1.toInt())
+                setColor(accentBg().toInt())
             }
             layoutParams = LinearLayout.LayoutParams(
                 (40 * density).toInt(), (40 * density).toInt()
@@ -747,13 +753,13 @@ class ImageToPdfActivity : AppCompatActivity() {
                     shape = GradientDrawable.RECTANGLE
                     cornerRadius = (12 * density).toInt().toFloat()
                     if (filled) {
-                        setColor(getColor(R.color.hakunaa_teal))
+                        setColor(accent())
                     } else {
                         setColor(Color.WHITE)
-                        setStroke((1 * density).toInt(), getColor(R.color.hakunaa_teal))
+                        setStroke((1 * density).toInt(), accent())
                     }
                 }
-                setTextColor(if (filled) Color.WHITE else getColor(R.color.hakunaa_teal))
+                setTextColor(if (filled) Color.WHITE else accent())
                 setOnClickListener { onClick() }
             }
         }
@@ -855,7 +861,7 @@ class ImageToPdfActivity : AppCompatActivity() {
             text = "Open"
             textSize = 15f
             setTypeface(null, Typeface.BOLD)
-            setTextColor(getColor(R.color.hakunaa_teal))
+            setTextColor(accent())
             setPadding((16 * density).toInt(), (12 * density).toInt(), (16 * density).toInt(), (12 * density).toInt())
             isClickable = true
             isFocusable = true
@@ -875,7 +881,7 @@ class ImageToPdfActivity : AppCompatActivity() {
             text = "Share"
             textSize = 15f
             setTypeface(null, Typeface.BOLD)
-            setTextColor(getColor(R.color.hakunaa_teal))
+            setTextColor(accent())
             setPadding((16 * density).toInt(), (12 * density).toInt(), (16 * density).toInt(), (12 * density).toInt())
             isClickable = true
             isFocusable = true
@@ -898,7 +904,7 @@ class ImageToPdfActivity : AppCompatActivity() {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 20f * density
-                setColor(getColor(R.color.hakunaa_teal))
+                setColor(accent())
             }
             gravity = Gravity.CENTER
             setPadding((20 * density).toInt(), (12 * density).toInt(), (20 * density).toInt(), (12 * density).toInt())
@@ -1043,7 +1049,7 @@ class ImageToPdfActivity : AppCompatActivity() {
             holder.check.background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 if (page.selected) {
-                    setColor(getColor(R.color.hakunaa_teal))
+                    setColor(accent())
                 } else {
                     setColor(getColor(R.color.hakunaa_surface))
                     setStroke((1 * density2).toInt(), getColor(R.color.hakunaa_outline))

@@ -14,4 +14,7 @@
     <!-- Teal accent used by the scanner (CamScanner-style crop frame,
          capture button ring, selected filter). -->
     <color name="hakunaa_teal">#00BFA5</color>
+    <!-- Blue accent for the PDF tools theme (v0.1.174 menu + v0.1.176
+         tool screens) — matches the PDF menu border #1E88E5. -->
+    <color name="hakunaa_blue">#1E88E5</color>
 </resources>
