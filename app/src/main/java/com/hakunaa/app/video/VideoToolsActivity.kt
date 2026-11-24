@@ -434,8 +434,8 @@ class VideoToolsActivity : AppCompatActivity() {
                 "• CRF slider or exact bitrate\n• Two-pass, preset, denoise, sharpen\n• Every setting in one place") {
                 pickVideoThen { showCompressScreen(2) }
             },
-            Tool("Convert", "13 formats", VideoIconView.Kind.CONVERT,
-                "• MP4, 3GP, MOV, FLV, MKV, AVI\n• MTS, TS, M4V, WebM, GIF, WMV, MPG") {
+            Tool("Convert", "12 formats", VideoIconView.Kind.CONVERT,
+                "• MP4, MKV, MOV, WebM, AVI, WMV\n• FLV, MPG, 3GP, M4V, TS, GIF") {
                 pickVideoThen { showConvertScreen() }
             },
             Tool("Rotate", "Rotate video", VideoIconView.Kind.ROTATE,
@@ -1582,7 +1582,7 @@ class VideoToolsActivity : AppCompatActivity() {
         val percent: TextView
     )
 
-    private fun showCompressLoadingDialog(statusText: String): CompressLoadingDialog {
+    private fun showCompressLoadingDialog(statusText: String, titleText: String = "Compressing…"): CompressLoadingDialog {
         val dialog = Dialog(this)
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
         dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
@@ -1603,7 +1603,7 @@ class VideoToolsActivity : AppCompatActivity() {
             setPadding(dp(24), dp(24), dp(24), dp(24))
         }
         val title = TextView(this).apply {
-            text = "Compressing…"
+            text = titleText
             textSize = 18f
             setTypeface(null, android.graphics.Typeface.BOLD)
             setTextColor(getColor(R.color.hakunaa_text))
@@ -2225,20 +2225,149 @@ class VideoToolsActivity : AppCompatActivity() {
     }
 
     // ------------------------------------------------------------------
-    // Convert — 13 formats.
+    // Convert — 12 formats (user 2026-11-24: MTS removed, most-used
+    // order, preview + format badge on top, dynamic details box,
+    // result screen — no direct save).
     // ------------------------------------------------------------------
 
     private var convertFormat = VideoToolsEngine.ConvertFormat.MP4
     private var convertRes = VideoCompressor.Resolution.ORIGINAL
 
+    /** Convert top: square preview on the LEFT + video info beside
+     * it + a small badge showing the CURRENT (input) format, so it
+     * is clear at a glance. Tap the preview for the full-screen
+     * player. */
+    private fun convertHeaderCard(): LinearLayout {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(12).toFloat()
+                setColor(Color.WHITE)
+                setStroke(dp(1), Color.parseColor("#CFD8DC"))
+            }
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) }
+        }
+        val preview = ExoVideoView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(96), dp(96))
+            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        }
+        inputUri?.let { preview.setVideoURI(it) }
+        preview.onPrepared = {
+            try {
+                preview.seekTo(1000)
+            } catch (_: Throwable) {
+            }
+        }
+        preview.onError = {
+            toast("Couldn't play this video")
+        }
+        preview.setOnClickListener {
+            val uri = inputUri ?: return@setOnClickListener
+            showFullScreenPlayer(uri)
+        }
+        activeVideoViews.add(preview)
+        card.addView(preview)
+        val info = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+            ).apply { marginStart = dp(12) }
+        }
+        val name = TextView(this).apply {
+            text = inputName
+            textSize = 15f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        val p = probeInfo
+        val details = StringBuilder(FileUtils.formatSize(inputSize))
+        if (p != null) {
+            if (p.durationMs > 0) details.append("  •  ").append(formatDuration(p.durationMs))
+            if (p.width > 0 && p.height > 0) details.append("  •  ${p.width}×${p.height}")
+            if (!p.hasAudio) details.append("  •  no audio")
+        }
+        val meta = TextView(this).apply {
+            text = details.toString()
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(4) }
+        }
+        // Current (input) format badge — small, professional.
+        val ext = (inputFile?.extension ?: "").uppercase().ifEmpty { "VIDEO" }
+        val badge = TextView(this).apply {
+            text = ext
+            textSize = 12f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(10).toFloat()
+                setColor(pinkDark)
+            }
+            setPadding(dp(10), dp(4), dp(10), dp(4))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+        info.addView(name)
+        info.addView(meta)
+        info.addView(badge)
+        card.addView(info)
+        return card
+    }
+
     private fun showConvertScreen() {
         val content = newToolOverlay("Convert Video")
-        content.addView(fileInfoCard())
+        content.addView(convertHeaderCard())
         content.addView(sectionLabel("CONVERT TO"))
-        var pvRef: ProgressViews? = null
         val convertBtn = actionButton("Convert to ${convertFormat.label}") {
-            pvRef?.let { runConvert(it) }
+            runConvert()
         }
+        // Details box — shows the selected format's spec + where it
+        // plays. Updates live when a format chip is tapped.
+        val detailsTitle = TextView(this).apply {
+            text = convertFormat.label
+            textSize = 15f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+        }
+        val detailsText = TextView(this).apply {
+            text = convertFormat.details
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(4) }
+        }
+        val detailsBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(12).toFloat()
+                setColor(pinkCard)
+                setStroke(dp(2), pinkBorder)
+            }
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) }
+        }
+        detailsBox.addView(detailsTitle)
+        detailsBox.addView(detailsText)
         val grid = GridLayout(this).apply {
             columnCount = 4
             layoutParams = LinearLayout.LayoutParams(
@@ -2253,6 +2382,8 @@ class VideoToolsActivity : AppCompatActivity() {
                 convertFormat = fmt
                 for ((j, cc) in fmtChips.withIndex()) setChipSelected(cc, formats[j] == convertFormat)
                 convertBtn.text = "Convert to ${convertFormat.label}"
+                detailsTitle.text = fmt.label
+                detailsText.text = fmt.details
             }
             val lp = GridLayout.LayoutParams().apply {
                 width = 0
@@ -2265,53 +2396,135 @@ class VideoToolsActivity : AppCompatActivity() {
             grid.addView(c)
         }
         content.addView(grid)
+        content.addView(detailsBox)
         content.addView(sectionLabel("RESOLUTION"))
         content.addView(resolutionChips(convertRes) { convertRes = it })
-        val note = TextView(this).apply {
-            text = "GIF is saved as a 480px animation (no audio). MTS and TS are the same container."
-            textSize = 13f
-            setTextColor(getColor(R.color.hakunaa_text_secondary))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(12) }
-        }
-        content.addView(note)
-        val pv = addProgressViews(content)
-        pvRef = pv
         content.addView(convertBtn)
     }
 
-    private fun runConvert(pv: ProgressViews) {
+    private fun runConvert() {
         val input = inputFile ?: return
         if (!engineGuard()) return
-        pv.progress.visibility = View.VISIBLE
-        pv.progress.progress = 0
-        pv.status.text = "Converting to ${convertFormat.label}…"
-        pv.result.text = ""
         val fmt = convertFormat
         val out = File(cacheDir, "hakunaa_convert_${System.currentTimeMillis()}.${fmt.extension}")
-        VideoToolsEngine.convert13(
+        val loading = showCompressLoadingDialog(
+            "To ${fmt.label}  •  ${convertRes.label}", "Converting…"
+        )
+        VideoToolsEngine.convert12(
             input.absolutePath, out.absolutePath, fmt, convertRes,
-            { p -> runOnUiThread { pv.progress.progress = p } },
+            { p -> runOnUiThread { loading.progress.progress = p; loading.percent.text = "$p%" } },
             { ok, msg ->
                 runOnUiThread {
-                    pv.progress.visibility = View.GONE
+                    try {
+                        loading.dialog.dismiss()
+                    } catch (_: Throwable) {
+                    }
                     if (ok && out.exists() && out.length() > 0) {
-                        val after = out.length()
-                        pv.status.text = "Done — saved"
-                        pv.result.text = "${FileUtils.formatSize(inputSize)} → ${FileUtils.formatSize(after)} (${fmt.label})"
-                        if (fmt.isGif) {
-                            saveVideoAndShow(out, "Pictures/Hakunaa", "GIF", fmt.mime, MediaStoreSaver.Kind.IMAGE)
-                        } else {
-                            saveVideoAndShow(out, "Movies/Hakunaa", fmt.label, fmt.mime)
-                        }
+                        // No direct save — result screen first.
+                        showConvertResult(out, fmt)
                     } else {
-                        pv.status.text = "Failed: $msg"
+                        toast("Convert failed: $msg")
                     }
                 }
             }
         )
+    }
+
+    /** Convert result — NEW screen, NO direct save (user 2026-11-24).
+     * Small top preview + saved size + Play preview. Save saves
+     * (then the professional Saved popup); Back returns to the
+     * Convert options with the same video and settings. */
+    private fun showConvertResult(out: File, fmt: VideoToolsEngine.ConvertFormat) {
+        val after = out.length()
+        val content = newToolOverlay("Result")
+        val preview = ExoVideoView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(180)
+            ).apply { topMargin = dp(12) }
+        }
+        preview.setVideoURI(Uri.fromFile(out))
+        content.addView(preview)
+        activeVideoViews.add(preview)
+        val playBtn = popupPillButton("▶  Play preview", false) {
+            showFullScreenPlayer(Uri.fromFile(out))
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(48)
+            ).apply { topMargin = dp(8) }
+        }
+        content.addView(playBtn)
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(12).toFloat()
+                setColor(pinkCard)
+                setStroke(dp(2), pinkBorder)
+            }
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(16) }
+        }
+        val sizes = TextView(this).apply {
+            text = "${FileUtils.formatSize(inputSize)}  →  ${FileUtils.formatSize(after)}"
+            textSize = 17f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            gravity = Gravity.CENTER
+        }
+        val saved = TextView(this).apply {
+            text = FileUtils.savedPercent(inputSize, after)
+            textSize = 15f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_success))
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(6) }
+        }
+        val detail = TextView(this).apply {
+            text = "${fmt.label}  •  ${convertRes.label}"
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(6) }
+        }
+        card.addView(sizes)
+        card.addView(saved)
+        card.addView(detail)
+        content.addView(card)
+        val bottom = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(20) }
+        }
+        val backBtn = popupPillButton("Back", false) {
+            showConvertScreen()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f)
+                .apply { marginEnd = dp(6) }
+        }
+        val saveBtn = popupPillButton("Save", true) {
+            if (fmt.isGif) {
+                saveVideoAndShow(out, "Pictures/Hakunaa", "GIF", fmt.mime, MediaStoreSaver.Kind.IMAGE)
+            } else {
+                saveVideoAndShow(out, "Movies/Hakunaa", fmt.label, fmt.mime)
+            }
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f)
+                .apply { marginStart = dp(6) }
+        }
+        bottom.addView(backBtn)
+        bottom.addView(saveBtn)
+        content.addView(bottom)
     }
 
     // ------------------------------------------------------------------

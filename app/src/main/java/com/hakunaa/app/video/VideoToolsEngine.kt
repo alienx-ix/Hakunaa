@@ -12,7 +12,7 @@ import java.io.File
 /**
  * Video Tools engine (v0.1.159) — NEW file. All the FFmpeg work the
  * 10 Video Tools need that VideoCompressor does not already do:
- * Convert to 13 formats, audio extract in 5 formats, cut / split /
+ * Convert to 12 formats, audio extract in 5 formats, cut / split /
  * crop / thumbnail-cover / color grading / Advanced compress
  * (CRF-or-bitrate, two-pass, preset, denoise, sharpen).
  *
@@ -160,7 +160,8 @@ object VideoToolsEngine {
     }
 
     // ------------------------------------------------------------------
-    // Convert — 13 formats.
+    // Convert — 12 formats (user 2026-11-24: MTS removed, same as
+    // TS; most-used first — MP4, MKV, MOV, WebM...).
     // ------------------------------------------------------------------
 
     enum class ConvertFormat(
@@ -170,24 +171,37 @@ object VideoToolsEngine {
         val audioCodec: String,
         val mime: String,
         val qualityArg: String,
-        val isGif: Boolean = false
+        val isGif: Boolean = false,
+        /** Shown in the Convert details box: spec + where it plays. */
+        val details: String = ""
     ) {
-        MP4("MP4", "mp4", "libx264", "aac", "video/mp4", "crf"),
-        GP3("3GP", "3gp", "mpeg4", "aac", "video/3gpp", "qv"),
-        MOV("MOV", "mov", "libx264", "aac", "video/quicktime", "crf"),
-        FLV("FLV", "flv", "libx264", "aac", "video/x-flv", "crf"),
-        MKV("MKV", "mkv", "libx264", "aac", "video/x-matroska", "crf"),
-        AVI("AVI", "avi", "mpeg4", "libmp3lame", "video/x-msvideo", "qv"),
-        MTS("MTS", "mts", "libx264", "aac", "video/mp2t", "crf"),
-        TS("TS", "ts", "libx264", "aac", "video/mp2t", "crf"),
-        M4V("M4V", "m4v", "libx264", "aac", "video/x-m4v", "crf"),
-        WEBM("WebM", "webm", "libvpx-vp9", "libopus", "video/webm", "vp9"),
-        GIF("GIF", "gif", "gif", "", "image/gif", "gif", true),
-        WMV("WMV", "wmv", "wmv2", "wmav2", "video/x-ms-wmv", "qv"),
-        MPG("MPG", "mpg", "mpeg2video", "mp2", "video/mpeg", "qv")
+        MP4("MP4", "mp4", "libx264", "aac", "video/mp4", "crf", false,
+            "H.264 + AAC. Plays everywhere — Android, iPhone, Windows, YouTube, WhatsApp."),
+        MKV("MKV", "mkv", "libx264", "aac", "video/x-matroska", "crf", false,
+            "High-quality container, many codecs. VLC, Android, PC. Not in iPhone Photos."),
+        MOV("MOV", "mov", "libx264", "aac", "video/quicktime", "crf", false,
+            "Apple QuickTime, H.264. Best for iPhone, Mac, Final Cut. Plays on Android too."),
+        WEBM("WebM", "webm", "libvpx-vp9", "libopus", "video/webm", "vp9", false,
+            "Open web format, VP9. Best for websites and Chrome. Small size."),
+        AVI("AVI", "avi", "mpeg4", "libmp3lame", "video/x-msvideo", "qv", false,
+            "Classic Windows container. Works on most players, larger files."),
+        WMV("WMV", "wmv", "wmv2", "wmav2", "video/x-ms-wmv", "qv", false,
+            "Windows Media Video. Best for Windows Media Player. Good compression."),
+        FLV("FLV", "flv", "libx264", "aac", "video/x-flv", "crf", false,
+            "Flash Video, old web format. Small size, limited support now."),
+        MPG("MPG", "mpg", "mpeg2video", "mp2", "video/mpeg", "qv", false,
+            "MPEG-1/2, DVD standard. Plays on most players, larger files."),
+        GP3("3GP", "3gp", "mpeg4", "aac", "video/3gpp", "qv", false,
+            "Old mobile format. Very small size, for old phones, lower quality."),
+        M4V("M4V", "m4v", "libx264", "aac", "video/x-m4v", "crf", false,
+            "Apple iTunes format, same as MP4. Best for iPhone, iPad, Apple TV."),
+        TS("TS", "ts", "libx264", "aac", "video/mp2t", "crf", false,
+            "MPEG transport stream, TV broadcast. Plays on VLC and Android."),
+        GIF("GIF", "gif", "gif", "", "image/gif", "gif", true,
+            "480px animation, no audio. Share as a short looping clip.")
     }
 
-    fun buildConvert13Command(
+    fun buildConvert12Command(
         inputPath: String,
         outputPath: String,
         format: ConvertFormat,
@@ -247,7 +261,7 @@ object VideoToolsEngine {
         return args.toTypedArray()
     }
 
-    fun convert13(
+    fun convert12(
         inputPath: String,
         outputPath: String,
         format: ConvertFormat,
@@ -257,7 +271,7 @@ object VideoToolsEngine {
     ) {
         try {
             runWithProbe(
-                buildConvert13Command(inputPath, outputPath, format, 28, resolution, true),
+                buildConvert12Command(inputPath, outputPath, format, 28, resolution, true),
                 false, onProgress, onDone
             )
         } catch (t: Throwable) {
