@@ -69,6 +69,12 @@
 -keep class com.tom_roush.pdfbox.** { *; }
 -keep class org.apache.pdfbox.** { *; }
 
+# Media3 ExoPlayer — in-app video playback (v0.1.179). Uses
+# reflection internally (renderers, extractors, decoders are
+# discovered at runtime). Keep the whole package so playback
+# never breaks at runtime.
+-keep class androidx.media3.** { *; }
+
 # BouncyCastle (PDFBox crypto; only loaded for encrypted PDFs,
 # but keep it so PDF tools never break at runtime).
 -keep class org.bouncycastle.** { *; }

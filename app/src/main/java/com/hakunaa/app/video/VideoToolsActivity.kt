@@ -23,7 +23,6 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
-import android.widget.VideoView
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -719,7 +718,7 @@ class VideoToolsActivity : AppCompatActivity() {
         } catch (_: Throwable) {
         }
         toolOverlay = null
-        // Stop any playing preview video — a detached VideoView
+        // Stop any playing preview video — a detached ExoVideoView
         // keeps its audio playing otherwise.
         for (vv in activeVideoViews) {
             try {
@@ -920,30 +919,26 @@ class VideoToolsActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(12) }
         }
-        val preview = VideoView(this).apply {
+        val preview = ExoVideoView(this).apply {
             layoutParams = LinearLayout.LayoutParams(dp(112), dp(84))
-            setBackgroundColor(Color.BLACK)
         }
         inputUri?.let { preview.setVideoURI(it) }
-        // Never show VideoView's own "Can't play this video"
-        // dialog (user 2026-11-24) — tap opens the default app.
-        preview.setOnErrorListener { _, _, _ -> true }
-        preview.setOnPreparedListener { mp ->
+        // In-app playback (user 2026-11-24): tap toggles play /
+        // pause inside Hakunaa — no external app, no error dialog.
+        preview.onPrepared = {
             try {
-                mp.seekTo(1000)
+                preview.seekTo(1000)
             } catch (_: Throwable) {
             }
         }
+        preview.onError = {
+            toast("Couldn't play this video")
+        }
         preview.setOnClickListener {
-            val uri = inputUri ?: return@setOnClickListener
             try {
-                val intent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(uri, "video/*")
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                startActivity(intent)
+                if (preview.isPlaying()) preview.pause() else preview.start()
             } catch (_: Throwable) {
-                toast("No app can open this video")
+                toast("Couldn't play this video")
             }
         }
         activeVideoViews.add(preview)
@@ -1236,8 +1231,8 @@ class VideoToolsActivity : AppCompatActivity() {
     // video. One overlay, tabs rebuild the options area.
     // ------------------------------------------------------------------
 
-    private var activeVideoViews = mutableListOf<VideoView>()
-    private var smartPreviewView: VideoView? = null
+    private var activeVideoViews = mutableListOf<ExoVideoView>()
+    private var smartPreviewView: ExoVideoView? = null
 
     private fun showCompressScreen(tab: Int) {
         compressTab = tab
@@ -1524,11 +1519,10 @@ class VideoToolsActivity : AppCompatActivity() {
     private fun showQuickResult(out: File) {
         val after = out.length()
         val content = newToolOverlay("Result")
-        val preview = VideoView(this).apply {
+        val preview = ExoVideoView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(180)
             ).apply { topMargin = dp(12) }
-            setBackgroundColor(Color.BLACK)
         }
         preview.setVideoURI(Uri.fromFile(out))
         content.addView(preview)
@@ -1635,11 +1629,10 @@ class VideoToolsActivity : AppCompatActivity() {
         }
         optionsBox.addView(explain)
         // Top video preview (input).
-        val preview = VideoView(this).apply {
+        val preview = ExoVideoView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(200)
             ).apply { topMargin = dp(12) }
-            setBackgroundColor(Color.BLACK)
         }
         inputUri?.let { preview.setVideoURI(it) }
         optionsBox.addView(preview)
@@ -2284,11 +2277,10 @@ class VideoToolsActivity : AppCompatActivity() {
         val durationMs = probeInfo?.durationMs ?: 0L
         cutStartMs = 0L
         cutEndMs = durationMs
-        val preview = VideoView(this).apply {
+        val preview = ExoVideoView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(200)
             ).apply { topMargin = dp(12) }
-            setBackgroundColor(Color.BLACK)
         }
         inputUri?.let { preview.setVideoURI(it) }
         content.addView(preview)
@@ -2529,11 +2521,10 @@ class VideoToolsActivity : AppCompatActivity() {
         val durationMs = probeInfo?.durationMs ?: 0L
         thumbFrameFile = null
         thumbFrameMs = (durationMs / 4).coerceAtLeast(0L)
-        val preview = VideoView(this).apply {
+        val preview = ExoVideoView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(200)
             ).apply { topMargin = dp(12) }
-            setBackgroundColor(Color.BLACK)
         }
         inputUri?.let { preview.setVideoURI(it) }
         content.addView(preview)
