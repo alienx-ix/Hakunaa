@@ -22,6 +22,7 @@ import com.tom_roush.pdfbox.rendering.PDFRenderer
 import com.tom_roush.pdfbox.pdmodel.graphics.state.PDExtendedGraphicsState
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -133,11 +134,15 @@ object PdfTools {
     /**
      * Smart Compress (lossy): downscale every embedded image that is
      * larger than [targetDpi] at full-page size, re-encode as JPEG
-     * [jpegQuality]. Also re-encodes large losslessly-stored images
-     * (PNG etc.) as JPEG 82% even when they fit the page — those are
-     * the main source of bloat, and downscaling alone missed them.
-     * Typical result 60–70% smaller, eye cannot tell at 150 DPI.
-     * Also strips metadata.
+     * [jpegQuality]. Also re-encodes large images even when they fit
+     * the page — INCLUDING images already stored as JPEG (a JPEG
+     * saved at quality 95–100 shrinks 30–50% at JPEG 82%; the old
+     * code skipped those, so Smart reported "already optimized" on
+     * the most common PDFs). Per image, JPEG and lossless (Flate)
+     * are both measured and the smaller is kept — screenshots and
+     * line art compress far better lossless, photos far better as
+     * JPEG. Typical result 60–70% smaller, eye cannot tell at
+     * 150 DPI. Also strips metadata.
      * Returns the number of images replaced, or -1 on failure.
      * NOTE: this can make a file BIGGER if the original images were
      * already low-quality JPEGs (re-encoding at 82% grows them).
@@ -393,10 +398,12 @@ object PdfTools {
 
     /**
      * Downscale one image to fit [maxW] x [maxH], re-encoded as JPEG.
-     * Also re-encodes a large losslessly-stored image (PNG etc.) as
-     * JPEG even when it fits the page — otherwise image-heavy PDFs
-     * that store big PNGs came back "0% smaller". Returns null if the
-     * image was left unchanged.
+     * Also re-encodes a large image as JPEG even when it fits the
+     * page — INCLUDING images already stored as JPEG. A JPEG saved
+     * at quality 95–100 (camera / scanner PDFs) shrinks 30–50% at
+     * JPEG 82%, and the old code skipped those entirely, so Smart
+     * Compress found "0 images" on the most common PDFs. Returns
+     * null if the image was left unchanged.
      */
     private fun downscaleImage(
         doc: PDDocument,
@@ -406,12 +413,15 @@ object PdfTools {
         quality: Float
     ): PDImageXObject? {
         val needsDownscale = image.width > maxW || image.height > maxH
-        // Is it already a JPEG? (DCTDecode.) Lossless images (PNG etc.)
-        // are far bigger than JPEG 82% at the same pixels.
-        val suffix = try { image.suffix } catch (_: Throwable) { null }
-        val isJpeg = suffix?.equals("jpg", ignoreCase = true) == true
+        // v0.1.177 FIX (poor compression): re-encode EVERY large image
+        // as JPEG at [quality], including images already stored as
+        // JPEG. The old code skipped JPEGs entirely (isJpeg → no
+        // re-encode), so Smart Compress reported "already optimized"
+        // on JPEG-heavy PDFs — the most common kind. Callers only
+        // keep outputs smaller than the original, so a re-encode
+        // that grows the file is discarded, never handed back.
         val pixelCount = image.width.toLong() * image.height.toLong()
-        val needsReencode = !isJpeg && pixelCount > 50_000L
+        val needsReencode = pixelCount > 50_000L
         if (!needsDownscale && !needsReencode) return null
         return try {
             val bitmap = image.image ?: return null
@@ -429,7 +439,39 @@ object PdfTools {
             } else {
                 bitmap
             }
-            val result = JPEGFactory.createFromImage(doc, scaled, quality)
+            // v0.1.177 FIX 2 (poor compression on screenshots): pick
+            // the better codec per image. Photos compress far better
+            // as JPEG; screenshots / line art (flat colours, sharp
+            // text) compress far better lossless (PNG/Flate). The old
+            // code only tried JPEG, so a screenshot PDF could only
+            // shrink ~26% even at 72 DPI / JPEG 50%. Both are measured
+            // in memory first (no document objects for the loser, so
+            // no orphan bloat) and only the smaller one is created.
+            // Lossless is only attempted for modest sizes (<= 3 MP) —
+            // for huge photos JPEG wins anyway and a PNG encode would
+            // be very slow.
+            val scaledPixels = scaled.width.toLong() * scaled.height.toLong()
+            val useLossless = if (scaledPixels <= 3_000_000L) {
+                val jpegBytes = try {
+                    val out = ByteArrayOutputStream()
+                    val ok = scaled.compress(Bitmap.CompressFormat.JPEG, (quality * 100).toInt(), out)
+                    if (ok) out.size().toLong() else Long.MAX_VALUE
+                } catch (_: Throwable) { Long.MAX_VALUE }
+                val pngBytes = try {
+                    val out = ByteArrayOutputStream()
+                    val ok = scaled.compress(Bitmap.CompressFormat.PNG, 100, out)
+                    if (ok) out.size().toLong() else Long.MAX_VALUE
+                } catch (_: Throwable) { Long.MAX_VALUE }
+                pngBytes in 1 until jpegBytes
+            } else {
+                false
+            }
+            val result = if (useLossless) {
+                try { LosslessFactory.createFromImage(doc, scaled) }
+                catch (_: Throwable) { JPEGFactory.createFromImage(doc, scaled, quality) }
+            } else {
+                JPEGFactory.createFromImage(doc, scaled, quality)
+            }
             if (scaled !== bitmap) scaled.recycle()
             result
         } catch (_: Throwable) {
