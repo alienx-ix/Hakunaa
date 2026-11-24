@@ -7,18 +7,22 @@
      v0.1.170: EXACT Video Tools card measurements (buildCard):
      corner radius 16dp, inner padding 6dp, title marginTop 6dp,
      subtitle 12sp, no font padding.
-     v0.1.171: cardElevation 0dp — Video card is a flat LinearLayout
-     with NO shadow; the MaterialCardView shadow was making the
-     2dp blue border look BOLD/thick on the phone. -->
+     v0.1.174: PDF <-> Image UI colours interchanged
+     (user 2026-11-24) — Image takes PDF's teal.
+     Card #E0F2F1, stroke #00BFA5 2dp. Icons untouched.
+     v0.1.171: cardElevation 0dp (Video card is flat, no shadow).
+     v0.1.170: EXACT Video Tools card measurements (buildCard):
+     corner radius 16dp, inner padding 6dp, title marginTop 6dp,
+     subtitle 12sp, no font padding. -->
 <com.google.android.material.card.MaterialCardView
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    app:cardBackgroundColor="#F5F8FF"
+    app:cardBackgroundColor="#E0F2F1"
     app:cardCornerRadius="16dp"
     app:cardElevation="0dp"
-    app:strokeColor="#1E88E5"
+    app:strokeColor="#00BFA5"
     app:strokeWidth="2dp">
 
     <LinearLayout

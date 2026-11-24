@@ -678,14 +678,17 @@ class PdfToolsActivity : AppCompatActivity() {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 16f * density
                 if (tool.featured) {
-                    setColor(0xFFE0F2F1.toInt())
-                    setStroke((2 * density).toInt(), getColor(R.color.hakunaa_teal))
+                    // v0.1.174: PDF <-> Image UI colours interchanged
+                    // (user 2026-11-24) — PDF takes Image's blue.
+                    // Icons untouched.
+                    setColor(0xFFF5F8FF.toInt())
+                    setStroke((2 * density).toInt(), Color.parseColor("#1E88E5"))
                 } else {
                     // v0.1.152, Fix #11: grid cards get the same
                     // excellent outline as the featured cards —
-                    // clean white + 2dp teal border, professional.
+                    // clean white + 2dp blue border, professional.
                     setColor(Color.WHITE)
-                    setStroke((2 * density).toInt(), getColor(R.color.hakunaa_teal))
+                    setStroke((2 * density).toInt(), Color.parseColor("#1E88E5"))
                 }
             }
             val params = LinearLayout.LayoutParams(
