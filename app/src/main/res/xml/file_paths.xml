@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Share optimized files straight from the cache (WhatsApp
+         Optimize result screen) without saving them first. -->
+    <cache-path name="cache" path="." />
+</paths>

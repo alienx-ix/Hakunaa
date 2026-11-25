@@ -17,4 +17,9 @@
     <!-- Blue accent for the PDF tools theme (v0.1.174 menu + v0.1.176
          tool screens) — matches the PDF menu border #1E88E5. -->
     <color name="hakunaa_blue">#1E88E5</color>
+    <!-- Green accent for WhatsApp Optimize (v0.1.192 redesign) —
+         WhatsApp brand green + dark, light card background. -->
+    <color name="whatsapp_green">#25D366</color>
+    <color name="whatsapp_green_dark">#128C7E</color>
+    <color name="whatsapp_green_bg">#E9F9EF</color>
 </resources>
