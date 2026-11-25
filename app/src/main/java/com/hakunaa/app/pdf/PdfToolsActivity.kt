@@ -30,6 +30,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.AppCompatTextView
+import androidx.core.content.FileProvider
 import androidx.core.widget.TextViewCompat
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.ItemTouchHelper
@@ -155,6 +156,9 @@ class PdfToolsActivity : AppCompatActivity() {
     private var etSplitEvery: EditText? = null
     private var etSplitSingle: EditText? = null
     private var splitResultFiles = mutableListOf<File>()
+    // v0.1.193: tap-to-select on the Split results (indices into
+    // splitResultFiles) — "Save Selected" saves only these.
+    private var splitResultSelected = mutableSetOf<Int>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -907,41 +911,32 @@ class PdfToolsActivity : AppCompatActivity() {
     }
 
     /**
-     * View a PDF in the phone's default PDF viewer (v0.1.150).
-     * The file is published to Documents/Hakunaa once via
-     * MediaStore and the URI is reused — View + Save never
-     * create duplicate copies. (The app has no FileProvider and
-     * the Manifest is out of scope, so MediaStore is the way
-     * PDFs open, same as the Saved dialog's Open button.)
+     * View a PDF in the phone's default PDF viewer (v0.1.193).
+     * The cached file is opened through FileProvider — it is
+     * NEVER published to MediaStore just to preview it (the old
+     * viewPdf saved the file to Documents/Hakunaa on every View
+     * tap). Only the Save button publishes. If the cache file is
+     * gone but a published URI exists for it, that is reused.
      */
     private fun viewPdf(file: File) {
-        Thread {
-            try {
-                var uri = publishedUris[file]
-                if (uri == null) {
-                    uri = publishPdfUri(file)
-                    if (uri != null) publishedUris[file] = uri
-                }
-                val openUri = uri
-                runOnUiThread {
-                    if (openUri == null) {
-                        toast("Could not open this PDF")
-                        return@runOnUiThread
-                    }
-                    try {
-                        val view = Intent(Intent.ACTION_VIEW).apply {
-                            setDataAndType(openUri, "application/pdf")
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        startActivity(view)
-                    } catch (_: Throwable) {
-                        toast("No PDF viewer found")
-                    }
-                }
-            } catch (_: Throwable) {
-                runOnUiThread { toast("Could not open this PDF") }
+        try {
+            val uri = if (file.exists()) {
+                FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
+            } else {
+                publishedUris[file]
             }
-        }.start()
+            if (uri == null) {
+                toast("Could not open this PDF")
+                return
+            }
+            val view = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/pdf")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(view)
+        } catch (_: Throwable) {
+            toast("No PDF viewer found")
+        }
     }
 
     /** Small white pill button (teal text, teal stroke) — the
@@ -1155,6 +1150,66 @@ class PdfToolsActivity : AppCompatActivity() {
         val uri = MediaStoreSaver.save(this, file, MediaStoreSaver.Kind.DOCUMENT, file.name)
         if (uri != null) publishedUris[file] = uri
         return uri
+    }
+
+    /**
+     * v0.1.193: shared PREVIEW/result screen — NO direct save.
+     * Every tool action builds its result to a cache file, then
+     * shows this screen (first-page preview + pages + size +
+     * detail line) and ONLY the Save button publishes to
+     * MediaStore. Back just closes the screen (the cached result
+     * stays in the cache, it is never saved).
+     */
+    private fun showPdfResultScreen(title: String, outFile: File, pageCount: Int, detailLine: String = "") {
+        val root = newToolOverlay(title)
+        root.addView(toolFileLine("${outFile.name} • ${FileUtils.formatSize(outFile.length())}"))
+        val preview = toolPreviewBox()
+        root.addView(preview)
+        loadToolPreview(preview, outFile)
+        val infoLine = TextView(this).apply {
+            text = if (detailLine.isBlank()) {
+                "$pageCount page(s) • ${FileUtils.formatSize(outFile.length())}"
+            } else {
+                "$pageCount page(s) • ${FileUtils.formatSize(outFile.length())}\n$detailLine"
+            }
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setTextColor(getColor(R.color.hakunaa_text))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) }
+        }
+        root.addView(infoLine)
+        root.addView(toolExplain("Preview looks right? Save it to Documents/Hakunaa."))
+        val status = toolStatusLine("")
+        root.addView(status)
+        var saving = false
+        root.addView(toolBottomRow("Save") {
+            if (saving) return@toolBottomRow
+            saving = true
+            status.text = "Saving…"
+            Thread {
+                try {
+                    val savedUri = publishPdfUri(outFile)
+                    runOnUiThread {
+                        if (savedUri != null) {
+                            dismissGenericOverlay()
+                            showSavedPdfDialog(outFile, savedUri)
+                        } else {
+                            saving = false
+                            status.text = "Save failed — try again"
+                        }
+                    }
+                } catch (_: Throwable) {
+                    runOnUiThread {
+                        saving = false
+                        status.text = "Save failed — try again"
+                    }
+                }
+            }.start()
+        })
     }
 
     /**
@@ -2424,11 +2479,16 @@ class PdfToolsActivity : AppCompatActivity() {
     }
 
     /** Split RESULTS (v0.1.150): every created file with its size
-     * and a View button, plus Save all + Back + Done. */
+     * and a View button, plus Save all + Back + Done.
+     * v0.1.193: tap a row to select it (checkmark + blue border,
+     * multiple select) — "Save Selected" saves only the ticked
+     * files, "Save all" saves every file. View opens through
+     * FileProvider and never saves. */
     private fun showSplitResults(files: List<File>) {
         val root = splitOverlay as? LinearLayout ?: return
         root.removeAllViews()
         splitResultFiles = files.toMutableList()
+        splitResultSelected = mutableSetOf()
 
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -2477,20 +2537,30 @@ class PdfToolsActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
         }
-        for (file in files) {
-            listBox.addView(buildSplitResultRow(file))
+        for ((i, file) in files.withIndex()) {
+            listBox.addView(buildSplitResultRow(file, i))
         }
         scroll.addView(listBox)
         root.addView(scroll)
+
+        val btnSaveSelected = MaterialButton(this).apply {
+            text = "Save Selected"
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(56)
+            ).apply { topMargin = dp(12) }
+            setOnClickListener { saveSplitSelected() }
+        }
+        styleFilledButton(btnSaveSelected)
+        root.addView(btnSaveSelected)
 
         val btnSaveAll = MaterialButton(this).apply {
             text = "Save all"
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(56)
-            ).apply { topMargin = dp(12) }
+            ).apply { topMargin = dp(8) }
             setOnClickListener { saveSplitAll() }
         }
-        styleFilledButton(btnSaveAll)
+        styleOutlineButton(btnSaveAll)
         root.addView(btnSaveAll)
 
         val bottomRow = LinearLayout(this).apply {
@@ -2525,7 +2595,27 @@ class PdfToolsActivity : AppCompatActivity() {
         root.addView(bottomRow)
     }
 
-    private fun buildSplitResultRow(file: File): LinearLayout {
+    /** v0.1.193: paint a Split result row for its selection state
+     * (blue border + check badge when selected). The check badge
+     * is child 2 of the row (left=0, View pill=1). */
+    private fun paintSplitResultRow(row: LinearLayout, selected: Boolean) {
+        val density = resources.displayMetrics.density
+        row.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 12f * density
+            if (selected) {
+                setColor(0xFFF5F8FF.toInt())
+                setStroke((2 * density).toInt(), getColor(R.color.hakunaa_blue))
+            } else {
+                setColor(Color.WHITE)
+                setStroke((1 * density).toInt(), Color.parseColor("#CFD8DC"))
+            }
+        }
+        (row.getChildAt(2) as? TextView)?.visibility =
+            if (selected) View.VISIBLE else View.GONE
+    }
+
+    private fun buildSplitResultRow(file: File, index: Int): LinearLayout {
         val density = resources.displayMetrics.density
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -2541,6 +2631,13 @@ class PdfToolsActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(4); bottomMargin = dp(4) }
             setPadding(dp(12), dp(10), dp(12), dp(10))
+            isClickable = true
+            isFocusable = true
+        }
+        row.setOnClickListener {
+            if (splitResultSelected.contains(index)) splitResultSelected.remove(index)
+            else splitResultSelected.add(index)
+            paintSplitResultRow(row, splitResultSelected.contains(index))
         }
         val left = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -2563,7 +2660,52 @@ class PdfToolsActivity : AppCompatActivity() {
         left.addView(tvSize)
         row.addView(left)
         row.addView(viewPillButton { viewPdf(file) })
+        val check = TextView(this).apply {
+            text = "✓"
+            textSize = 16f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(getColor(R.color.hakunaa_blue))
+            }
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginStart = dp(8) }
+        }
+        row.addView(check)
         return row
+    }
+
+    /** v0.1.193: save only the ticked Split results. */
+    private fun saveSplitSelected() {
+        if (splitResultSelected.isEmpty()) {
+            toast("Tap a file to select it first")
+            return
+        }
+        val chosen = splitResultSelected.sorted().mapNotNull { splitResultFiles.getOrNull(it) }
+        if (chosen.isEmpty()) {
+            toast("Tap a file to select it first")
+            return
+        }
+        Thread {
+            try {
+                var saved = 0
+                for (file in chosen) {
+                    if (publishPdfUri(file) != null) saved++
+                }
+                runOnUiThread {
+                    if (saved > 0) {
+                        dismissSplitOverlay()
+                        toast("Done — $saved file(s) saved to Documents/Hakunaa")
+                    } else {
+                        toast("Save failed — try again")
+                    }
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { toast("Save failed — try again") }
+            }
+        }.start()
     }
 
     private fun saveSplitAll() {
@@ -2969,12 +3111,53 @@ class PdfToolsActivity : AppCompatActivity() {
     // was a plain "Rotate by" choice dialog over the menu.
     private fun showRotateScreen(input: File, total: Int) {
         var degrees = 90
+        var scope = 0 // 0 all pages, 1 single page
+        var pageBitmap: Bitmap? = null
+        var rotatedBitmap: Bitmap? = null
+        var renderedPage = -1
         val root = newToolOverlay("Rotate PDF")
         root.addView(toolFileLine("${input.name} • $total page(s)"))
         val preview = toolPreviewBox()
         root.addView(preview)
-        loadToolPreview(preview, input)
-        root.addView(toolExplain("Turn every page of your PDF. The content stays exactly the same — only the rotation changes."))
+        // v0.1.193: LIVE preview — the page bitmap rotated by the
+        // chosen degrees, so the user sees exactly what the result
+        // will look like (the old preview never rotated).
+        fun refreshRotatePreview() {
+            val src = pageBitmap ?: return
+            rotatedBitmap?.let {
+                genericOverlayBitmaps.remove(it)
+                try { it.recycle() } catch (_: Throwable) { }
+            }
+            rotatedBitmap = null
+            val m = Matrix()
+            m.postRotate(degrees.toFloat())
+            val rb = Bitmap.createBitmap(src, 0, 0, src.width, src.height, m, true)
+            rotatedBitmap = rb
+            genericOverlayBitmaps.add(rb)
+            preview.setImageBitmap(rb)
+        }
+        fun renderRotatePage(index: Int) {
+            if (index == renderedPage) return
+            renderedPage = index
+            Thread {
+                try {
+                    val bmp = PdfTools.renderPageThumb(input, index, 720)
+                    runOnUiThread {
+                        if (bmp != null && genericOverlay != null) {
+                            pageBitmap?.let {
+                                genericOverlayBitmaps.remove(it)
+                                try { it.recycle() } catch (_: Throwable) { }
+                            }
+                            pageBitmap = bmp
+                            genericOverlayBitmaps.add(bmp)
+                            refreshRotatePreview()
+                        }
+                    }
+                } catch (_: Throwable) { }
+            }.start()
+        }
+        renderRotatePage(0)
+        root.addView(toolExplain("Rotate all pages, or just one page. The content stays exactly the same — only the rotation changes."))
         val scroll = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
@@ -2984,23 +3167,78 @@ class PdfToolsActivity : AppCompatActivity() {
         val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         scroll.addView(body)
         root.addView(scroll)
+        // Page picker views are declared up front so the scope
+        // chips below can show/hide them.
+        var pageBox: LinearLayout? = null
+        var etPage: EditText? = null
+        body.addView(toolSectionLabel("Pages"))
+        body.addView(optionChipRow(listOf("All pages", "Single page"), 0) {
+            scope = it
+            pageBox?.visibility = if (scope == 1) View.VISIBLE else View.GONE
+            if (scope == 1) {
+                val p = etPage?.text?.toString()?.trim()?.toIntOrNull() ?: 1
+                renderRotatePage((p - 1).coerceIn(0, total - 1))
+            } else {
+                renderRotatePage(0)
+            }
+        })
+        pageBox = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+        etPage = EditText(this).apply {
+            hint = "Page number (1–$total)"
+            textSize = 14f
+            inputType = InputType.TYPE_CLASS_NUMBER
+            background = inputBoxBackground()
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        etPage?.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: android.text.Editable?) {
+                if (scope != 1) return
+                val p = s.toString().trim().toIntOrNull() ?: return
+                if (p in 1..total) renderRotatePage(p - 1)
+            }
+        })
+        pageBox?.addView(etPage)
+        body.addView(pageBox)
         body.addView(toolSectionLabel("Rotate by"))
         body.addView(optionChipRow(listOf("90°", "180°", "270°"), 0) {
             degrees = listOf(90, 180, 270)[it]
+            refreshRotatePreview()
         })
         val status = toolStatusLine("")
         body.addView(status)
         root.addView(toolBottomRow("Rotate") {
+            val pageOneBased: Int? = if (scope == 0) null else {
+                val p = etPage?.text?.toString()?.trim()?.toIntOrNull()
+                if (p == null || p < 1 || p > total) {
+                    status.text = "Type a page number from 1 to $total"
+                    return@toolBottomRow
+                }
+                p
+            }
             status.text = "Rotating PDF by $degrees°…"
             Thread {
                 try {
                     val out = File(hakunaaCacheDir(), "hakunaa_rotated_${System.currentTimeMillis()}.pdf")
-                    val ok = PdfTools.rotate(input, out, degrees)
-                    val savedUri = if (ok) publishPdfUri(out) else null
+                    val ok = PdfTools.rotate(input, out, degrees, pageOneBased)
                     runOnUiThread {
-                        if (ok && savedUri != null) {
-                            dismissGenericOverlay()
-                            showSavedPdfDialog(out, savedUri)
+                        if (ok) {
+                            // v0.1.193: NO direct save — preview /
+                            // result screen first; only its Save
+                            // button publishes.
+                            val detail = if (pageOneBased == null) "Rotated $degrees° • All pages"
+                                else "Rotated $degrees° • Page $pageOneBased"
+                            showPdfResultScreen("Rotate PDF", out, total, detail)
                         } else {
                             status.text = "Rotate failed — check the file and try again"
                         }
@@ -3034,7 +3272,7 @@ class PdfToolsActivity : AppCompatActivity() {
         var position = 0 // 0 diagonal centre, 1 centre, 2 top, 3 bottom
         var opacity = 0.35f
         var fontSize = 48f
-        var colorRgb = 0xB4B4B4
+        var colorRgb = 0xFFB4B4B4.toInt()
         var rotation = 45f
         val root = newToolOverlay("Watermark")
         root.addView(toolFileLine("${input.name} • $total page(s)"))
@@ -3063,7 +3301,10 @@ class PdfToolsActivity : AppCompatActivity() {
             textSize = 20f
             setTypeface(null, android.graphics.Typeface.BOLD)
             setTextColor(colorRgb)
-            alpha = opacity
+            // v0.1.193: the PREVIEW overlay is always clearly
+            // visible (0.85) — the actual stamp uses the user's
+            // chosen opacity (default 35%).
+            alpha = 0.85f
             rotation = rotation
             gravity = Gravity.CENTER
             layoutParams = FrameLayout.LayoutParams(
@@ -3101,7 +3342,9 @@ class PdfToolsActivity : AppCompatActivity() {
             wmOverlay.text = if (etWmText.text.toString().isBlank()) "CONFIDENTIAL" else etWmText.text.toString()
             wmOverlay.textSize = (fontSize * 0.42f).coerceIn(10f, 30f)
             wmOverlay.setTextColor(colorRgb)
-            wmOverlay.alpha = opacity
+            // v0.1.193: preview stays clearly visible (0.85) —
+            // the stamp itself uses the chosen opacity.
+            wmOverlay.alpha = 0.85f
             wmOverlay.rotation = rotation
             val params = wmOverlay.layoutParams as FrameLayout.LayoutParams
             params.gravity = when (position) {
@@ -3160,7 +3403,14 @@ class PdfToolsActivity : AppCompatActivity() {
             refreshOverlay()
         })
         body.addView(toolSectionLabel("Colour"))
-        val wmColors = listOf(0xB4B4B4, 0x111827, 0x00BFA5, 0xE85A46, 0x508CDC)
+        // v0.1.193: colours are ARGB — the old bare RGB values
+        // had alpha 0x00, so the preview overlay text was fully
+        // transparent (invisible). The stamp extracts r/g/b, so
+        // the actual watermark colour is unchanged.
+        val wmColors = listOf(
+            0xFFB4B4B4.toInt(), 0xFF111827.toInt(), 0xFF00BFA5.toInt(),
+            0xFFE85A46.toInt(), 0xFF508CDC.toInt()
+        )
         body.addView(optionChipRow(listOf("Grey", "Black", "Teal", "Red", "Blue"), 0) {
             colorRgb = wmColors[it]
             refreshOverlay()
@@ -3222,11 +3472,16 @@ class PdfToolsActivity : AppCompatActivity() {
                 try {
                     val out = File(hakunaaCacheDir(), "hakunaa_watermarked_${System.currentTimeMillis()}.pdf")
                     val ok = PdfTools.watermark(input, out, text, opts)
-                    val savedUri = if (ok) publishPdfUri(out) else null
                     runOnUiThread {
-                        if (ok && savedUri != null) {
-                            dismissGenericOverlay()
-                            showSavedPdfDialog(out, savedUri)
+                        if (ok) {
+                            // v0.1.193: NO direct save — preview /
+                            // result screen first; only its Save
+                            // button publishes.
+                            val stamped = to - from + 1
+                            showPdfResultScreen(
+                                "Watermark", out, total,
+                                "Watermark on $stamped page(s)"
+                            )
                         } else {
                             status.text = "Watermark failed — check the file and try again"
                         }
@@ -3266,7 +3521,9 @@ class PdfToolsActivity : AppCompatActivity() {
         var vPos = 1 // 0 top, 1 bottom
         var hPos = 1 // 0 left, 1 centre, 2 right
         var fontSize = 12f
-        var colorRgb = 0x111827
+        // v0.1.193: 0xFF alpha — the old 0x111827 made the
+        // mini-preview sample transparent (see Colour list below).
+        var colorRgb = 0xFF111827.toInt()
         var skipCover = false
         val root = newToolOverlay("Page Numbers")
         root.addView(toolFileLine("${input.name} • $total page(s)"))
@@ -3348,7 +3605,12 @@ class PdfToolsActivity : AppCompatActivity() {
             refreshSample()
         })
         body.addView(toolSectionLabel("Colour"))
-        val colors = listOf(0x111827, 0x5B6472, 0x00BFA5, 0xE85A46, 0x508CDC)
+        // v0.1.193: colours MUST carry the 0xFF alpha byte — the
+        // old bare RGB values (0x111827, ...) are alpha 0x00, so
+        // setTextColor made the live mini-preview sample fully
+        // transparent (invisible). The stamp extracts r/g/b, so
+        // the alpha byte does not change the stamped colour.
+        val colors = listOf(0xFF111827.toInt(), 0xFF5B6472.toInt(), 0xFF00BFA5.toInt(), 0xFFE85A46.toInt(), 0xFF508CDC.toInt())
         body.addView(optionChipRow(listOf("Black", "Grey", "Teal", "Red", "Blue"), 0) {
             colorRgb = colors[it]
             refreshSample()
@@ -3418,11 +3680,16 @@ class PdfToolsActivity : AppCompatActivity() {
                 try {
                     val out = File(hakunaaCacheDir(), "hakunaa_numbered_${System.currentTimeMillis()}.pdf")
                     val ok = PdfTools.pageNumbers(input, out, opts)
-                    val savedUri = if (ok) publishPdfUri(out) else null
+                    val numbered = (from..to).count { !(skipCover && it == 1) }
                     runOnUiThread {
-                        if (ok && savedUri != null) {
-                            dismissGenericOverlay()
-                            showSavedPdfDialog(out, savedUri)
+                        if (ok) {
+                            // v0.1.193: NO direct save — preview /
+                            // result screen first; only its Save
+                            // button publishes.
+                            showPdfResultScreen(
+                                "Page Numbers", out, total,
+                                "Numbers added on $numbered page(s)"
+                            )
                         } else {
                             status.text = "Page numbers failed — check the file and try again"
                         }
@@ -3671,17 +3938,14 @@ class PdfToolsActivity : AppCompatActivity() {
                 try {
                     val outDir = File(hakunaaCacheDir(), "jpg_${System.currentTimeMillis()}").apply { mkdirs() }
                     val created = PdfTools.pdfToJpg(input, outDir, dpi)
-                    var published = 0
-                    for (file in created) {
-                        if (MediaStoreSaver.save(this, file, MediaStoreSaver.Kind.IMAGE, file.name, ImageCompressor.formatOf(file).mime) != null) {
-                            published++
-                        }
-                    }
                     runOnUiThread {
-                        status.text = if (published > 0) {
-                            "Done — $published page(s) saved to Pictures/Hakunaa"
+                        if (created.isEmpty()) {
+                            status.text = "PDF to JPG failed — check the file and try again"
                         } else {
-                            "PDF to JPG failed — check the file and try again"
+                            // v0.1.193: NO direct save — show every
+                            // converted page in a grid; the user
+                            // ticks the ones to save.
+                            showPdfToJpgResults(input, total, created)
                         }
                     }
                 } catch (_: Throwable) {
@@ -3689,6 +3953,193 @@ class PdfToolsActivity : AppCompatActivity() {
                 }
             }.start()
         })
+    }
+
+    // PDF to JPG results (v0.1.193): every converted page as a
+    // preview box in a grid (Extract Images pattern) — tap to
+    // select, multiple select, "Save Selected" saves only the
+    // ticked ones, "Save all" saves every page. Nothing is saved
+    // until a Save button is tapped.
+    private fun showPdfToJpgResults(input: File, total: Int, files: List<File>) {
+        val root = newToolOverlay("PDF to JPG")
+        root.addView(toolFileLine("${input.name} • $total page(s)"))
+        root.addView(toolExplain("Tick the images you want, then save only those to Pictures/Hakunaa."))
+        val status = toolStatusLine("${files.size} image(s) — all selected")
+        root.addView(status)
+        data class JpgImage(val file: File, val bitmap: Bitmap, var selected: Boolean = true)
+        val images = mutableListOf<JpgImage>()
+        var btnSaveSelected: TextView? = null
+        fun updateSaveButton() {
+            val n = images.count { it.selected }
+            btnSaveSelected?.text = if (images.isEmpty()) "Save Selected" else "Save $n image${if (n == 1) "" else "s"}"
+        }
+        fun saveJpgFiles(chosen: List<JpgImage>) {
+            if (chosen.isEmpty()) {
+                toast("Tick at least one image to save")
+                return
+            }
+            status.text = "Saving ${chosen.size} image(s)…"
+            Thread {
+                try {
+                    var firstFile: File? = null
+                    var firstUri: Uri? = null
+                    var published = 0
+                    for (item in chosen) {
+                        val uri = MediaStoreSaver.save(this, item.file, MediaStoreSaver.Kind.IMAGE, item.file.name, ImageCompressor.formatOf(item.file).mime)
+                        if (uri != null) {
+                            if (firstUri == null) {
+                                firstUri = uri
+                                firstFile = item.file
+                            }
+                            published++
+                        }
+                    }
+                    runOnUiThread {
+                        if (published > 0 && firstUri != null && firstFile != null) {
+                            dismissGenericOverlay()
+                            SavedDialog.show(this@PdfToolsActivity, firstFile, firstUri, ImageCompressor.formatOf(firstFile), accentRes = R.color.hakunaa_blue)
+                        } else {
+                            status.text = "Save failed — check the file and try again"
+                        }
+                    }
+                } catch (_: Throwable) {
+                    runOnUiThread { status.text = "Save failed — check the file and try again" }
+                }
+            }.start()
+        }
+        // Grid (same tap-to-toggle + check-badge pattern as the
+        // Extract Images grid).
+        val adapter = object : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+            override fun getItemCount() = images.size
+            override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+                val cell = FrameLayout(parent.context).apply {
+                    layoutParams = RecyclerView.LayoutParams(
+                        RecyclerView.LayoutParams.MATCH_PARENT, dp(120)
+                    ).apply { setMargins(dp(4), dp(4), dp(4), dp(4)) }
+                }
+                val iv = ImageView(parent.context).apply {
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    layoutParams = FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                    )
+                }
+                val badge = TextView(parent.context).apply {
+                    text = "✓"
+                    textSize = 16f
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    gravity = Gravity.CENTER
+                    setTextColor(Color.WHITE)
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
+                        setColor(parent.context.getColor(R.color.hakunaa_blue))
+                    }
+                    layoutParams = FrameLayout.LayoutParams(dp(28), dp(28)).apply {
+                        gravity = Gravity.END or Gravity.TOP
+                        setMargins(0, dp(6), dp(6), 0)
+                    }
+                }
+                cell.addView(iv)
+                cell.addView(badge)
+                return object : RecyclerView.ViewHolder(cell) {}
+            }
+            override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+                val item = images[position]
+                val cell = holder.itemView as FrameLayout
+                val iv = cell.getChildAt(0) as ImageView
+                val badge = cell.getChildAt(1) as TextView
+                iv.setImageBitmap(item.bitmap)
+                iv.alpha = if (item.selected) 1f else 0.45f
+                badge.visibility = if (item.selected) View.VISIBLE else View.GONE
+                cell.background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(10).toFloat()
+                    if (item.selected) setStroke(dp(2), cell.context.getColor(R.color.hakunaa_blue))
+                    else setStroke(dp(1), Color.parseColor("#CFD8DC"))
+                }
+                cell.setOnClickListener {
+                    item.selected = !item.selected
+                    notifyItemChanged(position)
+                    updateSaveButton()
+                }
+            }
+        }
+        val grid = RecyclerView(this).apply {
+            layoutManager = GridLayoutManager(this@PdfToolsActivity, 3)
+            clipToPadding = false
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            ).apply { topMargin = dp(8) }
+        }
+        grid.adapter = adapter
+        root.addView(grid)
+        btnSaveSelected = popupPillButton("Save Selected", true) {
+            saveJpgFiles(images.filter { it.selected })
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(56)
+            ).apply { topMargin = dp(12) }
+        }
+        root.addView(btnSaveSelected)
+        val btnSaveAll = popupPillButton("Save all", false) {
+            saveJpgFiles(images.toList())
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(52)
+            ).apply { topMargin = dp(8) }
+        }
+        root.addView(btnSaveAll)
+        val bottomRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+        val btnBack = popupPillButton("Back", false) {
+            showPdfToJpgScreen(input, total)
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(8) }
+        }
+        val btnDone = popupPillButton("Done", true) { dismissGenericOverlay() }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(8) }
+        }
+        bottomRow.addView(btnBack)
+        bottomRow.addView(btnDone)
+        root.addView(bottomRow)
+        // Decode the converted pages into thumbnails (sampled).
+        Thread {
+            try {
+                val items = mutableListOf<JpgImage>()
+                for (file in files) {
+                    try {
+                        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        android.graphics.BitmapFactory.decodeFile(file.absolutePath, bounds)
+                        val smaller = if (bounds.outWidth < bounds.outHeight) bounds.outWidth else bounds.outHeight
+                        val sample = (smaller / 240).coerceAtLeast(1)
+                        val bmpOpts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+                        val bmp = android.graphics.BitmapFactory.decodeFile(file.absolutePath, bmpOpts)
+                        if (bmp != null) {
+                            genericOverlayBitmaps.add(bmp)
+                            items.add(JpgImage(file, bmp))
+                        }
+                    } catch (_: Throwable) { }
+                }
+                runOnUiThread {
+                    images.addAll(items)
+                    adapter.notifyDataSetChanged()
+                    updateSaveButton()
+                    status.text = if (images.isEmpty()) {
+                        "No images could be read — try again"
+                    } else {
+                        "${images.size} image(s) — tick the ones to save"
+                    }
+                }
+            } catch (_: Throwable) {
+                runOnUiThread { status.text = "PDF to JPG failed — check the file and try again" }
+            }
+        }.start()
     }
 
 
@@ -3713,8 +4164,8 @@ class PdfToolsActivity : AppCompatActivity() {
     // the password field lives inside the screen.
     private fun showProtectUnlockScreen(input: File, total: Int) {
         var mode = 0 // 0 protect, 1 unlock
-        // btnAction is used by the option-card click listeners,
-        // created before the button — declare it up front.
+        // btnAction is the bottom Save button, created after the
+        // option cards — declare it up front.
         var btnAction: TextView? = null
         val root = newToolOverlay("Protect / Unlock")
         root.addView(toolFileLine("${input.name} • $total page(s)"))
@@ -3731,6 +4182,52 @@ class PdfToolsActivity : AppCompatActivity() {
         val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         scroll.addView(body)
         root.addView(scroll)
+
+        // v0.1.193: Instructions + specifications box, BELOW the
+        // Lock/Unlock cards — it updates with the selected mode.
+        // Created up front (before optionCard) so the card click
+        // listener can refresh it.
+        val infoBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(12).toFloat()
+                setColor(0xFFF5F8FF.toInt())
+                setStroke(dp(1), getColor(R.color.hakunaa_blue))
+            }
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) }
+        }
+        val infoTitle = TextView(this).apply {
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+        }
+        val infoLines = TextView(this).apply {
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            setPadding(0, dp(4), 0, 0)
+        }
+        infoBox.addView(infoTitle)
+        infoBox.addView(infoLines)
+        fun refreshInfoBox() {
+            if (mode == 0) {
+                infoTitle.text = "Lock — Instructions"
+                infoLines.text = "• Sets a password on this PDF.\n" +
+                    "• Anyone opening it must type the password.\n" +
+                    "• Use at least 4 characters — letters and numbers work best.\n" +
+                    "• Keep the password safe — it cannot be recovered."
+            } else {
+                infoTitle.text = "Unlock — Instructions"
+                infoLines.text = "• Removes the password from this PDF.\n" +
+                    "• You must know the current password.\n" +
+                    "• The unlocked file opens freely, without a password.\n" +
+                    "• If the password is wrong, nothing is changed."
+            }
+        }
 
         val cards = mutableListOf<LinearLayout>()
         fun paintCards() {
@@ -3790,7 +4287,7 @@ class PdfToolsActivity : AppCompatActivity() {
             card.setOnClickListener {
                 mode = index
                 paintCards()
-                btnAction?.text = if (mode == 0) "Protect PDF" else "Unlock PDF"
+                refreshInfoBox()
             }
             cards.add(card)
             return card
@@ -3806,7 +4303,12 @@ class PdfToolsActivity : AppCompatActivity() {
             PdfIconView.Kind.UNLOCK, 1
         ))
         paintCards()
+        refreshInfoBox()
+        body.addView(infoBox)
 
+        // v0.1.193: professional password field with a Show /
+        // Hide toggle (the password is never shown in a popup).
+        var pwVisible = false
         val etPassword = EditText(this).apply {
             hint = "Type a password"
             textSize = 14f
@@ -3814,11 +4316,44 @@ class PdfToolsActivity : AppCompatActivity() {
             background = inputBoxBackground()
             setPadding(dp(12), dp(12), dp(12), dp(12))
             layoutParams = LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+            )
+        }
+        val tvShowPw = TextView(this).apply {
+            text = "Show"
+            textSize = 13f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_blue))
+            gravity = Gravity.CENTER
+            setPadding(dp(12), dp(12), dp(4), dp(12))
+            isClickable = true
+            isFocusable = true
+        }
+        tvShowPw.setOnClickListener {
+            pwVisible = !pwVisible
+            val selStart = etPassword.selectionStart
+            val selEnd = etPassword.selectionEnd
+            etPassword.inputType = if (pwVisible) {
+                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+            } else {
+                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            }
+            tvShowPw.text = if (pwVisible) "Hide" else "Show"
+            try {
+                etPassword.setSelection(selStart.coerceAtLeast(0), selEnd.coerceAtLeast(0))
+            } catch (_: Throwable) { }
+        }
+        val pwRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(16) }
         }
-        body.addView(etPassword)
+        pwRow.addView(etPassword)
+        pwRow.addView(tvShowPw)
+        body.addView(pwRow)
         val status = toolStatusLine("")
         body.addView(status)
 
@@ -3834,14 +4369,21 @@ class PdfToolsActivity : AppCompatActivity() {
                 marginEnd = dp(8)
             }
         }
-        btnAction = popupPillButton("Protect PDF", true) {
+        // v0.1.193: bottom row is Back + Save. Save runs the
+        // protect/unlock and shows the preview/result screen —
+        // it never saves directly.
+        btnAction = popupPillButton("Save", true) {
             val password = etPassword.text.toString()
             if (password.isEmpty()) {
                 status.text = "Type a password first"
                 return@popupPillButton
             }
+            if (mode == 0 && password.length < 4) {
+                status.text = "Use at least 4 characters for the password"
+                return@popupPillButton
+            }
             status.text = if (mode == 0) "Protecting PDF…" else "Unlocking PDF…"
-            if (mode == 0) runProtect(input, password) else runUnlock(input, password)
+            if (mode == 0) runProtect(input, password, total) else runUnlock(input, password, total)
         }.apply {
             layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f).apply {
                 marginStart = dp(8)
@@ -3853,15 +4395,16 @@ class PdfToolsActivity : AppCompatActivity() {
     }
 
 
-    private fun runProtect(input: File, password: String) {
+    private fun runProtect(input: File, password: String, total: Int) {
         toast("Protecting PDF…")
         Thread {
             try {
                 val out = File(hakunaaCacheDir(), "hakunaa_protected_${System.currentTimeMillis()}.pdf")
                 val ok = PdfTools.protect(input, out, password)
-                val savedUri = if (ok) publishPdfUri(out) else null
                 runOnUiThread {
-                    if (ok && savedUri != null) showSavedPdfDialog(out, savedUri)
+                    // v0.1.193: NO direct save — preview/result
+                    // screen first; only its Save button publishes.
+                    if (ok) showPdfResultScreen("Protect / Unlock", out, total, "Protected — a password is set")
                     else toast("Protect failed — check the file and try again")
                 }
             } catch (_: Throwable) {
@@ -3870,15 +4413,16 @@ class PdfToolsActivity : AppCompatActivity() {
         }.start()
     }
 
-    private fun runUnlock(input: File, password: String) {
+    private fun runUnlock(input: File, password: String, total: Int) {
         toast("Unlocking PDF…")
         Thread {
             try {
                 val out = File(hakunaaCacheDir(), "hakunaa_unlocked_${System.currentTimeMillis()}.pdf")
                 val ok = PdfTools.unlock(input, out, password)
-                val savedUri = if (ok) publishPdfUri(out) else null
                 runOnUiThread {
-                    if (ok && savedUri != null) showSavedPdfDialog(out, savedUri)
+                    // v0.1.193: NO direct save — preview/result
+                    // screen first; only its Save button publishes.
+                    if (ok) showPdfResultScreen("Protect / Unlock", out, total, "Unlocked — password removed")
                     else toast("Unlock failed — wrong password or file not locked")
                 }
             } catch (_: Throwable) {
@@ -4054,16 +4598,18 @@ class PdfToolsActivity : AppCompatActivity() {
                 status.text = "Add at least 1 page"
                 return@toolBottomRow
             }
-            status.text = "Saving organized PDF…"
+            status.text = "Building organized PDF…"
             Thread {
                 try {
                     val out = File(hakunaaCacheDir(), "hakunaa_organized_${System.currentTimeMillis()}.pdf")
                     val ok = PdfTools.rebuildPages(items, out)
-                    val savedUri = if (ok) publishPdfUri(out) else null
+                    val pageCount = items.size
                     runOnUiThread {
-                        if (ok && savedUri != null) {
-                            dismissGenericOverlay()
-                            showSavedPdfDialog(out, savedUri)
+                        if (ok) {
+                            // v0.1.193: NO direct save — show the
+                            // preview/result screen first; only its
+                            // Save button publishes.
+                            showPdfResultScreen("Organize PDF", out, pageCount, "Reordered • $pageCount page(s)")
                         } else {
                             status.text = "Organize failed — check the file and try again"
                         }
@@ -4148,11 +4694,17 @@ private fun deletePagesPdf() {
                 try {
                     val out = File(hakunaaCacheDir(), "hakunaa_deleted_${System.currentTimeMillis()}.pdf")
                     val removed = PdfTools.deletePages(input, out, sel.map { it + 1 }.toSet())
-                    val savedUri = if (removed > 0) publishPdfUri(out) else null
                     runOnUiThread {
-                        if (removed > 0 && savedUri != null) {
-                            dismissGenericOverlay()
-                            showSavedPdfDialog(out, savedUri)
+                        if (removed > 0) {
+                            // v0.1.193: NO direct save — preview /
+                            // result screen first (preview of the
+                            // remaining pages + count + size);
+                            // only its Save button publishes.
+                            val remaining = total - removed
+                            showPdfResultScreen(
+                                "Delete Pages", out, remaining,
+                                "$removed page(s) deleted • $remaining page(s) left"
+                            )
                         } else {
                             status.text = "Delete failed — check the file and try again"
                         }
@@ -4214,13 +4766,13 @@ private fun deletePagesPdf() {
                 try {
                     val out = File(hakunaaCacheDir(), "hakunaa_repaired_${System.currentTimeMillis()}.pdf")
                     val ok = PdfTools.repair(input, out)
-                    val savedUri = if (ok) publishPdfUri(out) else null
+                    val repairedTotal = PdfTools.pageInfo(out, 0)?.first ?: total
                     runOnUiThread {
-                        if (ok && savedUri != null) {
-                            dismissGenericOverlay()
-                            showSavedPdfDialog(out, savedUri)
-                        } else if (ok) {
-                            status.text = "Done — repaired, but couldn't save it. Try again."
+                        if (ok) {
+                            // v0.1.193: NO direct save — preview /
+                            // result screen first; only its Save
+                            // button publishes.
+                            showPdfResultScreen("Repair PDF", out, repairedTotal, "Repaired")
                         } else {
                             status.text = "Could not repair — this file is too damaged"
                         }
@@ -4345,9 +4897,8 @@ private fun deletePagesPdf() {
     // saving. Now the preview is LIVE: the page is shown at the
     // NEW size — its frame aspect follows the picked size and
     // orientation, with the new dimensions labelled — and the
-    // bottom button is a clear "Resize & Save" that resizes,
-    // then shows the professional Saved dialog. Same 9 sizes,
-    // orientation and fit options (user-approved).
+    // bottom button is a clear "Resize" that resizes, then shows
+    // the preview/result screen (only its Save button publishes).
     private fun showResizeScreen(input: File, total: Int) {
         var selectedSize = 0 // A4
         var landscape = false
@@ -4656,11 +5207,10 @@ private fun deletePagesPdf() {
             } catch (_: Throwable) { }
         }.start()
 
-        // "Resize & Save": resize in a worker thread, then the
-        // professional Saved dialog. The screen stays up with a
-        // status line while it runs (the old runResize closed the
-        // screen first and only toasted on failure).
-        root.addView(toolBottomRow("Resize & Save") {
+        // v0.1.193: "Resize" (no longer "Resize & Save") —
+        // resize in a worker thread, then the preview/result
+        // screen; only its Save button publishes.
+        root.addView(toolBottomRow("Resize") {
             val target = currentTarget()
             if (target == null) {
                 toast("Enter a valid width and height (10–1000 mm)")
@@ -4677,11 +5227,12 @@ private fun deletePagesPdf() {
                 try {
                     val out = File(hakunaaCacheDir(), "hakunaa_resized_${System.currentTimeMillis()}.pdf")
                     val ok = PdfTools.resizePages(input, out, target, fitContent)
-                    val savedUri = if (ok) publishPdfUri(out) else null
                     runOnUiThread {
-                        if (ok && savedUri != null) {
-                            dismissGenericOverlay()
-                            showSavedPdfDialog(out, savedUri)
+                        if (ok) {
+                            showPdfResultScreen(
+                                "Resize Pages", out, total,
+                                "New size: $label"
+                            )
                         } else {
                             status.text = "Resize failed — check the file and try again"
                         }
@@ -4895,6 +5446,22 @@ private fun deletePagesPdf() {
                     // Default: smallest (levels are best quality
                     // first, so the smallest is the last row).
                     selectSmartRow(smartRows.size - 1)
+                    // v0.1.193: "Small" + "Best" tags (Image Smart
+                    // pattern). Smallest = the smallest file; Best
+                    // = the highest-quality level within 2x of the
+                    // smallest (levels are best quality first, so
+                    // the first level within 2x wins).
+                    var smallestIdx = 0
+                    for (i in levels.indices) {
+                        if (levels[i].size < levels[smallestIdx].size) smallestIdx = i
+                    }
+                    val smallestSize = levels[smallestIdx].size
+                    var bestIdx = smallestIdx
+                    for (i in levels.indices) {
+                        if (levels[i].size <= smallestSize * 2) { bestIdx = i; break }
+                    }
+                    addSmartTag(smartRows[bestIdx], "Best", getColor(R.color.hakunaa_blue))
+                    addSmartTag(smartRows[smallestIdx], "Small", 0xFF43A047.toInt())
                 }
             } catch (_: Throwable) {
                 runOnUiThread {
@@ -4949,6 +5516,18 @@ private fun deletePagesPdf() {
         }
         left.addView(tvLabel)
         left.addView(tvSize)
+        // v0.1.193: "Small" / "Best" tag pills (filled by
+        // showSmartResults once the levels are computed — the
+        // tag row is child 2 of the left column).
+        val tagRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(4) }
+            visibility = View.GONE
+        }
+        left.addView(tagRow)
         // v0.1.150: VIEW pill on every level — opens that result
         // PDF in the default viewer (Image Smart style).
         val viewPill = viewPillButton { if (file != null) viewPdf(file) }
@@ -4967,6 +5546,33 @@ private fun deletePagesPdf() {
         row.addView(viewPill)
         row.addView(check)
         return row
+    }
+
+    /** v0.1.193: add a "Small" / "Best" tag pill to a Smart
+     * result row (the tag row is child 2 of the row's left
+     * column). */
+    private fun addSmartTag(row: LinearLayout, text: String, bgColor: Int) {
+        val left = row.getChildAt(0) as? LinearLayout ?: return
+        val tagRow = left.getChildAt(2) as? LinearLayout ?: return
+        val pill = TextView(this).apply {
+            this.text = text
+            textSize = 11f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(8).toFloat()
+                setColor(bgColor)
+            }
+            setPadding(dp(8), dp(2), dp(8), dp(2))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { marginEnd = dp(6) }
+        }
+        tagRow.addView(pill)
+        tagRow.visibility = View.VISIBLE
     }
 
     private fun selectSmartRow(index: Int) {
@@ -5353,6 +5959,12 @@ private fun deletePagesPdf() {
         // btnSign is used by the pad Done handler, created before
         // the bottom row — declare it up front (nullable local).
         var btnSign: TextView? = null
+        // v0.1.193: Done button (confirms the placed signatures)
+        // — same up-front pattern as btnSign.
+        var btnDone: TextView? = null
+        // v0.1.193: bottom row (Back + Save) — declared up front
+        // so the pad Done handler can show it again after drawing.
+        var signBottomRow: LinearLayout? = null
         // seekSize is created with the slider, after the stage —
         // the signature-overlay helpers above it need the reference
         // up front (nullable local, same pattern as btnSign).
@@ -5583,9 +6195,12 @@ private fun deletePagesPdf() {
         }
 
         /** "Sign PDF" before the first signature, "Add signature"
-         * after — so adding another one is obvious (Fix #47). */
+         * after — so adding another one is obvious (Fix #47).
+         * v0.1.193: the Done button only shows once a signature
+         * is placed (it confirms the signing). */
         fun updateSignButton() {
             btnSign?.text = if (placedSigs.isEmpty()) "Sign PDF" else "Add signature"
+            btnDone?.visibility = if (placedSigs.isEmpty()) View.GONE else View.VISIBLE
         }
 
         /** Place a freshly drawn (or saved) signature on the
@@ -5610,6 +6225,44 @@ private fun deletePagesPdf() {
             selectedSig = sig
             refreshSignOverlays()
             updateSignButton()
+        }
+
+        /** v0.1.193: confirm the placed signature(s) — stamp them
+         * all to a temp PDF in the cache, then show the PREVIEW /
+         * result screen. Only that screen's Save button publishes
+         * (no direct save). Used by both Done and the bottom Save. */
+        fun finishSigning() {
+            if (placedSigs.isEmpty()) {
+                toast("Tap Sign PDF and draw your signature first")
+                return
+            }
+            if (frameW <= 0) {
+                toast("Still loading the page — try again in a second")
+                return
+            }
+            // Stamp EVERY placed signature in one pass (Fix #47).
+            val placements = placedSigs.map { sig ->
+                PdfTools.SignPlacement(sig.bitmap, sig.page, sig.xPt, sig.yPt, sig.wPt, sig.hPt)
+            }
+            val count = placedSigs.size
+            Thread {
+                try {
+                    val out = File(hakunaaCacheDir(), "hakunaa_signed_${System.currentTimeMillis()}.pdf")
+                    val ok = PdfTools.signMultiple(input, out, placements)
+                    runOnUiThread {
+                        if (ok) {
+                            showPdfResultScreen(
+                                "Sign PDF", out, total,
+                                "Signed • $count signature${if (count == 1) "" else "s"}"
+                            )
+                        } else {
+                            toast("Sign failed — check the file and try again")
+                        }
+                    }
+                } catch (_: Throwable) {
+                    runOnUiThread { toast("Sign failed — check the file and try again") }
+                }
+            }.start()
         }
         fun loadPage(index: Int) {
             signPageIndex = index
@@ -5753,6 +6406,20 @@ private fun deletePagesPdf() {
                 }
             } catch (_: Throwable) { }
         }.start()
+
+        // v0.1.193: Done button — confirms the placed signature(s)
+        // and opens the preview/result screen. Hidden until a
+        // signature is placed (updateSignButton toggles it), and
+        // hidden while the pad is open.
+        btnDone = popupPillButton("Done", true) {
+            finishSigning()
+        }.apply {
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(52)
+            ).apply { topMargin = dp(12) }
+        }
+        root.addView(btnDone)
 
         // Signature pad (iLovePDF style): replaces the stage while
         // drawing. Draw with finger, pick a pen colour, archive the
@@ -5957,6 +6624,7 @@ private fun deletePagesPdf() {
             sizeLabel.visibility = View.VISIBLE
             seekSize?.visibility = View.VISIBLE
             strip.visibility = View.VISIBLE
+            signBottomRow?.visibility = View.VISIBLE
             btnSign?.visibility = View.VISIBLE
             addSignature(bmp)
         }.apply {
@@ -5968,7 +6636,8 @@ private fun deletePagesPdf() {
         padBox.addView(padBottom)
         root.addView(padBox)
 
-        // Bottom row: Sign PDF (opens the pad) + Save signed PDF.
+        // Bottom row (v0.1.193): Back (left) + Save (right).
+        // "Sign PDF" now sits right below the preview page.
         val bottomRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
@@ -5976,56 +6645,39 @@ private fun deletePagesPdf() {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(12) }
         }
-        btnSign = popupPillButton("Sign PDF", false) {
-            stageOuter.visibility = View.GONE
-            sizeLabel.visibility = View.GONE
-            seekSize?.visibility = View.GONE
-            strip.visibility = View.GONE
-            bottomRow.visibility = View.GONE
-            padBox.visibility = View.VISIBLE
-        }.apply {
+        signBottomRow = bottomRow
+        val btnBack = popupPillButton("Back", false) { attemptLeavePdf { dismissGenericOverlay() } }.apply {
             layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f).apply {
                 marginEnd = dp(8)
             }
         }
-        val btnSave = popupPillButton("Save signed PDF", true) {
-            if (placedSigs.isEmpty()) {
-                toast("Tap Sign PDF and draw your signature first")
-                return@popupPillButton
-            }
-            if (frameW <= 0) {
-                toast("Still loading the page — try again in a second")
-                return@popupPillButton
-            }
-            // Stamp EVERY placed signature in one pass (Fix #47).
-            val placements = placedSigs.map { sig ->
-                PdfTools.SignPlacement(sig.bitmap, sig.page, sig.xPt, sig.yPt, sig.wPt, sig.hPt)
-            }
-            Thread {
-                try {
-                    val out = File(hakunaaCacheDir(), "hakunaa_signed_${System.currentTimeMillis()}.pdf")
-                    val ok = PdfTools.signMultiple(input, out, placements)
-                    val savedUri = if (ok) publishPdfUri(out) else null
-                    runOnUiThread {
-                        if (ok && savedUri != null) {
-                            dismissGenericOverlay()
-                            showSavedPdfDialog(out, savedUri)
-                        } else {
-                            toast("Sign failed — check the file and try again")
-                        }
-                    }
-                } catch (_: Throwable) {
-                    runOnUiThread { toast("Sign failed — check the file and try again") }
-                }
-            }.start()
+        val btnSave = popupPillButton("Save", true) {
+            finishSigning()
         }.apply {
             layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f).apply {
                 marginStart = dp(8)
             }
         }
-        bottomRow.addView(btnSign)
+        bottomRow.addView(btnBack)
         bottomRow.addView(btnSave)
         root.addView(bottomRow)
+        // "Sign PDF" button — right BELOW the preview page
+        // (root child 2: file line=0, stage=1). Opens the pad.
+        btnSign = popupPillButton("Sign PDF", false) {
+            stageOuter.visibility = View.GONE
+            sizeLabel.visibility = View.GONE
+            seekSize?.visibility = View.GONE
+            strip.visibility = View.GONE
+            btnDone?.visibility = View.GONE
+            bottomRow.visibility = View.GONE
+            padBox.visibility = View.VISIBLE
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(52)
+            ).apply { topMargin = dp(12) }
+        }
+        root.addView(btnSign, 2)
+        updateSignButton()
 
         // Saved signature from an earlier session (archive).
         val archived = File(filesDir, "archived_signature.png")

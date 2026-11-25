@@ -71,6 +71,13 @@ class ImageToPdfActivity : AppCompatActivity() {
     private lateinit var bottomBar: LinearLayout
     private lateinit var sizeStep: LinearLayout
     private lateinit var sizeStepList: LinearLayout
+    // v0.1.193: preview at the top of the size step + the
+    // currently selected size (tap selects, Save Selected saves).
+    private lateinit var sizePreview: ImageView
+    private var selectedSizeFile: File? = null
+    // v0.1.193: the "Saving…" toast, so it can be cancelled before
+    // the Saved dialog appears.
+    private var savingToast: Toast? = null
     private var creating = false
     private var saving = false
     /** The 3 built sizes (Normal / Compress / Extreme), for cleanup after save. */
@@ -249,11 +256,28 @@ class ImageToPdfActivity : AppCompatActivity() {
             setTextColor(getColor(R.color.hakunaa_text))
         })
         sizeStep.addView(TextView(this).apply {
-            text = "Each size is built for real — tap one to save it."
+            text = "Tap a size to select it, then press Save Selected."
             textSize = 13f
             setTextColor(getColor(R.color.hakunaa_text_secondary))
             setPadding(0, (4 * density).toInt(), 0, (8 * density).toInt())
         })
+        // v0.1.193: a preview of the first page at the top of the
+        // size step, like every other PDF tool screen shows.
+        sizePreview = ImageView(this).apply {
+            visibility = View.GONE
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                (180 * density).toInt()
+            ).apply { bottomMargin = (8 * density).toInt() }
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 12f * density
+                setColor(getColor(R.color.hakunaa_surface))
+            }
+            clipToOutline = true
+        }
+        sizeStep.addView(sizePreview)
         sizeStepList = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -269,6 +293,27 @@ class ImageToPdfActivity : AppCompatActivity() {
         }
         sizeBack.setOnClickListener { showPagesStep() }
         sizeStep.addView(sizeBack)
+        // v0.1.193: "Save Selected" — the ONLY button that saves.
+        // Tapping a size card only selects it.
+        val sizeSave = MaterialButton(this).apply {
+            text = "Save Selected"
+            setTextColor(getColor(android.R.color.white))
+            backgroundTintList = ColorStateList.valueOf(accent())
+            cornerRadius = (12 * density).toInt()
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                (56 * density).toInt()
+            ).apply { topMargin = (8 * density).toInt() }
+        }
+        sizeSave.setOnClickListener {
+            val file = selectedSizeFile
+            if (file == null) {
+                Toast.makeText(this, "Tap a size to select it first", Toast.LENGTH_SHORT).show()
+            } else {
+                saveChosen(file)
+            }
+        }
+        sizeStep.addView(sizeSave)
         root.addView(sizeStep)
 
         // Bottom bar: Add images / Create PDF.
@@ -566,9 +611,10 @@ class ImageToPdfActivity : AppCompatActivity() {
     }
 
     /** Size step (in-screen, v0.1.153): one row per built size,
-     *  with its real file size — tap a row to save that PDF. The
-     *  old chooser was a Dialog over the pages; the step lives in
-     *  the screen now. */
+     *  with its real file size. v0.1.193: tapping a row only
+     *  SELECTS it (checkmark + highlighted border, Normal
+     *  selected by default) — only "Save Selected" saves. A
+     *  preview of the first page sits at the top. */
     private fun showSizeChooser(built: List<Pair<String, File>>) {
         val density = resources.displayMetrics.density
         val notes = mapOf(
@@ -577,15 +623,30 @@ class ImageToPdfActivity : AppCompatActivity() {
             "Extreme" to "Smallest file — for sharing"
         )
         sizeStepList.removeAllViews()
-        for ((name, file) in built) {
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                background = GradientDrawable().apply {
+        // Default selection: Normal (the first built size).
+        selectedSizeFile = built.firstOrNull()?.second
+        val rowViews = mutableListOf<LinearLayout>()
+        val rowBadges = mutableListOf<TextView>()
+        fun paintSizeRows() {
+            for ((index, row) in rowViews.withIndex()) {
+                val isSelected = built.getOrNull(index)?.second == selectedSizeFile
+                row.background = GradientDrawable().apply {
                     shape = GradientDrawable.RECTANGLE
                     cornerRadius = 12f * density
                     setColor(getColor(R.color.hakunaa_surface))
-                    setStroke((1 * density).toInt(), getColor(R.color.hakunaa_outline))
+                    if (isSelected) {
+                        setStroke((2 * density).toInt(), accent())
+                    } else {
+                        setStroke((1 * density).toInt(), getColor(R.color.hakunaa_outline))
+                    }
                 }
+                rowBadges.getOrNull(index)?.visibility =
+                    if (isSelected) View.VISIBLE else View.GONE
+            }
+        }
+        for ((name, file) in built) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
                 setPadding(
                     (16 * density).toInt(), (14 * density).toInt(),
                     (16 * density).toInt(), (14 * density).toInt()
@@ -599,6 +660,7 @@ class ImageToPdfActivity : AppCompatActivity() {
             }
             val topRow = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
             }
             topRow.addView(TextView(this).apply {
                 text = name
@@ -615,6 +677,22 @@ class ImageToPdfActivity : AppCompatActivity() {
                 setTypeface(null, Typeface.BOLD)
                 setTextColor(accent())
             })
+            val badge = TextView(this).apply {
+                text = "✓"
+                textSize = 15f
+                setTypeface(null, Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setTextColor(getColor(android.R.color.white))
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(accent())
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    (26 * density).toInt(), (26 * density).toInt()
+                ).apply { marginStart = (8 * density).toInt() }
+                visibility = View.GONE
+            }
+            topRow.addView(badge)
             row.addView(topRow)
             row.addView(TextView(this).apply {
                 text = notes[name] ?: ""
@@ -622,8 +700,30 @@ class ImageToPdfActivity : AppCompatActivity() {
                 setTextColor(getColor(R.color.hakunaa_text_secondary))
                 setPadding(0, (2 * density).toInt(), 0, 0)
             })
-            row.setOnClickListener { saveChosen(file) }
+            row.setOnClickListener {
+                selectedSizeFile = file
+                paintSizeRows()
+            }
+            rowViews.add(row)
+            rowBadges.add(badge)
             sizeStepList.addView(row)
+        }
+        paintSizeRows()
+        // Preview of the first selected image at the top.
+        val firstPage = pages.firstOrNull { it.selected } ?: pages.firstOrNull()
+        if (firstPage != null) {
+            try {
+                val bmp = firstPage.thumb
+                    ?: FileUtils.decodeBitmapWithExif(firstPage.file.absolutePath)
+                if (bmp != null) {
+                    sizePreview.setImageBitmap(bmp)
+                    sizePreview.visibility = View.VISIBLE
+                }
+            } catch (_: Throwable) {
+                sizePreview.visibility = View.GONE
+            }
+        } else {
+            sizePreview.visibility = View.GONE
         }
         showSizeStep()
     }
@@ -632,7 +732,10 @@ class ImageToPdfActivity : AppCompatActivity() {
     private fun saveChosen(chosen: File) {
         if (saving) return
         saving = true
-        Toast.makeText(this, "Saving…", Toast.LENGTH_SHORT).show()
+        // v0.1.193: keep the toast so it can be cancelled before
+        // the Saved dialog appears (it used to linger on top of it).
+        savingToast?.cancel()
+        savingToast = Toast.makeText(this, "Saving…", Toast.LENGTH_SHORT).apply { show() }
         Thread {
             try {
                 val savedUri = MediaStoreSaver.save(
@@ -646,6 +749,8 @@ class ImageToPdfActivity : AppCompatActivity() {
                 }
                 runOnUiThread {
                     if (savedUri != null) {
+                        savingToast?.cancel()
+                        savingToast = null
                         showSavedDialog(chosen, savedUri)
                     } else {
                         saving = false
@@ -845,6 +950,10 @@ class ImageToPdfActivity : AppCompatActivity() {
             textSize = 14f
             setTextColor(getColor(R.color.hakunaa_text))
             gravity = Gravity.CENTER
+            // v0.1.193: long names used to wrap mid-word — at most
+            // 2 lines, then "…" at the end.
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
         })
         card.addView(TextView(this).apply {
             text = "Documents/Hakunaa  •  ${FileUtils.formatSize(file.length())}"
@@ -921,6 +1030,13 @@ class ImageToPdfActivity : AppCompatActivity() {
         card.addView(btnRow)
         outer.addView(card)
         dialog.setContentView(outer)
+        // v0.1.193: full-width dialog with side margins (the outer
+        // padding is the margin) — the old WRAP_CONTENT width was
+        // too narrow for long file names.
+        dialog.window?.setLayout(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
         dialog.show()
     }
 

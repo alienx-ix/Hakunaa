@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import com.hakunaa.app.CrashReportActivity
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import java.io.File
 import java.io.PrintWriter
 import java.io.StringWriter
@@ -38,6 +39,17 @@ class HakunaaApp : Application() {
             if (installed) return
             installed = true
             val app = appContext.applicationContext
+            // PDFBox fonts (Standard 14 AFM) load from the APK assets
+            // ONLY after PDFBoxResourceLoader.init(). Without this call
+            // PDType1Font.HELVETICA / HELVETICA_BOLD fail to initialise
+            // and every text-stamping tool (Page Numbers, Watermark)
+            // throws. Must run once at startup, before any PDFBox use.
+            try {
+                PDFBoxResourceLoader.init(app)
+            } catch (_: Throwable) {
+                // Font stamping will fail without it, but the app must
+                // still start.
+            }
             val previous = Thread.getDefaultUncaughtExceptionHandler()
             Thread.setDefaultUncaughtExceptionHandler { thread, error ->
                 val detail = try {
