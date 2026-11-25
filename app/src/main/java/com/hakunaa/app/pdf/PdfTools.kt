@@ -320,7 +320,11 @@ object PdfTools {
      * are deleted, never shown. The caller picks one to save and
      * deletes the rest.
      */
-    fun compressSmartLevels(input: File, outDir: File): List<SmartLevel> {
+    fun compressSmartLevels(
+        input: File,
+        outDir: File,
+        onLevelDone: ((done: Int, total: Int) -> Unit)? = null
+    ): List<SmartLevel> {
         val inputSize = input.length()
         val levels = listOf(
             Triple(200, 0.90f, "200 DPI • JPEG 90%"),
@@ -330,11 +334,13 @@ object PdfTools {
             Triple(72, 0.50f, "72 DPI • JPEG 50%")
         )
         val out = mutableListOf<SmartLevel>()
-        for ((dpi, quality, label) in levels) {
+        for ((index, triple) in levels.withIndex()) {
+            val (dpi, quality, label) = triple
             val candidate = File(outDir, "smart_${dpi}_${(quality * 100).toInt()}.pdf")
             val replaced = compressSmart(input, candidate, dpi, quality)
             if (replaced < 0 || !candidate.exists()) {
                 try { candidate.delete() } catch (_: Throwable) { }
+                onLevelDone?.invoke(index + 1, levels.size)
                 continue
             }
             val size = candidate.length()
@@ -343,6 +349,10 @@ object PdfTools {
             } else {
                 try { candidate.delete() } catch (_: Throwable) { }
             }
+            // v0.1.194: report each finished level so the UI
+            // progress bar can advance (called on the worker
+            // thread — the caller posts it to the UI thread).
+            onLevelDone?.invoke(index + 1, levels.size)
         }
         return out
     }

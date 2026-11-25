@@ -24,6 +24,7 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -114,6 +115,8 @@ class PdfToolsActivity : AppCompatActivity() {
     private var customResultBox: LinearLayout? = null
     private var tvCustomResultSize: TextView? = null
     private var tvSmartComputing: TextView? = null
+    private var smartProgressBar: ProgressBar? = null
+    private var smartProgressBox: LinearLayout? = null
     private var smartResultsBox: LinearLayout? = null
     private var tvSmartCustomResult: TextView? = null
     private var etSmartCustomKb: EditText? = null
@@ -5341,6 +5344,25 @@ private fun deletePagesPdf() {
         }
         root.addView(resultsLabel)
 
+        // v0.1.194, Fix 1: a real progress bar while the 5 levels
+        // compute — a determinate bar + live level count, blue PDF
+        // theme, instead of the bare "Computing 5 levels…" text.
+        // The whole box hides once the rows arrive.
+        val progressBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(24) }
+        }
+        val progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 5
+            progress = 0
+            progressTintList = ColorStateList.valueOf(getColor(R.color.hakunaa_blue))
+            progressBackgroundTintList = ColorStateList.valueOf(Color.parseColor("#E3EAF2"))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(8)
+            )
+        }
         tvSmartComputing = TextView(this).apply {
             text = "Computing 5 levels…"
             textSize = 14f
@@ -5348,9 +5370,13 @@ private fun deletePagesPdf() {
             gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(24) }
+            ).apply { topMargin = dp(12) }
         }
-        root.addView(tvSmartComputing)
+        progressBox.addView(progressBar)
+        progressBox.addView(tvSmartComputing)
+        root.addView(progressBox)
+        smartProgressBox = progressBox
+        smartProgressBar = progressBar
 
         // v0.1.154, Fix #29: NO SCROLL — the old ScrollView let
         // the 5 result rows hide below the fold. The rows now
@@ -5424,17 +5450,27 @@ private fun deletePagesPdf() {
         Thread {
             try {
                 val thumb = PdfTools.renderFirstPageThumb(input, 480)
-                val levels = PdfTools.compressSmartLevels(input, hakunaaCacheDir())
+                // v0.1.194, Fix 1: show the preview as soon as the
+                // thumb is ready — do not wait for the 5 levels.
                 runOnUiThread {
                     if (thumb != null && smartOverlay != null) {
                         smartPreviewBitmap = thumb
                         ivSmartPreview?.setImageBitmap(thumb)
                     }
+                }
+                val levels = PdfTools.compressSmartLevels(input, hakunaaCacheDir()) { done, total ->
+                    runOnUiThread {
+                        smartProgressBar?.progress = done
+                        tvSmartComputing?.text = "Computing level $done of $total…"
+                    }
+                }
+                runOnUiThread {
                     if (levels.isEmpty()) {
+                        smartProgressBar?.visibility = View.GONE
                         tvSmartComputing?.text = "Already optimized — even the strongest Smart settings couldn't shrink this PDF."
                         return@runOnUiThread
                     }
-                    tvSmartComputing?.visibility = View.GONE
+                    smartProgressBox?.visibility = View.GONE
                     smartLevelFiles = levels.map { it.file }.toMutableList()
                     for (level in levels) {
                         val sizeText = "${FileUtils.formatSize(level.size)} • saved ${FileUtils.savedPercent(smartOriginalSize, level.size)}"
@@ -5443,28 +5479,33 @@ private fun deletePagesPdf() {
                         smartRows.add(row)
                         smartRowFiles.add(level.file)
                     }
-                    // Default: smallest (levels are best quality
-                    // first, so the smallest is the last row).
-                    selectSmartRow(smartRows.size - 1)
-                    // v0.1.193: "Small" + "Best" tags (Image Smart
-                    // pattern). Smallest = the smallest file; Best
-                    // = the highest-quality level within 2x of the
-                    // smallest (levels are best quality first, so
-                    // the first level within 2x wins).
+                    // v0.1.194, Fix 2: Best = the 150 DPI • JPEG 82%
+                    // level (user's pick); Small = the smallest
+                    // file. If 150/82 is not in the results (it
+                    // only appears when it shrinks the file), fall
+                    // back to the highest-quality level within 2x
+                    // of the smallest.
                     var smallestIdx = 0
                     for (i in levels.indices) {
                         if (levels[i].size < levels[smallestIdx].size) smallestIdx = i
                     }
                     val smallestSize = levels[smallestIdx].size
-                    var bestIdx = smallestIdx
-                    for (i in levels.indices) {
-                        if (levels[i].size <= smallestSize * 2) { bestIdx = i; break }
+                    var bestIdx = levels.indexOfFirst { it.label == "150 DPI • JPEG 82%" }
+                    if (bestIdx < 0) {
+                        bestIdx = smallestIdx
+                        for (i in levels.indices) {
+                            if (levels[i].size <= smallestSize * 2) { bestIdx = i; break }
+                        }
                     }
                     addSmartTag(smartRows[bestIdx], "Best", getColor(R.color.hakunaa_blue))
                     addSmartTag(smartRows[smallestIdx], "Small", 0xFF43A047.toInt())
+                    // Default: the Best row (user's pick), not the
+                    // smallest.
+                    selectSmartRow(bestIdx)
                 }
             } catch (_: Throwable) {
                 runOnUiThread {
+                    smartProgressBar?.visibility = View.GONE
                     tvSmartComputing?.text = "Compress failed — check the file and try again"
                 }
             }
@@ -5516,18 +5557,23 @@ private fun deletePagesPdf() {
         }
         left.addView(tvLabel)
         left.addView(tvSize)
-        // v0.1.193: "Small" / "Best" tag pills (filled by
-        // showSmartResults once the levels are computed — the
-        // tag row is child 2 of the left column).
-        val tagRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+        // v0.1.194, Fix 2: the "Small" / "Best" tag pill sits on
+        // the SIDE of the row (a direct child, vertically centred
+        // by the row's CENTER_VERTICAL gravity), NOT below the
+        // size text. Filled by showSmartResults once the levels
+        // are computed; GONE until then.
+        val tagPill = TextView(this).apply {
+            textSize = 11f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            setPadding(dp(8), dp(2), dp(8), dp(2))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(4) }
-            visibility = View.GONE
+            ).apply { marginEnd = dp(8) }
         }
-        left.addView(tagRow)
         // v0.1.150: VIEW pill on every level — opens that result
         // PDF in the default viewer (Image Smart style).
         val viewPill = viewPillButton { if (file != null) viewPdf(file) }
@@ -5543,36 +5589,24 @@ private fun deletePagesPdf() {
             ).apply { marginStart = dp(8) }
         }
         row.addView(left)
+        row.addView(tagPill)
         row.addView(viewPill)
         row.addView(check)
         return row
     }
 
-    /** v0.1.193: add a "Small" / "Best" tag pill to a Smart
-     * result row (the tag row is child 2 of the row's left
-     * column). */
+    /** v0.1.194: add a "Small" / "Best" tag pill to a Smart
+     * result row — the tag pill is child 1 of the row
+     * (left=0, tag=1, View pill=2, check=3), on the SIDE. */
     private fun addSmartTag(row: LinearLayout, text: String, bgColor: Int) {
-        val left = row.getChildAt(0) as? LinearLayout ?: return
-        val tagRow = left.getChildAt(2) as? LinearLayout ?: return
-        val pill = TextView(this).apply {
-            this.text = text
-            textSize = 11f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(8).toFloat()
-                setColor(bgColor)
-            }
-            setPadding(dp(8), dp(2), dp(8), dp(2))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { marginEnd = dp(6) }
+        val pill = row.getChildAt(1) as? TextView ?: return
+        pill.text = text
+        pill.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(8).toFloat()
+            setColor(bgColor)
         }
-        tagRow.addView(pill)
-        tagRow.visibility = View.VISIBLE
+        pill.visibility = View.VISIBLE
     }
 
     private fun selectSmartRow(index: Int) {
@@ -5592,8 +5626,8 @@ private fun deletePagesPdf() {
                     setStroke((1 * density).toInt(), Color.parseColor("#CFD8DC"))
                 }
             }
-            // v0.1.150: check is child 2 now (left=0, View pill=1).
-            val check = row.getChildAt(2) as TextView
+            // v0.1.194: check is child 3 now (left=0, tag=1, View pill=2).
+            val check = row.getChildAt(3) as TextView
             check.visibility = if (selected) View.VISIBLE else View.INVISIBLE
         }
     }
@@ -5917,6 +5951,8 @@ private fun deletePagesPdf() {
         customResultBox = null
         tvCustomResultSize = null
         tvSmartComputing = null
+        smartProgressBar = null
+        smartProgressBox = null
         smartResultsBox = null
         tvSmartCustomResult = null
         etSmartCustomKb = null
