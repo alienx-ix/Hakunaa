@@ -88,6 +88,7 @@ class ScreenRecorderService : Service() {
     }
 
     private var projection: MediaProjection? = null
+    private var projectionCallback: MediaProjection.Callback? = null
     private var recorder: MediaRecorder? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var outputFile: File? = null
@@ -178,6 +179,17 @@ class ScreenRecorderService : Service() {
             val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             projection = manager.getMediaProjection(resultCode, data)
                 ?: throw IllegalStateException("Screen capture was not granted")
+            // Android 14+: a MediaProjection.Callback MUST be
+            // registered BEFORE createVirtualDisplay, or it throws
+            // "Must register a callback before starting capture".
+            // onStop fires if the system/user stops the projection —
+            // stop the recording gracefully instead of crashing.
+            projectionCallback = object : MediaProjection.Callback() {
+                override fun onStop() {
+                    stopRecording()
+                }
+            }
+            projection!!.registerCallback(projectionCallback!!, handler)
             val metrics = resources.displayMetrics
             val density = metrics.densityDpi
             val name = "hakunaa_record_${System.currentTimeMillis()}.mp4"
@@ -319,6 +331,13 @@ class ScreenRecorderService : Service() {
         } catch (_: Throwable) {
         }
         virtualDisplay = null
+        // Unregister the callback BEFORE stopping the projection,
+        // or onStop() would fire and re-enter stopRecording().
+        try {
+            projectionCallback?.let { projection?.unregisterCallback(it) }
+        } catch (_: Throwable) {
+        }
+        projectionCallback = null
         try {
             projection?.stop()
         } catch (_: Throwable) {
@@ -517,6 +536,11 @@ class ScreenRecorderService : Service() {
         recorder = null
         try { virtualDisplay?.release() } catch (_: Throwable) {}
         virtualDisplay = null
+        try {
+            projectionCallback?.let { projection?.unregisterCallback(it) }
+        } catch (_: Throwable) {
+        }
+        projectionCallback = null
         try { projection?.stop() } catch (_: Throwable) {}
         projection = null
     }
