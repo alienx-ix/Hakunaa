@@ -176,29 +176,29 @@ object VideoToolsEngine {
         val details: String = ""
     ) {
         MP4("MP4", "mp4", "libx264", "aac", "video/mp4", "crf", false,
-            "H.264 + AAC. Plays everywhere — Android, iPhone, Windows, YouTube, WhatsApp."),
+            "H.264 video + AAC audio. Best quality for its size — small file, sharp picture. Plays everywhere: Android, iPhone, Windows, Mac, YouTube, WhatsApp, Instagram. The safest choice for sharing."),
         MKV("MKV", "mkv", "libx264", "aac", "video/x-matroska", "crf", false,
-            "High-quality container, many codecs. VLC, Android, PC. Not in iPhone Photos."),
+            "H.264 video + AAC audio in an open container. Same quality as MP4, keeps more detail for archiving. Best for VLC, Android and PC. Does not play in iPhone Photos."),
         MOV("MOV", "mov", "libx264", "aac", "video/quicktime", "crf", false,
-            "Apple QuickTime, H.264. Best for iPhone, Mac, Final Cut. Plays on Android too."),
+            "Apple QuickTime. H.264 video + AAC audio. Best for iPhone, Mac, Final Cut Pro and iMovie. Plays on Android and Windows too, but MP4 is safer for sharing."),
         WEBM("WebM", "webm", "libvpx-vp9", "libopus", "video/webm", "vp9", false,
-            "Open web format, VP9. Best for websites and Chrome. Small size."),
+            "Open web format. VP9 video + Opus audio. Small size with good quality. Best for websites, Chrome and web players. Not supported on iPhone Photos."),
         AVI("AVI", "avi", "mpeg4", "libmp3lame", "video/x-msvideo", "qv", false,
-            "Classic Windows container. Works on most players, larger files."),
+            "Classic Windows container. MPEG-4 video + MP3 audio. Works on most players and old devices. Larger files than MP4 for the same quality."),
         WMV("WMV", "wmv", "wmv2", "wmav2", "video/x-ms-wmv", "qv", false,
-            "Windows Media Video. Best for Windows Media Player. Good compression."),
+            "Windows Media Video. Best for Windows Media Player and old Windows apps. Good compression, but limited support on phones and Mac."),
         FLV("FLV", "flv", "libx264", "aac", "video/x-flv", "crf", false,
-            "Flash Video, old web format. Small size, limited support now."),
+            "Flash Video, an old web format. H.264 + AAC, small size. Flash is dead now, so very limited support. Use only for old websites that still need it."),
         MPG("MPG", "mpg", "mpeg2video", "mp2", "video/mpeg", "qv", false,
-            "MPEG-1/2, DVD standard. Plays on most players, larger files."),
+            "MPEG-1/2, the DVD standard. MPEG-2 video + MP2 audio. Plays on most players and DVD players. Larger files and older quality than MP4."),
         GP3("3GP", "3gp", "mpeg4", "aac", "video/3gpp", "qv", false,
-            "Old mobile format. Very small size, for old phones, lower quality."),
+            "Old mobile format (3GPP). MPEG-4 + AAC. Very small size, made for old phones and slow networks. Lower quality — use only for very old devices."),
         M4V("M4V", "m4v", "libx264", "aac", "video/x-m4v", "crf", false,
-            "Apple iTunes format, same as MP4. Best for iPhone, iPad, Apple TV."),
+            "Apple iTunes format, same as MP4. H.264 video + AAC audio. Best for iPhone, iPad, Apple TV and iTunes. Plays on Android too."),
         TS("TS", "ts", "libx264", "aac", "video/mp2t", "crf", false,
-            "MPEG transport stream, TV broadcast. Plays on VLC and Android."),
+            "MPEG transport stream, used for TV broadcast and recording. H.264 + AAC. Plays on VLC and Android. Best for TV recordings, not for sharing."),
         GIF("GIF", "gif", "gif", "", "image/gif", "gif", true,
-            "480px animation, no audio. Share as a short looping clip.")
+            "480px looping animation, no sound. Share as a short silent clip on WhatsApp and social media. Small, but no audio and lower quality than video.")
     }
 
     fun buildConvert12Command(
