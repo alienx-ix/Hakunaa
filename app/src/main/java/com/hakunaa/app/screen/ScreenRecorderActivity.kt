@@ -51,6 +51,7 @@ class ScreenRecorderActivity : AppCompatActivity() {
     }
 
     private var audioMode = ScreenRecorderService.AUDIO_INTERNAL
+    private var qualityMode = ScreenRecorderService.QUALITY_1080P
     private var mode = "idle" // idle | countdown | recording | result
     private var resultUri: String? = null
     private var resultPath: String? = null
@@ -336,6 +337,40 @@ class ScreenRecorderActivity : AppCompatActivity() {
         for ((i, c) in chips.withIndex()) setAudioChip(c, modes[i].first == audioMode)
         content.addView(audioRow)
         content.addView(infoText("Internal audio records the sound from apps and games (Android 10+). Microphone records your voice."))
+        content.addView(sectionLabel("QUALITY"))
+        val qualityRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+        val qualities = listOf(
+            ScreenRecorderService.QUALITY_1080P to "1080p",
+            ScreenRecorderService.QUALITY_720P to "720p",
+            ScreenRecorderService.QUALITY_480P to "480p"
+        )
+        val qChips = mutableListOf<TextView>()
+        for ((value, label) in qualities) {
+            val chip = TextView(this).apply {
+                text = label
+                textSize = 14f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    .apply { marginEnd = dp(6) }
+                setOnClickListener {
+                    qualityMode = value
+                    for ((i, c) in qChips.withIndex()) setAudioChip(c, qualities[i].first == qualityMode)
+                }
+            }
+            qChips.add(chip)
+            qualityRow.addView(chip)
+        }
+        for ((i, c) in qChips.withIndex()) setAudioChip(c, qualities[i].first == qualityMode)
+        content.addView(qualityRow)
+        content.addView(infoText("1080p is the sharpest (~10 MB/min). 720p is smaller (~5 MB/min). 480p is the smallest (~2 MB/min)."))
         content.addView(sectionLabel("TIPS"))
         content.addView(infoText("• Recording stops automatically after 30 minutes.\n• Pull down the notification shade anytime to Pause or Stop.\n• The video is compressed only after you stop — so recording stays smooth."))
         val startBtn = pillButton("●  Start Recording", true) { startFlow() }
@@ -423,6 +458,7 @@ class ScreenRecorderActivity : AppCompatActivity() {
             putExtra(ScreenRecorderService.EXTRA_RESULT_CODE, resultCode)
             putExtra(ScreenRecorderService.EXTRA_DATA, data)
             putExtra(ScreenRecorderService.EXTRA_AUDIO, audioMode)
+            putExtra(ScreenRecorderService.EXTRA_QUALITY, qualityMode)
         }
         ContextCompat.startForegroundService(this, intent)
         showRecordingScreen()

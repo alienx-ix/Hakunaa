@@ -53,6 +53,10 @@ class ScreenRecorderService : Service() {
         const val AUDIO_INTERNAL = "internal"
         const val AUDIO_MIC = "mic"
         const val AUDIO_NONE = "none"
+        const val EXTRA_QUALITY = "quality"
+        const val QUALITY_1080P = "1080p"
+        const val QUALITY_720P = "720p"
+        const val QUALITY_480P = "480p"
 
         // Broadcasts to ScreenRecorderActivity.
         const val BROADCAST_STATE = "com.hakunaa.app.screen.STATE"
@@ -88,6 +92,7 @@ class ScreenRecorderService : Service() {
     private var virtualDisplay: VirtualDisplay? = null
     private var outputFile: File? = null
     private var audioMode = AUDIO_INTERNAL
+    private var qualityMode = QUALITY_1080P
     private var audioRecord: AudioRecord? = null
     private var audioThread: Thread? = null
     private var audioPcmFile: File? = null
@@ -114,6 +119,7 @@ class ScreenRecorderService : Service() {
                 val code = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
                 val data = intent.getParcelableExtra<Intent>(EXTRA_DATA)
                 audioMode = intent.getStringExtra(EXTRA_AUDIO) ?: AUDIO_INTERNAL
+                qualityMode = intent.getStringExtra(EXTRA_QUALITY) ?: QUALITY_1080P
                 if (code != 0 && data != null) startRecording(code, data)
             }
             ACTION_STOP -> stopRecording()
@@ -123,38 +129,95 @@ class ScreenRecorderService : Service() {
         return START_NOT_STICKY
     }
 
+    /** Build + prepare a MediaRecorder for the given video size
+     *  and bitrate. Throws if the size is not supported. */
+    private fun buildRecorder(width: Int, height: Int, bitrate: Int): MediaRecorder {
+        val rec = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            MediaRecorder(this)
+        } else {
+            @Suppress("DEPRECATION") MediaRecorder()
+        }
+        rec.apply {
+            setVideoSource(MediaRecorder.VideoSource.SURFACE)
+            if (audioMode == AUDIO_MIC) {
+                setAudioSource(MediaRecorder.AudioSource.MIC)
+            }
+            setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+            setVideoEncoder(MediaRecorder.VideoEncoder.H264)
+            setVideoEncodingBitRate(bitrate)
+            setVideoFrameRate(30)
+            setVideoSize(width, height)
+            if (audioMode == AUDIO_MIC) {
+                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setAudioEncodingBitRate(128_000)
+                setAudioSamplingRate(44_100)
+            }
+            setOutputFile(outputFile!!.absolutePath)
+            prepare()
+        }
+        return rec
+    }
+
     private fun startRecording(resultCode: Int, data: Intent) {
         if (isRecording) return
         try {
             val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             projection = manager.getMediaProjection(resultCode, data)
+                ?: throw IllegalStateException("Screen capture was not granted")
             val metrics = resources.displayMetrics
-            val width = metrics.widthPixels
-            val height = metrics.heightPixels
             val density = metrics.densityDpi
             val name = "hakunaa_record_${System.currentTimeMillis()}.mp4"
             outputName = name
             outputFile = File(cacheDir, name)
-            recorder = MediaRecorder().apply {
-                setVideoSource(MediaRecorder.VideoSource.SURFACE)
-                if (audioMode == AUDIO_MIC) {
-                    setAudioSource(MediaRecorder.AudioSource.MIC)
-                }
-                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-                setVideoEncoder(MediaRecorder.VideoEncoder.H264)
-                // 1080p-class bitrate: smooth on hardware encode,
-                // ~10 MB/min at 1080p.
-                setVideoEncodingBitRate(8_000_000)
-                setVideoFrameRate(30)
-                setVideoSize(width, height)
-                if (audioMode == AUDIO_MIC) {
-                    setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                    setAudioEncodingBitRate(128_000)
-                    setAudioSamplingRate(44_100)
-                }
-                setOutputFile(outputFile!!.absolutePath)
-                prepare()
+            // Video size + bitrate from the user's quality pick
+            // (1080p / 720p / 480p). The target scales the native
+            // screen to the chosen short side, never upscaling.
+            // Fallback: if the chosen size fails at prepare(), try
+            // the next lower quality. Some encoders reject an odd
+            // portrait size (e.g. 1080x2400) — the fallback keeps
+            // recording working on any phone.
+            val nativeW = metrics.widthPixels
+            val nativeH = metrics.heightPixels
+            fun scaled(shortSide: Int): Pair<Int, Int> {
+                val scale = minOf(1.0, shortSide.toDouble() / minOf(nativeW, nativeH))
+                val w = maxOf(2, ((nativeW * scale).toInt() and 1.inv()))
+                val h = maxOf(2, ((nativeH * scale).toInt() and 1.inv()))
+                return w to h
             }
+            val bitrateFor = mapOf(
+                QUALITY_1080P to 8_000_000,
+                QUALITY_720P to 4_000_000,
+                QUALITY_480P to 2_000_000
+            )
+            val shortFor = mapOf(
+                QUALITY_1080P to 1080,
+                QUALITY_720P to 720,
+                QUALITY_480P to 480
+            )
+            val order = when (qualityMode) {
+                QUALITY_720P -> listOf(QUALITY_720P, QUALITY_480P)
+                QUALITY_480P -> listOf(QUALITY_480P, QUALITY_720P)
+                else -> listOf(QUALITY_1080P, QUALITY_720P, QUALITY_480P)
+            }
+            val candidates = order.map { q ->
+                Triple(scaled(shortFor[q]!!).first, scaled(shortFor[q]!!).second, bitrateFor[q]!!)
+            }.distinct()
+            var lastError: Throwable? = null
+            var chosen: Triple<Int, Int, Int>? = null
+            for ((w, h, br) in candidates) {
+                try {
+                    recorder = buildRecorder(w, h, br)
+                    chosen = Triple(w, h, br)
+                    break
+                } catch (t: Throwable) {
+                    lastError = t
+                    try { recorder?.release() } catch (_: Throwable) {}
+                    recorder = null
+                }
+            }
+            val (width, height) = chosen
+                ?.let { it.first to it.second }
+                ?: throw (lastError ?: IllegalStateException("Recorder could not start"))
             val surface = recorder!!.surface
             virtualDisplay = projection!!.createVirtualDisplay(
                 "HakunaaRecorder", width, height, density,
@@ -183,8 +246,11 @@ class ScreenRecorderService : Service() {
             cleanup()
             broadcast("stopped", 0)
             // Never fail silently (user 2026-11-25): if recording
-            // cannot start, open the app and tell the user.
-            openError("Recording could not start. Please try again.")
+            // cannot start, open the app and tell the user the
+            // reason, so the next fix can target it exactly.
+            val reason = t.message?.takeIf { it.isNotBlank() }
+                ?: t.javaClass.simpleName
+            openError("Recording could not start: $reason")
         }
     }
 
