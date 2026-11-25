@@ -8,6 +8,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.hakunaa.app.image.ImageCompressActivity
 import com.hakunaa.app.pdf.PdfToolsActivity
 import com.hakunaa.app.scanner.ScannerActivity
+import com.hakunaa.app.screen.ScreenRecorderActivity
 import com.hakunaa.app.video.VideoToolsActivity
 import com.hakunaa.app.whatsapp.WhatsAppOptimizeActivity
 import com.hakunaa.app.core.StatusBar
@@ -41,6 +42,9 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<View>(R.id.cardWhatsApp).setOnClickListener {
             startActivity(Intent(this, WhatsAppOptimizeActivity::class.java))
+        }
+        findViewById<View>(R.id.cardScreenRecorder).setOnClickListener {
+            startActivity(Intent(this, ScreenRecorderActivity::class.java))
         }
     }
 }
