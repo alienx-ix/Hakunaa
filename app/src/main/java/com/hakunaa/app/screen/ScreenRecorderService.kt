@@ -161,6 +161,20 @@ class ScreenRecorderService : Service() {
     private fun startRecording(resultCode: Int, data: Intent) {
         if (isRecording) return
         try {
+            // Android 14+: the service MUST already be a foreground
+            // service of type mediaProjection BEFORE getMediaProjection()
+            // is called, or it throws SecurityException ("Media
+            // projections require a foreground service of type ...").
+            // So startForeground goes FIRST, then the projection.
+            createChannel()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIF_ID, buildNotification(),
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                )
+            } else {
+                startForeground(NOTIF_ID, buildNotification())
+            }
             val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             projection = manager.getMediaProjection(resultCode, data)
                 ?: throw IllegalStateException("Screen capture was not granted")
@@ -231,15 +245,6 @@ class ScreenRecorderService : Service() {
             pausedTotalMs = 0L
             pauseStartMs = 0L
             if (audioMode == AUDIO_INTERNAL) startInternalAudio()
-            createChannel()
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(
-                    NOTIF_ID, buildNotification(),
-                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-                )
-            } else {
-                startForeground(NOTIF_ID, buildNotification())
-            }
             handler.post(tick)
             broadcast("recording", 0)
         } catch (t: Throwable) {
@@ -502,6 +507,12 @@ class ScreenRecorderService : Service() {
         isPaused = false
         handler.removeCallbacks(tick)
         stopInternalAudio()
+        // If startForeground was already called (a start failure
+        // after it), remove the notification.
+        try {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } catch (_: Throwable) {
+        }
         try { recorder?.release() } catch (_: Throwable) {}
         recorder = null
         try { virtualDisplay?.release() } catch (_: Throwable) {}
