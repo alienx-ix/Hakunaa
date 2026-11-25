@@ -66,7 +66,7 @@ class ScreenRecorderService : Service() {
         const val EXTRA_RESULT_PATH = "result_path"
         const val EXTRA_RESULT_NAME = "result_name"
 
-        const val CHANNEL_ID = "hakunaa_screen_recorder"
+        const val CHANNEL_ID = "hakunaa_screen_recorder_v2"
         const val NOTIF_ID = 9001
         const val MAX_SECONDS = 30 * 60 // 30-min auto-stop
 
@@ -211,9 +211,9 @@ class ScreenRecorderService : Service() {
                 return w to h
             }
             val bitrateFor = mapOf(
-                QUALITY_1080P to 8_000_000,
-                QUALITY_720P to 4_000_000,
-                QUALITY_480P to 2_000_000
+                QUALITY_1080P to 6_000_000,
+                QUALITY_720P to 3_000_000,
+                QUALITY_480P to 1_500_000
             )
             val shortFor = mapOf(
                 QUALITY_1080P to 1080,
@@ -462,7 +462,7 @@ class ScreenRecorderService : Service() {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (manager.getNotificationChannel(CHANNEL_ID) == null) {
             val channel = NotificationChannel(
-                CHANNEL_ID, "Screen Recorder", NotificationManager.IMPORTANCE_LOW
+                CHANNEL_ID, "Screen Recorder", NotificationManager.IMPORTANCE_HIGH
             ).apply { description = "Shows the recording timer and Stop button." }
             manager.createNotificationChannel(channel)
         }

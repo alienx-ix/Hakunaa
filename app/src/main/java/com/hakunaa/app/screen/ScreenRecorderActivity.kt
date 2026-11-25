@@ -66,6 +66,26 @@ class ScreenRecorderActivity : AppCompatActivity() {
     private var fullScreenRoot: FrameLayout? = null
 
     private val handler = Handler(Looper.getMainLooper())
+
+    // Independent in-app timer — ticks every second from the
+    // service's own clock, so it never freezes even if the
+    // service broadcast is delayed while the phone is busy.
+    private val timerRunnable = object : Runnable {
+        override fun run() {
+            if (mode != "recording") return
+            updateTimer(ScreenRecorderService.elapsedSeconds())
+            handler.postDelayed(this, 1000)
+        }
+    }
+
+    private fun startTimerLoop() {
+        handler.removeCallbacks(timerRunnable)
+        handler.post(timerRunnable)
+    }
+
+    private fun stopTimerLoop() {
+        handler.removeCallbacks(timerRunnable)
+    }
     private val stateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != ScreenRecorderService.BROADCAST_STATE) return
@@ -284,6 +304,7 @@ class ScreenRecorderActivity : AppCompatActivity() {
 
     private fun showIdleScreen() {
         mode = "idle"
+        stopTimerLoop()
         content.removeAllViews()
         timerView = null
         pauseBtn = null
@@ -370,7 +391,7 @@ class ScreenRecorderActivity : AppCompatActivity() {
         }
         for ((i, c) in qChips.withIndex()) setAudioChip(c, qualities[i].first == qualityMode)
         content.addView(qualityRow)
-        content.addView(infoText("1080p is the sharpest (~10 MB/min). 720p is smaller (~5 MB/min). 480p is the smallest (~2 MB/min)."))
+        content.addView(infoText("1080p is the sharpest (~8 MB/min). 720p is smaller (~4 MB/min). 480p is the smallest (~2 MB/min)."))
         content.addView(sectionLabel("TIPS"))
         content.addView(infoText("• Recording stops automatically after 30 minutes.\n• Pull down the notification shade anytime to Pause or Stop.\n• The video is compressed only after you stop — so recording stays smooth."))
         val startBtn = pillButton("●  Start Recording", true) { startFlow() }
@@ -515,6 +536,8 @@ class ScreenRecorderActivity : AppCompatActivity() {
             sendServiceAction(ScreenRecorderService.ACTION_STOP)
         }
         content.addView(stop)
+        updateTimer(ScreenRecorderService.elapsedSeconds())
+        startTimerLoop()
     }
 
     private fun updateTimer(elapsed: Long) {
@@ -534,6 +557,7 @@ class ScreenRecorderActivity : AppCompatActivity() {
 
     private fun showResultScreen() {
         mode = "result"
+        stopTimerLoop()
         content.removeAllViews()
         timerView = null
         pauseBtn = null
