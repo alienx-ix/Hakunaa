@@ -11,8 +11,6 @@
     <string name="card_video_subtitle">H.264 / H.265, keeps 1080p, CRF quality</string>
     <string name="card_whatsapp_title">WhatsApp Optimize</string>
     <string name="card_whatsapp_subtitle">One tap — video, photo, PDF ready for WhatsApp</string>
-    <string name="card_recorder_title">Screen Recorder</string>
-    <string name="card_recorder_subtitle">Record your screen — no lag, no watermark</string>
     <string name="privacy_note">100% on-device. No account, no upload, no server.</string>
     <string name="pick_video">Pick a video</string>
     <string name="pick_image">Pick an image</string>
