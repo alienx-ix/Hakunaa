@@ -62,7 +62,7 @@ class ImageIconView @JvmOverloads constructor(
     private val socialG = "#607D8B" to "#263238"
     private val convG = "#42A5F5" to "#1565C0"
     private val colorG = "#8E24AA" to "#4A148C"
-    private val dpG = "#FFCA28" to "#FF8F00"
+    private val dpG = "#CDDC39" to "#827717"
     private val pdfG = "#E57373" to "#D32F2F"
     private val metaG = "#66BB6A" to "#2E7D32"
 
@@ -73,7 +73,7 @@ class ImageIconView @JvmOverloads constructor(
     private val tintResize = Color.parseColor("#B2DFDB")
     private val tintSocial = Color.parseColor("#CFD8DC")
     private val tintConv = Color.parseColor("#BBDEFB")
-    private val tintDp = Color.parseColor("#FFECB3")
+    private val tintDp = Color.parseColor("#F0F4C3")
     private val tintPdf = Color.WHITE
     private val tintMeta = Color.parseColor("#C8E6C9")
 
@@ -259,7 +259,8 @@ class ImageIconView @JvmOverloads constructor(
         drawCircle(50f, 62f, r, stroke)
     }
 
-    /** Yellow gradient + person silhouette (head + shoulders). */
+    /** Lime gradient + person silhouette (head + shoulders).
+     * Colour only changed in v0.1.197 (was yellow) — glyph untouched. */
     private fun Canvas.dp() {
         gradRect(8.3f, 8.3f, 83.3f, dpG)
         fill.color = tintDp
