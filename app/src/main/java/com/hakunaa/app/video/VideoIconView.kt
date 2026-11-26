@@ -30,7 +30,7 @@ class VideoIconView @JvmOverloads constructor(
 ) : View(context, attrs) {
 
     enum class Kind {
-        QUICK, SMART, ADVANCED, CONVERT, ROTATE, COLOR, AUDIO, CUTTER, THUMB, CROP
+        QUICK, SMART, MULTI, ADVANCED, CONVERT, ROTATE, COLOR, AUDIO, CUTTER, THUMB, CROP
     }
 
     var kind: Kind = Kind.QUICK
@@ -49,6 +49,7 @@ class VideoIconView @JvmOverloads constructor(
     // Gradient pairs (light -> dark, diagonal) per icon, from the reference.
     private val quickG = "#FFB74D" to "#EF6C00"
     private val smartG = "#4DB6AC" to "#00695C"
+    private val multiG = "#66BB6A" to "#2E7D32"
     private val advG = "#EC407A" to "#AD1457"
     private val convG = "#42A5F5" to "#1565C0"
     private val rotG = "#4DB6AC" to "#00695C"
@@ -61,6 +62,7 @@ class VideoIconView @JvmOverloads constructor(
     // Light-tint glyph colours, from the reference.
     private val tintQuick = Color.parseColor("#FFE082")
     private val tintSmart = Color.parseColor("#B2DFDB")
+    private val tintMulti = Color.parseColor("#C8E6C9")
     private val tintAdv = Color.parseColor("#F8BBD0")
     private val tintConv = Color.parseColor("#BBDEFB")
     private val tintRot = Color.parseColor("#B2DFDB")
@@ -79,6 +81,7 @@ class VideoIconView @JvmOverloads constructor(
         when (kind) {
             Kind.QUICK -> canvas.quick()
             Kind.SMART -> canvas.smart()
+            Kind.MULTI -> canvas.multi()
             Kind.ADVANCED -> canvas.advanced()
             Kind.CONVERT -> canvas.convert()
             Kind.ROTATE -> canvas.rotate()
@@ -218,6 +221,27 @@ class VideoIconView @JvmOverloads constructor(
         }
         drawPath(star, fill)
         fourCornerArrowsOldIn(tintSmart)
+    }
+
+    /** Green gradient + 3 stacked video frames + play triangle
+     * (v0.1.195, Multi Compress icon): the stacked frames read as
+     * "many videos at once". Frames stay well inside the rounded
+     * square, like the corner-arrow tips at ±33. */
+    private fun Canvas.multi() {
+        gradRect(8.3f, 8.3f, 83.3f, multiG)
+        stroke.color = tintMulti
+        stroke.strokeWidth = 4f
+        drawRoundRect(RectF(34f, 20f, 80f, 54f), 5f, 5f, stroke)
+        drawRoundRect(RectF(27f, 32f, 73f, 66f), 5f, 5f, stroke)
+        drawRoundRect(RectF(20f, 44f, 66f, 78f), 5f, 5f, stroke)
+        fill.color = tintMulti
+        val play = Path().apply {
+            moveTo(36f, 53f)
+            lineTo(36f, 69f)
+            lineTo(52f, 61f)
+            close()
+        }
+        drawPath(play, fill)
     }
 
     /** Red/pink gradient + PERFECT smooth HEART (Material "favorite",

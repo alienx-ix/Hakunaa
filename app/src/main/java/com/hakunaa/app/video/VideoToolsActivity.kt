@@ -431,6 +431,13 @@ class VideoToolsActivity : AppCompatActivity() {
                 "• Automatic — best size for your video\n• 3 results: 1080p, 720p, 480p\n• Real sizes, pick the best one") {
                 pickVideoThen { showCompressScreen(1) }
             },
+            // v0.1.195: Multi Compress (UI only — functions come
+            // later, user 2026-11-26). Card shows in the menu at
+            // position 3; tapping it says coming soon for now.
+            Tool("Multi Compress", "Compress many at once", VideoIconView.Kind.MULTI,
+                "• Pick many videos at once\n• One quality for all of them\n• Compress all, save all") {
+                toast("Multi Compress coming soon")
+            },
             Tool("Advanced Compress", "Full manual control", VideoIconView.Kind.ADVANCED,
                 "• CRF slider or exact bitrate\n• Two-pass, preset, denoise, sharpen\n• Every setting in one place") {
                 pickVideoThen { showCompressScreen(2) }
@@ -442,10 +449,6 @@ class VideoToolsActivity : AppCompatActivity() {
             Tool("Rotate", "Rotate video", VideoIconView.Kind.ROTATE,
                 "• 90° clockwise or counter-clockwise\n• 180°, flip horizontal / vertical\n• Audio stays untouched") {
                 pickVideoThen { showRotateScreen() }
-            },
-            Tool("Color Grading", "Brightness & color", VideoIconView.Kind.COLOR,
-                "• Brightness, contrast, saturation\n• Hue, sharpness, temperature\n• Preview one frame first") {
-                pickVideoThen { showColorScreen() }
             },
             Tool("Video to Audio", "Video to MP3", VideoIconView.Kind.AUDIO,
                 "• Pull the audio out of a video\n• MP3, M4A, WAV, OGG, FLAC\n• Saved to Music/Hakunaa") {
