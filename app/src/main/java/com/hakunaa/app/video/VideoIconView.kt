@@ -49,27 +49,27 @@ class VideoIconView @JvmOverloads constructor(
     // Gradient pairs (light -> dark, diagonal) per icon, from the reference.
     private val quickG = "#FFB74D" to "#EF6C00"
     private val smartG = "#4DB6AC" to "#00695C"
-    private val multiG = "#66BB6A" to "#2E7D32"
+    private val multiG = "#AED581" to "#7CB342"
     private val advG = "#EC407A" to "#AD1457"
     private val convG = "#42A5F5" to "#1565C0"
-    private val rotG = "#4DB6AC" to "#00695C"
+    private val rotG = "#78909C" to "#37474F"
     private val colorG = "#3A2A5E" to "#1A0A2E"
     private val audioG = "#7E57C2" to "#4527A0"
     private val cutG = "#5C6BC0" to "#283593"
     private val thumbG = "#FFCA28" to "#FF8F00"
-    private val cropG = "#26C6DA" to "#006064"
+    private val cropG = "#AB47BC" to "#6A1B9A"
 
     // Light-tint glyph colours, from the reference.
     private val tintQuick = Color.parseColor("#FFE082")
     private val tintSmart = Color.parseColor("#B2DFDB")
-    private val tintMulti = Color.parseColor("#C8E6C9")
+    private val tintMulti = Color.parseColor("#F1F8E9")
     private val tintAdv = Color.parseColor("#F8BBD0")
     private val tintConv = Color.parseColor("#BBDEFB")
-    private val tintRot = Color.parseColor("#B2DFDB")
+    private val tintRot = Color.parseColor("#ECEFF1")
     private val tintAudio = Color.parseColor("#D1C4E9")
     private val tintCut = Color.parseColor("#BBDEFB")
     private val tintThumb = Color.parseColor("#FFECB3")
-    private val tintCrop = Color.parseColor("#B2EBF2")
+    private val tintCrop = Color.parseColor("#E1BEE7")
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
@@ -223,25 +223,19 @@ class VideoIconView @JvmOverloads constructor(
         fourCornerArrowsOldIn(tintSmart)
     }
 
-    /** Green gradient + 3 stacked video frames + play triangle
-     * (v0.1.195, Multi Compress icon): the stacked frames read as
-     * "many videos at once". Frames stay well inside the rounded
-     * square, like the corner-arrow tips at ±33. */
+    /** Lite-green gradient + 4 inward arrows (Quick/Smart style) + 4 tiny
+     * grid boxes in the centre (v0.1.196, user-approved Option 1):
+     * the grid reads as "many videos at once". Arrows use
+     * fourCornerArrowsOldIn (4.5f, tips at ±33), exactly like Quick/Smart.
+     * Boxes are 10x10, gap 6, perfectly centred (37..63). */
     private fun Canvas.multi() {
         gradRect(8.3f, 8.3f, 83.3f, multiG)
-        stroke.color = tintMulti
-        stroke.strokeWidth = 4f
-        drawRoundRect(RectF(34f, 20f, 80f, 54f), 5f, 5f, stroke)
-        drawRoundRect(RectF(27f, 32f, 73f, 66f), 5f, 5f, stroke)
-        drawRoundRect(RectF(20f, 44f, 66f, 78f), 5f, 5f, stroke)
+        fourCornerArrowsOldIn(tintMulti)
         fill.color = tintMulti
-        val play = Path().apply {
-            moveTo(36f, 53f)
-            lineTo(36f, 69f)
-            lineTo(52f, 61f)
-            close()
-        }
-        drawPath(play, fill)
+        drawRoundRect(RectF(37f, 37f, 47f, 47f), 2f, 2f, fill)
+        drawRoundRect(RectF(53f, 37f, 63f, 47f), 2f, 2f, fill)
+        drawRoundRect(RectF(37f, 53f, 47f, 63f), 2f, 2f, fill)
+        drawRoundRect(RectF(53f, 53f, 63f, 63f), 2f, 2f, fill)
     }
 
     /** Red/pink gradient + PERFECT smooth HEART (Material "favorite",
@@ -289,8 +283,9 @@ class VideoIconView @JvmOverloads constructor(
         drawPath(headL, fill)
     }
 
-    /** Teal gradient + the PDF Rotate traced double-arrow (v0.1.158,
-     * user-approved "Super, Nice"), in light teal tint. */
+    /** Slate gradient + the PDF Rotate traced double-arrow (v0.1.158,
+     * user-approved "Super, Nice"), in light slate tint. Colour only
+     * changed in v0.1.196 (was teal) — glyph untouched. */
     private fun Canvas.rotate() {
         gradRect(8.3f, 8.3f, 83.3f, rotG)
         fill.color = tintRot
@@ -447,7 +442,8 @@ class VideoIconView @JvmOverloads constructor(
         drawLine(67f, 70f, 77f, 70f, stroke)
     }
 
-    /** Teal gradient + film frame + play + crop brackets (no sparkle). */
+    /** Violet gradient + film frame + play + crop brackets (no sparkle).
+     * Colour only changed in v0.1.196 (was cyan) — glyph untouched. */
     private fun Canvas.crop() {
         gradRect(8.3f, 8.3f, 83.3f, cropG)
         stroke.color = tintCrop
