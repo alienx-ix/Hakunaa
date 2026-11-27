@@ -14,12 +14,15 @@ import android.os.Looper
 import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.GridLayout
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -28,6 +31,9 @@ import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -121,6 +127,23 @@ class VideoToolsActivity : AppCompatActivity() {
     // fixed Smart screen (created in showSmartScreen, shown by
     // showSmartResults once results exist).
     private var smartSaveBtn: TextView? = null
+
+    // Video to Audio result preview player (v0.1.199): a plain
+    // ExoPlayer (audio only) — released in dismissToolOverlay /
+    // onDestroy so it never keeps playing after the screen closes.
+    private var audioResultPlayer: ExoPlayer? = null
+    private var audioResultHandler: Handler? = null
+    private var audioResultTick: Runnable? = null
+
+    // Rotate v2 state (v0.1.199): free angle 0-360, flips, zoom
+    // 1-2, pan in preview px. Default angle 90 = old CW90.
+    private var rotateAngle = 90
+    private var rotateFlipH = false
+    private var rotateFlipV = false
+    private var rotateZoom = 1f
+    private var rotatePanX = 0f
+    private var rotatePanY = 0f
+    private var rotatePreviewView: ExoVideoView? = null
 
     private data class SmartResult(
         val label: String,
@@ -804,6 +827,8 @@ class VideoToolsActivity : AppCompatActivity() {
         }
         activeVideoViews = mutableListOf()
         smartPreviewView = null
+        rotatePreviewView = null
+        releaseAudioResultPlayer()
         for (bmp in overlayBitmaps) {
             try {
                 bmp.recycle()
@@ -811,6 +836,27 @@ class VideoToolsActivity : AppCompatActivity() {
             }
         }
         overlayBitmaps = mutableListOf()
+    }
+
+    /** Stop + release the Audio result preview player (v0.1.199).
+     * Safe to call more than once; called from
+     * dismissToolOverlay (Back / X / new overlay) and onDestroy. */
+    private fun releaseAudioResultPlayer() {
+        try {
+            audioResultTick?.let { audioResultHandler?.removeCallbacks(it) }
+        } catch (_: Throwable) {
+        }
+        audioResultTick = null
+        audioResultHandler = null
+        try {
+            audioResultPlayer?.stop()
+        } catch (_: Throwable) {
+        }
+        try {
+            audioResultPlayer?.release()
+        } catch (_: Throwable) {
+        }
+        audioResultPlayer = null
     }
 
     /** Full-screen in-app video player (user 2026-11-24): every
@@ -1482,6 +1528,7 @@ class VideoToolsActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         closeFullScreenPlayer()
+        releaseAudioResultPlayer()
         VideoCompressor.cancel()
         VideoToolsEngine.cancel()
         super.onDestroy()
@@ -1577,25 +1624,11 @@ class VideoToolsActivity : AppCompatActivity() {
     private fun showSmartScreen() {
         smartRunning = false
         val content = newFixedToolOverlay("Compress Video", 8)
-        content.addView(fileInfoCard())
-        // Top video preview (input) — as the old buildSmartOptions.
-        val preview = ExoVideoView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(200)
-            ).apply { topMargin = dp(12) }
-        }
-        inputUri?.let { preview.setVideoURI(it) }
-        content.addView(preview)
-        smartPreviewView = preview
-        activeVideoViews.add(preview)
-        val playPreview = popupPillButton("▶  Play preview", false) {
-            inputUri?.let { showFullScreenPlayer(it) }
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(48)
-            ).apply { topMargin = dp(8) }
-        }
-        content.addView(playPreview)
+        // v0.1.199 redesign: header card with a 96dp SQUARE preview
+        // on the LEFT + file info beside it (same as Quick
+        // Compress) — tap the preview to play full-screen. This
+        // replaces the old 200dp preview + "Play preview" pill.
+        content.addView(quickHeaderCard())
         // Middle: weight 1 — EMPTY at first; the progress bar +
         // status + result rows appear here.
         val middleBox = LinearLayout(this).apply {
@@ -1749,7 +1782,17 @@ class VideoToolsActivity : AppCompatActivity() {
         val percent: TextView
     )
 
-    private fun showCompressLoadingDialog(statusText: String, titleText: String = "Compressing…"): CompressLoadingDialog {
+    /** Loading popup used by Quick / Smart / Advanced / Convert /
+     * video loading. v0.1.199: an optional Cancel button — passed
+     * ONLY by runConvert (user 2026-11-27); the other callers
+     * leave it off. The button dismisses this dialog itself, then
+     * invokes onCancel (the caller stops the engine). */
+    private fun showCompressLoadingDialog(
+        statusText: String,
+        titleText: String = "Compressing…",
+        showCancel: Boolean = false,
+        onCancel: (() -> Unit)? = null
+    ): CompressLoadingDialog {
         val dialog = Dialog(this)
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
         dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
@@ -1807,6 +1850,20 @@ class VideoToolsActivity : AppCompatActivity() {
         card.addView(status)
         card.addView(progress)
         card.addView(percent)
+        if (showCancel) {
+            val cancelBtn = popupPillButton("Cancel", false) {
+                try {
+                    dialog.dismiss()
+                } catch (_: Throwable) {
+                }
+                onCancel?.invoke()
+            }.apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(48)
+                ).apply { topMargin = dp(16) }
+            }
+            card.addView(cancelBtn)
+        }
         outer.addView(card)
         dialog.setContentView(outer)
         dialog.window?.setLayout(
@@ -1963,11 +2020,28 @@ class VideoToolsActivity : AppCompatActivity() {
         pv.result.text = ""
         val durationMs = probeInfo?.durationMs ?: 0L
         val hasAudio = probeInfo?.hasAudio ?: true
-        val specs = listOf(
-            Triple("1080p", 23, VideoCompressor.Resolution.P1080),
-            Triple("720p", 26, VideoCompressor.Resolution.P720),
-            Triple("480p", 28, VideoCompressor.Resolution.P480)
-        )
+        // v0.1.199 Fix 9: NEVER upscale. A 480p input must not be
+        // re-encoded at 1080p/720p (bigger file, no quality gain,
+        // wasted time). Keep only targets at or below the input's
+        // own height. Input below 480p (e.g. 360p): compress ONCE
+        // at the original resolution instead of upscaling.
+        val inputH = probeInfo?.height ?: 0
+        val specs = run {
+            val all = listOf(
+                Triple("1080p", 23, VideoCompressor.Resolution.P1080),
+                Triple("720p", 26, VideoCompressor.Resolution.P720),
+                Triple("480p", 28, VideoCompressor.Resolution.P480)
+            )
+            val heights = mapOf(
+                VideoCompressor.Resolution.P1080 to 1080,
+                VideoCompressor.Resolution.P720 to 720,
+                VideoCompressor.Resolution.P480 to 480
+            )
+            val kept = if (inputH <= 0) all
+            else all.filter { (_, _, res) -> (heights[res] ?: 0) <= inputH }
+            if (kept.isEmpty()) listOf(Triple("${inputH}p", 28, VideoCompressor.Resolution.ORIGINAL))
+            else kept
+        }
         val made = mutableListOf<Triple<String, File, Long>>()
         fun runOne(index: Int) {
             if (index >= specs.size) {
@@ -2011,7 +2085,7 @@ class VideoToolsActivity : AppCompatActivity() {
             val label = spec.first
             val crf = spec.second
             val res = spec.third
-            pv.status.text = "Making $label version… (${index + 1}/3)"
+            pv.status.text = "Making $label version… (${index + 1}/${specs.size})"
             val out = File(cacheDir, "hakunaa_smart_${label}_${System.currentTimeMillis()}.mp4")
             val argv = VideoCompressor.buildCommand(
                 input.absolutePath, out.absolutePath, crf,
@@ -2065,22 +2139,11 @@ class VideoToolsActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             top.addView(label)
-            if (r.isBest) {
-                val best = TextView(this).apply {
-                    text = "BEST"
-                    textSize = 11f
-                    setTypeface(null, android.graphics.Typeface.BOLD)
-                    setTextColor(Color.WHITE)
-                    gravity = Gravity.CENTER
-                    background = GradientDrawable().apply {
-                        shape = GradientDrawable.RECTANGLE
-                        cornerRadius = dp(10).toFloat()
-                        setColor(getColor(R.color.hakunaa_success))
-                    }
-                    setPadding(dp(8), dp(4), dp(8), dp(4))
-                }
-                top.addView(best)
-            }
+            // v0.1.199: NO Best/Small tag pills in the video Smart
+            // results (user removed them) — only the checkmark
+            // selection stays. The Best rule still picks the
+            // default selection internally (runSmart), it is just
+            // never shown as a tag.
             val check = TextView(this).apply {
                 text = if (i == smartSelected) "✓" else ""
                 textSize = 20f
@@ -2529,8 +2592,18 @@ class VideoToolsActivity : AppCompatActivity() {
         if (!engineGuard()) return
         val fmt = convertFormat
         val out = File(cacheDir, "hakunaa_convert_${System.currentTimeMillis()}.${fmt.extension}")
+        // v0.1.199: Convert ONLY gets a Cancel button (user
+        // 2026-11-27). Tapping it stops the FFmpeg session and the
+        // dialog; onDone then returns silently (not a failure).
+        var cancelled = false
         val loading = showCompressLoadingDialog(
-            "To ${fmt.label}  •  ${convertRes.label}", "Converting…"
+            "To ${fmt.label}  •  ${convertRes.label}", "Converting…",
+            showCancel = true,
+            onCancel = {
+                cancelled = true
+                VideoCompressor.cancel()
+                VideoToolsEngine.cancel()
+            }
         )
         VideoToolsEngine.convert12(
             input.absolutePath, out.absolutePath, fmt, convertRes,
@@ -2541,6 +2614,9 @@ class VideoToolsActivity : AppCompatActivity() {
                         loading.dialog.dismiss()
                     } catch (_: Throwable) {
                     }
+                    // User-cancelled: back to the Convert screen,
+                    // silently — a cancel is not a failure.
+                    if (cancelled) return@runOnUiThread
                     if (ok && out.exists() && out.length() > 0) {
                         // No direct save — NEW result screen first
                         // (user 2026-11-25: process + result in a
@@ -2655,57 +2731,477 @@ class VideoToolsActivity : AppCompatActivity() {
     // Rotate.
     // ------------------------------------------------------------------
 
-    private var rotateMode = VideoCompressor.RotateMode.CW90
-
+    /** Rotate Video v2 (v0.1.199, mockup rotate-redesign-mockup-v2):
+     * compact file card → LIVE preview 220dp (video WITH the
+     * selected rotation applied live) → FREE rotation slider
+     * 0-360° → preset chips (90 / -90 / 180 / Flip H / Flip V /
+     * Reset) → Zoom slider 100-200% + pinch-to-zoom and drag-to-
+     * move on the preview → "Rotate" pinned bottom. Fixed screen,
+     * no scroll. */
     private fun showRotateScreen() {
-        val content = newToolOverlay("Rotate Video")
-        content.addView(fileInfoCard())
-        content.addView(sectionLabel("ROTATE"))
-        val modes = listOf(
-            "90° Clockwise" to VideoCompressor.RotateMode.CW90,
-            "90° Counter-clockwise" to VideoCompressor.RotateMode.CCW90,
-            "180°" to VideoCompressor.RotateMode.ROT180,
-            "Flip Horizontal" to VideoCompressor.RotateMode.FLIP_H,
-            "Flip Vertical" to VideoCompressor.RotateMode.FLIP_V
-        )
-        val rows = mutableListOf<LinearLayout>()
-        for ((label, mode) in modes) {
-            val row = optionRow(label, mode.label, mode == rotateMode) {
-                rotateMode = mode
-                for ((i, r) in rows.withIndex()) setOptionRowSelected(r, modes[i].second == rotateMode)
-            }
-            rows.add(row)
-            content.addView(row)
+        val content = newFixedToolOverlay("Rotate Video")
+        val card = fileInfoCard()
+        (card.getChildAt(0) as? TextView)?.let {
+            it.maxLines = 1
+            it.ellipsize = android.text.TextUtils.TruncateAt.END
         }
-        val pv = addProgressViews(content)
-        val btn = actionButton("Rotate") { runRotate(pv) }
-        content.addView(btn)
-    }
-
-    private fun runRotate(pv: ProgressViews) {
-        val input = inputFile ?: return
-        if (!engineGuard()) return
-        pv.progress.visibility = View.VISIBLE
-        pv.progress.progress = 0
-        pv.status.text = "Rotating video… ${rotateMode.label}"
-        pv.result.text = ""
-        val out = File(cacheDir, "hakunaa_rotated_${System.currentTimeMillis()}.mp4")
-        VideoCompressor.rotate(
-            input.absolutePath, out.absolutePath, rotateMode,
-            { p -> runOnUiThread { pv.progress.progress = p } },
-            { ok, msg ->
-                runOnUiThread {
-                    pv.progress.visibility = View.GONE
-                    if (ok && out.exists() && out.length() > 0) {
-                        pv.status.text = "Done — saved to Movies/Hakunaa"
-                        pv.result.text = "Rotated ${rotateMode.label}: ${FileUtils.formatSize(out.length())}"
-                        saveVideoAndShow(out, "Movies/Hakunaa", "MP4", "video/mp4")
-                    } else {
-                        pv.status.text = "Failed: $msg"
+        content.addView(card)
+        // LIVE preview (220dp) — the video WITH the rotation
+        // applied live (View.rotation / scaleX / scaleY), angle
+        // badge on top, tap = play/pause, pinch = zoom, drag = move.
+        val previewWrap = FrameLayout(this).apply {
+            isClickable = true
+            isFocusable = true
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.BLACK)
+                cornerRadius = dp(12).toFloat()
+            }
+            clipToOutline = true
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(220)
+            ).apply { topMargin = dp(12) }
+        }
+        val preview = ExoVideoView(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+        inputUri?.let { preview.setVideoURI(it) }
+        previewWrap.addView(preview)
+        rotatePreviewView = preview
+        activeVideoViews.add(preview)
+        val badge = TextView(this).apply {
+            textSize = 13f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(14).toFloat()
+                setColor(Color.parseColor("#CC000000"))
+            }
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                setMargins(dp(10), dp(10), 0, 0)
+            }
+        }
+        previewWrap.addView(badge)
+        content.addView(previewWrap)
+        // Applies the current state (angle / flips / zoom / pan) to
+        // the live preview + badge.
+        fun badgeText(): String {
+            val parts = mutableListOf<String>()
+            val a = rotateAngle % 360
+            parts.add("${if (a > 180) a - 360 else a}°")
+            if (rotateFlipH) parts.add("Flip H")
+            if (rotateFlipV) parts.add("Flip V")
+            return parts.joinToString(" • ")
+        }
+        fun applyRotatePreview() {
+            preview.rotation = rotateAngle.toFloat()
+            preview.scaleX = rotateZoom * if (rotateFlipH) -1f else 1f
+            preview.scaleY = rotateZoom * if (rotateFlipV) -1f else 1f
+            preview.translationX = rotatePanX
+            preview.translationY = rotatePanY
+            badge.text = badgeText()
+        }
+        fun clampRotatePan() {
+            val vw = preview.width.toFloat()
+            val vh = preview.height.toFloat()
+            if (vw <= 0f || vh <= 0f) return
+            val maxX = (vw * rotateZoom - vw) / 2f
+            val maxY = (vh * rotateZoom - vh) / 2f
+            rotatePanX = rotatePanX.coerceIn(-maxX, maxX)
+            rotatePanY = rotatePanY.coerceIn(-maxY, maxY)
+        }
+        // Angle chips (painted by selection) — declared before the
+        // sliders, whose listeners call these painters.
+        val angleChips = mutableListOf<Pair<TextView, Int>>() // chip, angle value (0-360)
+        fun paintAngleChips() {
+            for ((chipView, angle) in angleChips) {
+                setChipSelected(chipView, rotateAngle == angle)
+            }
+        }
+        var flipHChip: TextView? = null
+        var flipVChip: TextView? = null
+        fun paintFlipChips() {
+            flipHChip?.let { setChipSelected(it, rotateFlipH) }
+            flipVChip?.let { setChipSelected(it, rotateFlipV) }
+        }
+        // FREE rotation slider (0-360) with the live angle value.
+        // The value reads -180..180 so 270 shows as -90 (the chip).
+        val angleRow = sliderRow("ROTATION", 360, rotateAngle, { p ->
+            val a = p % 360
+            "${if (a > 180) a - 360 else a}°"
+        }) { p ->
+            rotateAngle = p
+            applyRotatePreview()
+            paintAngleChips()
+        }
+        content.addView(angleRow)
+        val angleSeek = angleRow.getChildAt(1) as SeekBar
+        // Zoom slider (100-200%) — created here (before the chips,
+        // so the Reset chip can reference zoomSeek) but added to
+        // the layout below the chips toolbar.
+        val zoomRow = sliderRow("ZOOM", 100, ((rotateZoom - 1f) * 100f).toInt(), { p ->
+            "${100 + p}%"
+        }) { p ->
+            rotateZoom = 1f + p / 100f
+            clampRotatePan()
+            applyRotatePreview()
+        }
+        val zoomSeek = zoomRow.getChildAt(1) as SeekBar
+        // Preset chips toolbar (horizontal scroll): 90 / -90 / 180 /
+        // Flip H / Flip V / Reset.
+        val chipsScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) }
+        }
+        val chipsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        chipsScroll.addView(chipsRow)
+        content.addView(chipsScroll)
+        fun addAngleChip(label: String, angle: Int) {
+            val c = chip(label, rotateAngle == angle) {
+                rotateAngle = angle
+                angleSeek.progress = angle
+                applyRotatePreview()
+                paintAngleChips()
+            }.apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginEnd = dp(8) }
+            }
+            angleChips.add(c to angle)
+            chipsRow.addView(c)
+        }
+        addAngleChip("90°", 90)
+        addAngleChip("−90°", 270)
+        addAngleChip("180°", 180)
+        flipHChip = chip("Flip H", rotateFlipH) {
+            rotateFlipH = !rotateFlipH
+            applyRotatePreview()
+            paintFlipChips()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { marginEnd = dp(8) }
+        }
+        chipsRow.addView(flipHChip)
+        flipVChip = chip("Flip V", rotateFlipV) {
+            rotateFlipV = !rotateFlipV
+            applyRotatePreview()
+            paintFlipChips()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { marginEnd = dp(8) }
+        }
+        chipsRow.addView(flipVChip)
+        val resetChip = chip("Reset", false) {
+            rotateAngle = 0
+            rotateFlipH = false
+            rotateFlipV = false
+            rotateZoom = 1f
+            rotatePanX = 0f
+            rotatePanY = 0f
+            angleSeek.progress = 0
+            zoomSeek.progress = 0
+            applyRotatePreview()
+            paintAngleChips()
+            paintFlipChips()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        chipsRow.addView(resetChip)
+        content.addView(zoomRow)
+        val hint = TextView(this).apply {
+            text = "Pinch to zoom  •  Drag to move the video"
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+        content.addView(hint)
+        // Pinch to zoom + drag to move on the preview. Tap (short,
+        // no move) toggles play/pause.
+        var downX = 0f
+        var downY = 0f
+        var downTime = 0L
+        var lastX = 0f
+        var lastY = 0f
+        var panning = false
+        var pinched = false
+        val scaleDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                pinched = true
+                val nz = (rotateZoom * detector.scaleFactor).coerceIn(1f, 2f)
+                if (nz != rotateZoom) {
+                    rotateZoom = nz
+                    zoomSeek.progress = ((rotateZoom - 1f) * 100f).toInt()
+                    clampRotatePan()
+                    applyRotatePreview()
+                }
+                return true
+            }
+        })
+        previewWrap.setOnTouchListener { _, event ->
+            scaleDetector.onTouchEvent(event)
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.x
+                    downY = event.y
+                    lastX = event.x
+                    lastY = event.y
+                    downTime = System.currentTimeMillis()
+                    panning = false
+                    pinched = false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (!scaleDetector.isInProgress && event.pointerCount == 1 && rotateZoom > 1.001f) {
+                        val dx = event.x - lastX
+                        val dy = event.y - lastY
+                        if (Math.abs(dx) > 1f || Math.abs(dy) > 1f) panning = true
+                        rotatePanX += dx
+                        rotatePanY += dy
+                        clampRotatePan()
+                        applyRotatePreview()
+                    }
+                    lastX = event.x
+                    lastY = event.y
+                }
+                MotionEvent.ACTION_UP -> {
+                    val dt = System.currentTimeMillis() - downTime
+                    val dist = Math.hypot((event.x - downX).toDouble(), (event.y - downY).toDouble())
+                    if (!panning && !pinched && dt < 400 && dist < 24.0) {
+                        try {
+                            if (preview.isPlaying()) preview.pause() else preview.start()
+                        } catch (_: Throwable) {
+                        }
                     }
                 }
             }
-        )
+            true
+        }
+        applyRotatePreview()
+        // Spacer pins "Rotate" to the bottom.
+        content.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            )
+        })
+        val btn = actionButton("Rotate") { runRotate() }
+        content.addView(btn)
+    }
+
+    /** Label for the current Rotate settings, e.g. "90° • Zoom 150%"
+     * — shown on the result screen and in the loading dialog. */
+    private fun rotateTransformLabel(): String {
+        val parts = mutableListOf<String>()
+        val a = rotateAngle % 360
+        val disp = if (a > 180) a - 360 else a
+        if (disp != 0) parts.add("$disp°")
+        if (rotateFlipH) parts.add("Flip H")
+        if (rotateFlipV) parts.add("Flip V")
+        if (rotateZoom > 1.001f) parts.add("Zoom ${((rotateZoom) * 100).toInt()}%")
+        return if (parts.isEmpty()) "No change" else parts.joinToString(" • ")
+    }
+
+    /** Pan fractions for VideoCompressor.rotateFree: the preview
+     * pan (rotatePanX/Y, in preview px) is converted to fractions
+     * of the crop size, undone through the inverse rotation so the
+     * FFmpeg crop region lands where the user dragged it on
+     * screen. Clamped to ±0.5 (half the crop size). */
+    private fun computeRotatePanFracs(): Pair<Float, Float> {
+        val probe = probeInfo ?: return 0f to 0f
+        val w = probe.width.toFloat()
+        val h = probe.height.toFloat()
+        if (w <= 0f || h <= 0f) return 0f to 0f
+        val preview = rotatePreviewView ?: return 0f to 0f
+        val boxW = preview.width.toFloat()
+        val boxH = preview.height.toFloat()
+        if (boxW <= 0f || boxH <= 0f) return 0f to 0f
+        // FIT scale of the video inside the 220dp preview box.
+        val s = minOf(boxW / w, boxH / h)
+        // Pan in video px (divide out the FIT scale and the zoom).
+        val px = rotatePanX / (s * rotateZoom)
+        val py = rotatePanY / (s * rotateZoom)
+        // Undo the rotation: the crop is applied BEFORE the rotate
+        // filter, so the pan must be rotated by -angle.
+        val theta = Math.toRadians(rotateAngle.toDouble())
+        val cos = Math.cos(theta)
+        val sin = Math.sin(theta)
+        val vx = px * cos + py * sin
+        val vy = -px * sin + py * cos
+        val cw = w / rotateZoom
+        val ch = h / rotateZoom
+        val fx = (-vx / cw).toFloat().coerceIn(-0.5f, 0.5f)
+        val fy = (-vy / ch).toFloat().coerceIn(-0.5f, 0.5f)
+        return fx to fy
+    }
+
+    private fun runRotate() {
+        val input = inputFile ?: return
+        if (!engineGuard()) return
+        // Nothing to do?
+        if (rotateAngle % 360 == 0 && !rotateFlipH && !rotateFlipV && rotateZoom <= 1.001f) {
+            toast("Choose a rotation first")
+            return
+        }
+        val probe = probeInfo
+        if (probe == null || probe.width <= 0 || probe.height <= 0) {
+            toast("Could not read this video's size")
+            return
+        }
+        val out = File(cacheDir, "hakunaa_rotate_${System.currentTimeMillis()}.mp4")
+        val label = rotateTransformLabel()
+        val loading = showCompressLoadingDialog(label, "Rotating…")
+        val angle = rotateAngle % 360
+        val useFree = angle != 0 && angle != 90 && angle != 180 && angle != 270 ||
+            rotateZoom > 1.001f ||
+            (angle != 0 && (rotateFlipH || rotateFlipV))
+        val onDone: (Boolean, String) -> Unit = { ok, msg ->
+            runOnUiThread {
+                try {
+                    loading.dialog.dismiss()
+                } catch (_: Throwable) {
+                }
+                if (ok && out.exists() && out.length() > 0) {
+                    // v0.1.199: NO direct save — result screen first.
+                    showRotateResult(out)
+                } else {
+                    toast("Rotate failed: $msg")
+                }
+            }
+        }
+        if (!useFree) {
+            // Exact fixed modes use the PROVEN transpose/flip path.
+            val mode = when {
+                angle == 90 && !rotateFlipH && !rotateFlipV -> VideoCompressor.RotateMode.CW90
+                angle == 270 && !rotateFlipH && !rotateFlipV -> VideoCompressor.RotateMode.CCW90
+                angle == 180 && !rotateFlipH && !rotateFlipV -> VideoCompressor.RotateMode.ROT180
+                angle == 0 && rotateFlipH && !rotateFlipV -> VideoCompressor.RotateMode.FLIP_H
+                angle == 0 && !rotateFlipH && rotateFlipV -> VideoCompressor.RotateMode.FLIP_V
+                else -> VideoCompressor.RotateMode.CW90 // unreachable by the useFree guard
+            }
+            VideoCompressor.rotate(
+                input.absolutePath, out.absolutePath, mode,
+                { p -> runOnUiThread { loading.progress.progress = p; loading.percent.text = "$p%" } },
+                onDone
+            )
+        } else {
+            // Free angle and/or zoom+pan: the free-angle engine.
+            val (panXFrac, panYFrac) = computeRotatePanFracs()
+            VideoCompressor.rotateFree(
+                input.absolutePath, out.absolutePath,
+                angleDeg = rotateAngle.toFloat(),
+                flipH = rotateFlipH,
+                flipV = rotateFlipV,
+                zoom = rotateZoom,
+                panXFrac = panXFrac,
+                panYFrac = panYFrac,
+                inputW = probe.width,
+                inputH = probe.height,
+                onProgress = { p -> runOnUiThread { loading.progress.progress = p; loading.percent.text = "$p%" } },
+                onDone = onDone
+            )
+        }
+    }
+
+    /** Rotate result (v0.1.199): rotated video preview + size +
+     * Save (ONLY Save publishes) + Back (settings persist — they
+     * are fields). Same professional pattern as the Convert /
+     * Audio result screens. */
+    private fun showRotateResult(out: File) {
+        val input = inputFile ?: return
+        val content = newFixedToolOverlay("Result")
+        val preview = ExoVideoView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(220)
+            ).apply { topMargin = dp(12) }
+        }
+        preview.setVideoURI(Uri.fromFile(out))
+        content.addView(preview)
+        activeVideoViews.add(preview)
+        val playPreview = popupPillButton("▶  Play preview", false) {
+            showFullScreenPlayer(Uri.fromFile(out))
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(48)
+            ).apply { topMargin = dp(8) }
+        }
+        content.addView(playPreview)
+        val after = out.length()
+        val inputSize = input.length()
+        val sizeCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(12).toFloat()
+                setColor(pinkCard)
+                setStroke(dp(2), pinkBorder)
+            }
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(16) }
+        }
+        val sizeText = TextView(this).apply {
+            text = "${FileUtils.formatSize(inputSize)}  →  ${FileUtils.formatSize(after)}"
+            textSize = 17f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+        }
+        val detail = TextView(this).apply {
+            val saved = FileUtils.savedPercent(inputSize, after)
+            text = "${rotateTransformLabel()}  •  $saved saved"
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_success))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(4) }
+        }
+        sizeCard.addView(sizeText)
+        sizeCard.addView(detail)
+        content.addView(sizeCard)
+        // Spacer pins Back + Save to the bottom.
+        content.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            )
+        })
+        val backBtn = popupPillButton("Back", false) {
+            showRotateScreen()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(52)
+            )
+        }
+        content.addView(backBtn)
+        val saveBtn = actionButton("Save") {
+            saveVideoAndShow(out, "Movies/Hakunaa", "MP4", "video/mp4")
+        }
+        content.addView(saveBtn)
     }
 
     // ------------------------------------------------------------------
@@ -2753,15 +3249,244 @@ class VideoToolsActivity : AppCompatActivity() {
                 runOnUiThread {
                     pv.progress.visibility = View.GONE
                     if (ok && out.exists() && out.length() > 0) {
-                        pv.status.text = "Done — saved to Music/Hakunaa"
-                        pv.result.text = "Audio extracted: ${FileUtils.formatSize(out.length())} ${fmt.label}"
-                        saveVideoAndShow(out, "Music/Hakunaa", fmt.label, fmt.mime, MediaStoreSaver.Kind.AUDIO)
+                        // v0.1.199: NO direct save — result screen
+                        // first (preview + Save), like Convert.
+                        showAudioResult(out, fmt)
                     } else {
                         pv.status.text = "Failed: $msg"
                     }
                 }
             }
         )
+    }
+
+    /** Video to Audio result (v0.1.199): audio info card + in-app
+     * audio preview (Media3 ExoPlayer: play/pause + SeekBar +
+     * current/total time) + Save (ONLY Save publishes) + Back
+     * (returns to the audio options with the same video/settings).
+     * Same professional pattern as the Convert result screen. */
+    private fun showAudioResult(out: File, fmt: VideoToolsEngine.AudioFormat) {
+        val content = newFixedToolOverlay("Result")
+        val durationMs = probeInfo?.durationMs ?: 0L
+        // Audio info card: purple music-note icon + name + format • size • duration.
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(12).toFloat()
+                setColor(pinkCard)
+                setStroke(dp(2), pinkBorder)
+            }
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) }
+        }
+        val icon = TextView(this).apply {
+            text = "♪"
+            textSize = 34f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(12).toFloat()
+                setColor(Color.parseColor("#7E57C2"))
+            }
+            layoutParams = LinearLayout.LayoutParams(dp(72), dp(72))
+        }
+        card.addView(icon)
+        val info = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                .apply { marginStart = dp(12) }
+        }
+        val name = TextView(this).apply {
+            text = out.name
+            textSize = 15f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        val meta = TextView(this).apply {
+            text = "${fmt.label}  •  ${FileUtils.formatSize(out.length())}  •  ${formatDuration(durationMs)}"
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(4) }
+        }
+        info.addView(name)
+        info.addView(meta)
+        card.addView(info)
+        content.addView(card)
+        // Player card: round play/pause button + SeekBar + times.
+        val playerCard = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(12).toFloat()
+                setColor(Color.WHITE)
+                setStroke(dp(1), Color.parseColor("#CFD8DC"))
+            }
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(16) }
+        }
+        val playBtn = TextView(this).apply {
+            text = "▶"
+            textSize = 22f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(pinkDark)
+            }
+            layoutParams = LinearLayout.LayoutParams(dp(56), dp(56))
+        }
+        playerCard.addView(playBtn)
+        val seekCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                .apply { marginStart = dp(16) }
+        }
+        val seek = SeekBar(this).apply {
+            max = durationMs.toInt().coerceAtLeast(1)
+            progress = 0
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        val timeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(4) }
+        }
+        val tvCur = TextView(this).apply {
+            text = formatClock(0L)
+            textSize = 13f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val tvTotal = TextView(this).apply {
+            text = formatClock(durationMs)
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+        }
+        timeRow.addView(tvCur)
+        timeRow.addView(tvTotal)
+        seekCol.addView(seek)
+        seekCol.addView(timeRow)
+        playerCard.addView(seekCol)
+        content.addView(playerCard)
+        val note = TextView(this).apply {
+            text = "Preview the audio, then press Save."
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) }
+        }
+        content.addView(note)
+        // ExoPlayer for the audio preview (Media3 is already a
+        // dependency — there is no MediaPlayer anywhere in the app).
+        val player = ExoPlayer.Builder(this).build().apply {
+            setMediaItem(MediaItem.fromUri(Uri.fromFile(out)))
+            playWhenReady = false
+            prepare()
+        }
+        audioResultPlayer = player
+        var userSeeking = false
+        val tickHandler = Handler(Looper.getMainLooper())
+        val tick = object : Runnable {
+            override fun run() {
+                if (audioResultPlayer == null) return
+                try {
+                    val pos = player.currentPosition
+                    if (!userSeeking) seek.progress = pos.toInt().coerceIn(0, seek.max)
+                    tvCur.text = formatClock(pos)
+                    playBtn.text = if (player.isPlaying) "❚❚" else "▶"
+                } catch (_: Throwable) {
+                }
+                tickHandler.postDelayed(this, 500)
+            }
+        }
+        audioResultTick = tick
+        audioResultHandler = tickHandler
+        tickHandler.post(tick)
+        player.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY) {
+                    val d = player.duration
+                    if (d > 0) {
+                        seek.max = d.toInt()
+                        tvTotal.text = formatClock(d)
+                    }
+                } else if (state == Player.STATE_ENDED) {
+                    try {
+                        player.seekTo(0)
+                        player.pause()
+                    } catch (_: Throwable) {
+                    }
+                    playBtn.text = "▶"
+                }
+            }
+        })
+        playBtn.setOnClickListener {
+            try {
+                if (player.isPlaying) player.pause() else player.play()
+                playBtn.text = if (player.isPlaying) "❚❚" else "▶"
+            } catch (_: Throwable) {
+            }
+        }
+        seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    tvCur.text = formatClock(p.toLong())
+                    try {
+                        player.seekTo(p.toLong())
+                    } catch (_: Throwable) {
+                    }
+                }
+            }
+
+            override fun onStartTrackingTouch(s: SeekBar?) {
+                userSeeking = true
+            }
+
+            override fun onStopTrackingTouch(s: SeekBar?) {
+                userSeeking = false
+            }
+        })
+        // Spacer pins Back + Save to the bottom.
+        content.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            )
+        })
+        val backBtn = popupPillButton("Back", false) {
+            showAudioScreen()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(52)
+            )
+        }
+        content.addView(backBtn)
+        val saveBtn = actionButton("Save") {
+            saveVideoAndShow(out, "Music/Hakunaa", fmt.label, fmt.mime, MediaStoreSaver.Kind.AUDIO)
+        }
+        content.addView(saveBtn)
     }
 
     // ------------------------------------------------------------------
@@ -2773,16 +3498,25 @@ class VideoToolsActivity : AppCompatActivity() {
     private var cutEndMs = 0L
 
     private fun showCutterScreen() {
-        val content = newToolOverlay("Video Cutter")
-        content.addView(fileInfoCard())
+        // v0.1.199: FIXED screen (no ScrollView) — everything on
+        // ONE screen: compact file card, 220dp preview, 96dp
+        // timeline, Start/Clip/End row, Cut Clip, Split as one
+        // compact row. The old "TRIM" label, "SPLIT INTO PARTS"
+        // label and split note are dropped to make it fit.
+        val content = newFixedToolOverlay("Video Cutter")
+        val card = fileInfoCard()
+        (card.getChildAt(0) as? TextView)?.let {
+            it.maxLines = 1
+            it.ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        content.addView(card)
         val durationMs = probeInfo?.durationMs ?: 0L
         cutStartMs = 0L
         cutEndMs = durationMs
-        // BIG preview (v0.1.198 Fix 6) — tap toggles play/pause
-        // in place.
+        // Preview 220dp — tap toggles play/pause in place.
         val preview = ExoVideoView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(280)
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(220)
             ).apply { topMargin = dp(12) }
         }
         inputUri?.let { preview.setVideoURI(it) }
@@ -2794,19 +3528,7 @@ class VideoToolsActivity : AppCompatActivity() {
             } catch (_: Throwable) {
             }
         }
-        // Timeline with drag handles (v0.1.198 Fix 6) — replaces
-        // the thin SeekBar + Set Start / Set End buttons.
-        val trimLabel = TextView(this).apply {
-            text = "TRIM  —  drag the handles"
-            textSize = 12f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(getColor(R.color.hakunaa_text_secondary))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(16) }
-        }
-        content.addView(trimLabel)
+        // Timeline with drag handles (v0.1.198 Fix 6).
         val trimView = VideoTrimView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(96)
@@ -2902,48 +3624,52 @@ class VideoToolsActivity : AppCompatActivity() {
             runCut(pv)
         }
         content.addView(cutBtn)
-        // Splitter (inside Cutter).
-        content.addView(sectionLabel("SPLIT INTO PARTS"))
-        val splitNote = TextView(this).apply {
-            text = "Split a long video into equal parts — useful for WhatsApp status and uploads."
-            textSize = 13f
-            setTextColor(getColor(R.color.hakunaa_text_secondary))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(8) }
-        }
-        content.addView(splitNote)
+        // Splitter (inside Cutter) — ONE compact row (v0.1.199):
+        // "Split every [30] sec" + "Split Video" pill on the right.
         val splitRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(12).toFloat()
+                setColor(Color.WHITE)
+                setStroke(dp(1), Color.parseColor("#CFD8DC"))
+            }
+            setPadding(dp(14), dp(10), dp(14), dp(10))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(12) }
+        }
+        val splitLabel0 = TextView(this).apply {
+            text = "Split every"
+            textSize = 14f
+            setTextColor(getColor(R.color.hakunaa_text))
         }
         val splitInput = EditText(this).apply {
             setText("30")
             inputType = InputType.TYPE_CLASS_NUMBER
             textSize = 15f
             setTextColor(getColor(R.color.hakunaa_text))
+            gravity = Gravity.CENTER
             background = inputBoxBackground()
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            layoutParams = LinearLayout.LayoutParams(dp(96), LinearLayout.LayoutParams.WRAP_CONTENT)
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            layoutParams = LinearLayout.LayoutParams(dp(72), LinearLayout.LayoutParams.WRAP_CONTENT)
+                .apply { marginStart = dp(8) }
         }
-        val splitLabel = TextView(this).apply {
-            text = "seconds per part"
-            textSize = 13f
+        val splitLabel1 = TextView(this).apply {
+            text = "sec"
+            textSize = 14f
             setTextColor(getColor(R.color.hakunaa_text_secondary))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { marginStart = dp(8) }
         }
-        splitRow.addView(splitInput)
-        splitRow.addView(splitLabel)
-        content.addView(splitRow)
-        val splitBtn = popupPillButton("Split Video", true) {
+        val splitSpacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
+        }
+        val splitBtn = popupPillButton("Split Video", false) {
             val secs = splitInput.text.toString().toIntOrNull() ?: 30
             if (secs < 5) {
                 toast("Each part must be at least 5 seconds")
@@ -2952,10 +3678,15 @@ class VideoToolsActivity : AppCompatActivity() {
             runSplit(pv, secs)
         }.apply {
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(56)
-            ).apply { topMargin = dp(12) }
+                LinearLayout.LayoutParams.WRAP_CONTENT, dp(48)
+            )
         }
-        content.addView(splitBtn)
+        splitRow.addView(splitLabel0)
+        splitRow.addView(splitInput)
+        splitRow.addView(splitLabel1)
+        splitRow.addView(splitSpacer)
+        splitRow.addView(splitBtn)
+        content.addView(splitRow)
     }
 
     private fun runCut(pv: ProgressViews) {
@@ -3030,14 +3761,24 @@ class VideoToolsActivity : AppCompatActivity() {
     private var thumbFrameMs = 1000L
 
     private fun showThumbnailScreen() {
-        val content = newToolOverlay("Custom Thumbnail")
-        content.addView(fileInfoCard())
+        // v0.1.199: FIXED screen (no ScrollView) — everything on
+        // ONE screen: compact file card, 150dp preview, SeekBar +
+        // "Frame at", compact source cards, YOUR THUMBNAIL as a
+        // SMALL square beside the Capture pill + "Ready" status,
+        // "Set as Cover & Save" pinned bottom.
+        val content = newFixedToolOverlay("Custom Thumbnail")
+        val card = fileInfoCard()
+        (card.getChildAt(0) as? TextView)?.let {
+            it.maxLines = 1
+            it.ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        content.addView(card)
         val durationMs = probeInfo?.durationMs ?: 0L
         thumbFrameFile = null
         thumbFrameMs = (durationMs / 4).coerceAtLeast(0L)
         val preview = ExoVideoView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(200)
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(150)
             ).apply { topMargin = dp(12) }
         }
         inputUri?.let { preview.setVideoURI(it) }
@@ -3175,13 +3916,20 @@ class VideoToolsActivity : AppCompatActivity() {
         cardsRow.addView(cardVideo)
         cardsRow.addView(cardGallery)
         content.addView(cardsRow)
-        // Big chosen-thumbnail preview (grey placeholder until a
-        // thumbnail is chosen).
+        // YOUR THUMBNAIL — SMALL square preview (80dp) beside the
+        // "Capture This Frame" pill + status (v0.1.199). The old
+        // full-width 180dp preview is gone.
         content.addView(sectionLabel("YOUR THUMBNAIL"))
-        val framePreview = ImageView(this).apply {
+        val thumbRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(180)
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(8) }
+        }
+        val framePreview = ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(80), dp(80))
             scaleType = ImageView.ScaleType.CENTER_CROP
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
@@ -3190,16 +3938,41 @@ class VideoToolsActivity : AppCompatActivity() {
             }
             clipToOutline = true
         }
-        content.addView(framePreview)
-        val pv = addProgressViews(content)
-        val captureBtn = popupPillButton("Capture This Frame", true) {
+        thumbRow.addView(framePreview)
+        // Progress views: the progress bar stays hidden in the
+        // content (0 height); the status lives in the right column
+        // under the Capture pill ("Ready"); the result line sits
+        // below the row, hidden until a cover is set.
+        val pv = progressViews()
+        content.addView(pv.progress)
+        val thumbCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                .apply { marginStart = dp(12) }
+        }
+        val captureBtn = popupPillButton("Capture This Frame", false) {
             runCaptureFrame(pv, framePreview)
         }.apply {
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(56)
-            ).apply { topMargin = dp(16) }
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(48)
+            )
         }
-        content.addView(captureBtn)
+        thumbCol.addView(captureBtn)
+        pv.status.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(8) }
+        thumbCol.addView(pv.status)
+        thumbRow.addView(thumbCol)
+        content.addView(thumbRow)
+        pv.result.visibility = View.GONE
+        content.addView(pv.result)
+        // Spacer pins "Set as Cover & Save" to the bottom.
+        content.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            )
+        })
         val saveBtn = actionButton("Set as Cover & Save") {
             runAttachCover(pv)
         }
@@ -3328,6 +4101,9 @@ class VideoToolsActivity : AppCompatActivity() {
             runOnUiThread {
                 if (ok && out.exists() && out.length() > 0) {
                     pv.status.text = "Done — saved to Movies/Hakunaa"
+                    // v0.1.199: the result line is GONE in the fixed
+                    // Thumbnail layout until a cover is set.
+                    pv.result.visibility = View.VISIBLE
                     pv.result.text = "Cover set: ${FileUtils.formatSize(out.length())}"
                     var thumbBmp: Bitmap? = null
                     try {
@@ -3377,7 +4153,25 @@ class VideoToolsActivity : AppCompatActivity() {
         // preview frame arrives — a stale rect from another video
         // must never be cropped).
         cropRect = intArrayOf(0, 0, 0, 0)
-        // BIG preview: one extracted frame + draggable crop frame.
+        // v0.1.199: the preview box SIZES TO THE VIDEO's aspect
+        // (portrait video = tall narrow box, centred, NO black
+        // bars) instead of a fixed 320dp full-width box. Capped at
+        // 340dp tall and the content width; falls back to the old
+        // full-width box when the size is unknown.
+        val vw = probeInfo?.width ?: 0
+        val vh = probeInfo?.height ?: 0
+        val maxBoxW = resources.displayMetrics.widthPixels - dp(32) // overlay side padding
+        val maxBoxH = dp(340)
+        val (boxW, boxH) = if (vw > 0 && vh > 0) {
+            val ratio = vw.toFloat() / vh.toFloat()
+            if (ratio >= maxBoxW.toFloat() / maxBoxH.toFloat()) {
+                maxBoxW to (maxBoxW / ratio).toInt()
+            } else {
+                (maxBoxH * ratio).toInt() to maxBoxH
+            }
+        } else {
+            maxBoxW to dp(320)
+        }
         val previewBox = FrameLayout(this).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
@@ -3385,9 +4179,10 @@ class VideoToolsActivity : AppCompatActivity() {
                 cornerRadius = dp(12).toFloat()
             }
             clipToOutline = true
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(320)
-            ).apply { topMargin = dp(12) }
+            layoutParams = LinearLayout.LayoutParams(boxW, boxH).apply {
+                topMargin = dp(12)
+                gravity = Gravity.CENTER_HORIZONTAL
+            }
         }
         val cropView = VideoCropView(this).apply {
             layoutParams = FrameLayout.LayoutParams(
@@ -3492,7 +4287,7 @@ class VideoToolsActivity : AppCompatActivity() {
         paintPresetCards()
         content.addView(resultLabel)
         val hint = TextView(this).apply {
-            text = "Drag the frame to move it. Drag a corner to resize."
+            text = "Drag the frame to move it. Drag a handle to resize."
             textSize = 13f
             setTextColor(getColor(R.color.hakunaa_text_secondary))
             layoutParams = LinearLayout.LayoutParams(

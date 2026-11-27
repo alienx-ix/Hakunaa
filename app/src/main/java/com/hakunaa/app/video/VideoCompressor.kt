@@ -92,6 +92,114 @@ object VideoCompressor {
     }
 
     /**
+     * Free-angle rotate (v0.1.199): rotate by ANY angle with the
+     * FFmpeg `rotate` filter (angle in radians, black fill). The
+     * output size is the bounding box of the rotated frame, so a
+     * 90-degree turn swaps width/height and a 45-degree turn keeps
+     * the whole frame (no cropping). ADDITIVE — the fixed
+     * transpose/flip RotateMode path above is untouched.
+     *
+     * Zoom/pan (from the Rotate preview) are honoured HONESTLY:
+     * zoom Z crops the centred (W/Z x H/Z) region (pan offset
+     * applied, clamped to valid bounds), scales it back to the
+     * original size, and the crop+scale run BEFORE the rotate
+     * filter. At default zoom (1.0, no pan) the crop is skipped.
+     * Flip (hflip/vflip) runs after the crop+scale and BEFORE the
+     * rotate — the same order as the preview's View transform
+     * (scale, then rotation).
+     */
+    fun buildRotateFreeCommand(
+        inputPath: String,
+        outputPath: String,
+        angleDeg: Float,
+        flipH: Boolean,
+        flipV: Boolean,
+        zoom: Float,
+        panXFrac: Float,
+        panYFrac: Float,
+        inputW: Int,
+        inputH: Int,
+        crf: Int = 28,
+        hasAudio: Boolean = true
+    ): Array<String> {
+        val args = mutableListOf<String>()
+        args += "-i"; args += inputPath
+        args += "-c:v"; args += "libx264"
+        args += "-crf"; args += crf.toString()
+        args += "-pix_fmt"; args += "yuv420p"
+        val filters = mutableListOf<String>()
+        val w = inputW.coerceAtLeast(2)
+        val h = inputH.coerceAtLeast(2)
+        val evenW = w - (w % 2)
+        val evenH = h - (h % 2)
+        // Zoom: crop the centred region (pan offset applied),
+        // then scale back to the original size.
+        if (zoom > 1.001f) {
+            val z = zoom.coerceIn(1f, 2f)
+            var cw = ((w / z).toInt() / 2 * 2).coerceAtLeast(2)
+            var ch = ((h / z).toInt() / 2 * 2).coerceAtLeast(2)
+            cw = cw.coerceAtMost(evenW)
+            ch = ch.coerceAtMost(evenH)
+            val maxX = ((w - cw).coerceAtLeast(0) / 2 * 2)
+            val maxY = ((h - ch).coerceAtLeast(0) / 2 * 2)
+            val x = (((w - cw) / 2f + panXFrac * cw).toInt() / 2 * 2).coerceIn(0, maxX)
+            val y = (((h - ch) / 2f + panYFrac * ch).toInt() / 2 * 2).coerceIn(0, maxY)
+            filters += "crop=$cw:$ch:$x:$y"
+            filters += "scale=$evenW:$evenH"
+        }
+        if (flipH) filters += "hflip"
+        if (flipV) filters += "vflip"
+        // Rotation: normalise to -180..180; output = bounding box.
+        var a = angleDeg % 360f
+        if (a > 180f) a -= 360f
+        if (a < -180f) a += 360f
+        if (a != 0f) {
+            val rad = Math.toRadians(a.toDouble())
+            val cos = Math.abs(Math.cos(rad))
+            val sin = Math.abs(Math.sin(rad))
+            val ow = ((evenW * cos + evenH * sin).toInt() / 2 * 2).coerceAtLeast(2)
+            val oh = ((evenW * sin + evenH * cos).toInt() / 2 * 2).coerceAtLeast(2)
+            filters += "rotate=$rad:ow=$ow:oh=$oh:fillcolor=black"
+        }
+        if (filters.isNotEmpty()) {
+            args += "-vf"; args += filters.joinToString(",")
+        }
+        if (hasAudio) {
+            args += "-c:a"; args += "aac"
+            args += "-b:a"; args += Presets.AUDIO_BITRATE
+        }
+        args += outputPath
+        return args.toTypedArray()
+    }
+
+    fun rotateFree(
+        inputPath: String,
+        outputPath: String,
+        angleDeg: Float,
+        flipH: Boolean,
+        flipV: Boolean,
+        zoom: Float,
+        panXFrac: Float,
+        panYFrac: Float,
+        inputW: Int,
+        inputH: Int,
+        onProgress: (Int) -> Unit,
+        onDone: (Boolean, String) -> Unit
+    ) {
+        try {
+            executeCommand(
+                buildRotateFreeCommand(
+                    inputPath, outputPath, angleDeg, flipH, flipV,
+                    zoom, panXFrac, panYFrac, inputW, inputH
+                ),
+                onProgress, onDone
+            )
+        } catch (t: Throwable) {
+            onDone(false, t.message ?: "Video engine failed to start")
+        }
+    }
+
+    /**
      * Build the Compress command as an argument ARRAY (argv), not a
      * single String. FFmpegKit's String-command parser splits on
      * spaces and mishandles quoting — that is what produced
