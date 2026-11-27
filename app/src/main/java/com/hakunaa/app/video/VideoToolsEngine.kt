@@ -484,6 +484,45 @@ object VideoToolsEngine {
         }
     }
 
+    /** Extract [count] evenly-spaced JPEG frames (~160px wide) for
+     * the Cutter timeline (v0.1.198 Fix 6). One FFmpeg run with
+     * -vf fps=<count/duration> writes thumb_001.jpg … into
+     * [outputDir]; onDone gets the files that exist, sorted.
+     * onDone runs on the FFmpeg callback thread — the caller must
+     * post to the UI thread. Never throws; failure = empty list
+     * (the timeline falls back to a plain strip). */
+    fun extractThumbnails(
+        inputPath: String,
+        outputDir: File,
+        count: Int,
+        durationMs: Long,
+        onDone: (List<File>) -> Unit
+    ) {
+        try {
+            outputDir.mkdirs()
+            val fps = if (durationMs > 0 && count > 0) {
+                count.toDouble() / (durationMs / 1000.0)
+            } else 0.1
+            val pattern = File(outputDir, "thumb_%03d.jpg").absolutePath
+            val argv = arrayOf(
+                "-i", inputPath,
+                "-vf", "fps=${"%.4f".format(fps)},scale=160:-1",
+                "-q:v", "5",
+                pattern
+            )
+            runSession(argv, 0L, {}, { ok, _ ->
+                val files = if (ok) {
+                    outputDir.listFiles()
+                        ?.filter { it.name.startsWith("thumb_") && it.name.endsWith(".jpg") }
+                        ?.sortedBy { it.name } ?: emptyList()
+                } else emptyList()
+                onDone(files)
+            })
+        } catch (t: Throwable) {
+            onDone(emptyList())
+        }
+    }
+
     fun buildAttachCoverCommand(
         inputPath: String,
         coverJpg: String,

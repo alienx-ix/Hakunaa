@@ -17,6 +17,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
+import android.view.WindowManager
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
@@ -290,6 +291,9 @@ class PdfToolsActivity : AppCompatActivity() {
     }
 
     private fun dismissGenericOverlay() {
+        // v0.1.198 Fix 3a: Protect/Unlock sets FLAG_SECURE — clear
+        // it on EVERY exit (this is the single shared exit path).
+        window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         val overlay = genericOverlay ?: return
         try {
             findViewById<ViewGroup>(android.R.id.content).removeView(overlay)
@@ -1537,7 +1541,10 @@ class PdfToolsActivity : AppCompatActivity() {
         private val items: MutableList<PdfTools.PageRef>,
         private val showAdd: Boolean,
         private val onTap: (Int) -> Unit,
-        private val onAdd: (() -> Unit)?
+        private val onAdd: (() -> Unit)?,
+        // v0.1.198 Fix 1: Delete Pages only — red ✕ badge + red
+        // border instead of the blue ✓. Organize keeps blue.
+        private val deleteMode: Boolean = false
     ) : RecyclerView.Adapter<PageGridAdapter.PageHolder>() {
 
         val selected = mutableSetOf<Int>()
@@ -1637,14 +1644,19 @@ class PdfToolsActivity : AppCompatActivity() {
             wrap.addView(thumb)
             val check = TextView(parent.context).apply {
                 tag = "check"
-                text = "✓"
+                // v0.1.198 Fix 1: Delete Pages shows a red ✕ (not
+                // the blue ✓) so the badge reads as delete.
+                text = if (deleteMode) "✕" else "✓"
                 textSize = 14f
                 setTypeface(null, android.graphics.Typeface.BOLD)
                 gravity = Gravity.CENTER
                 setTextColor(Color.WHITE)
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
-                    setColor(getColor(R.color.hakunaa_blue))
+                    setColor(
+                        if (deleteMode) Color.parseColor("#E53935")
+                        else getColor(R.color.hakunaa_blue)
+                    )
                 }
                 layoutParams = FrameLayout.LayoutParams(
                     (26 * density).toInt(), (26 * density).toInt()
@@ -1680,7 +1692,9 @@ class PdfToolsActivity : AppCompatActivity() {
                 if (isSel) {
                     setStroke(
                         (2 * holder.root.resources.displayMetrics.density).toInt(),
-                        getColor(R.color.hakunaa_blue)
+                        // v0.1.198 Fix 1: red border in Delete Pages.
+                        if (deleteMode) Color.parseColor("#E53935")
+                        else getColor(R.color.hakunaa_blue)
                     )
                 }
             }
@@ -3847,7 +3861,7 @@ class PdfToolsActivity : AppCompatActivity() {
                     runOnUiThread {
                         if (published > 0 && firstUri != null && firstFile != null) {
                             dismissGenericOverlay()
-                            SavedDialog.show(this@PdfToolsActivity, firstFile, firstUri, ImageCompressor.formatOf(firstFile), accentRes = R.color.hakunaa_blue)
+                            SavedDialog.show(this@PdfToolsActivity, firstFile, firstUri, ImageCompressor.formatOf(firstFile), thumbFile = firstFile, accentRes = R.color.hakunaa_blue)
                         } else {
                             status.text = "Save failed — check the file and try again"
                         }
@@ -4000,7 +4014,7 @@ class PdfToolsActivity : AppCompatActivity() {
                     runOnUiThread {
                         if (published > 0 && firstUri != null && firstFile != null) {
                             dismissGenericOverlay()
-                            SavedDialog.show(this@PdfToolsActivity, firstFile, firstUri, ImageCompressor.formatOf(firstFile), accentRes = R.color.hakunaa_blue)
+                            SavedDialog.show(this@PdfToolsActivity, firstFile, firstUri, ImageCompressor.formatOf(firstFile), thumbFile = firstFile, accentRes = R.color.hakunaa_blue)
                         } else {
                             status.text = "Save failed — check the file and try again"
                         }
@@ -4171,6 +4185,9 @@ class PdfToolsActivity : AppCompatActivity() {
         // option cards — declare it up front.
         var btnAction: TextView? = null
         val root = newToolOverlay("Protect / Unlock")
+        // v0.1.198 Fix 3a: block screenshots on this screen only
+        // (password visible here). Cleared in dismissGenericOverlay.
+        window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         root.addView(toolFileLine("${input.name} • $total page(s)"))
         val preview = toolPreviewBox()
         root.addView(preview)
@@ -4217,6 +4234,10 @@ class PdfToolsActivity : AppCompatActivity() {
         infoBox.addView(infoTitle)
         infoBox.addView(infoLines)
         fun refreshInfoBox() {
+            // v0.1.198 Fix 3b: bottom button label follows the
+            // mode. Null-safe — runs during setup before btnAction
+            // is assigned, and on every card tap after.
+            btnAction?.text = if (mode == 0) "Protect and Lock" else "Unlock"
             if (mode == 0) {
                 infoTitle.text = "Lock — Instructions"
                 infoLines.text = "• Sets a password on this PDF.\n" +
@@ -4372,10 +4393,12 @@ class PdfToolsActivity : AppCompatActivity() {
                 marginEnd = dp(8)
             }
         }
-        // v0.1.193: bottom row is Back + Save. Save runs the
-        // protect/unlock and shows the preview/result screen —
-        // it never saves directly.
-        btnAction = popupPillButton("Save", true) {
+        // v0.1.193: bottom row is Back + action. The action runs
+        // the protect/unlock and shows the preview/result screen —
+        // it never saves directly. v0.1.198 Fix 3b: label is
+        // "Protect and Lock" in Lock mode, "Unlock" in Unlock mode
+        // (refreshInfoBox keeps it in sync on mode change).
+        btnAction = popupPillButton("Protect and Lock", true) {
             val password = etPassword.text.toString()
             if (password.isEmpty()) {
                 status.text = "Type a password first"
@@ -4665,7 +4688,10 @@ private fun deletePagesPdf() {
                 btnAction.text = if (n == 0) "Delete pages" else "Delete $n page${if (n == 1) "" else "s"}"
                 status.text = if (n == 0) "No pages selected" else "$n page(s) selected to delete"
             },
-            onAdd = null
+            onAdd = null,
+            // v0.1.198 Fix 1: red ✕ badges here only (Organize
+            // keeps the blue ✓).
+            deleteMode = true
         )
         grid.adapter = adapter
         root.addView(grid)

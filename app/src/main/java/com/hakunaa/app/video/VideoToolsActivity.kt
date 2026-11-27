@@ -77,6 +77,14 @@ class VideoToolsActivity : AppCompatActivity() {
             singleVideoCallback = null
         }
 
+    // Gallery image picker for Custom Thumbnail (v0.1.198 Fix 7).
+    private var singleImageCallback: ((Uri) -> Unit)? = null
+    private val pickSingleImage =
+        registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            if (uri != null) singleImageCallback?.invoke(uri)
+            singleImageCallback = null
+        }
+
     // Full-screen tool overlay (one at a time).
     private var toolOverlay: View? = null
     private var overlayBitmaps = mutableListOf<Bitmap>()
@@ -109,6 +117,10 @@ class VideoToolsActivity : AppCompatActivity() {
     private var smartResults = mutableListOf<SmartResult>()
     private var smartSelected = -1
     private var smartRunning = false
+    // v0.1.198 Fix 5: the bottom "Save selected" button of the
+    // fixed Smart screen (created in showSmartScreen, shown by
+    // showSmartResults once results exist).
+    private var smartSaveBtn: TextView? = null
 
     private data class SmartResult(
         val label: String,
@@ -721,6 +733,59 @@ class VideoToolsActivity : AppCompatActivity() {
         return content
     }
 
+    /** Fixed (non-scrolling) tool overlay — v0.1.198 Fix 5
+     * (Smart Compress redesign). SAME root + header as
+     * newToolOverlay, but the content is NOT inside a ScrollView:
+     * the content LinearLayout takes weight 1, so the screen is a
+     * fixed layout (header + fixed content) that cannot scroll.
+     * Registered the same way (toolOverlay field, added to
+     * android.R.id.content), so dismissToolOverlay clears it. */
+    private fun newFixedToolOverlay(title: String, topExtraDp: Int = 16): LinearLayout {
+        dismissToolOverlay()
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(getColor(R.color.hakunaa_surface))
+            setPadding(dp(16), statusBarHeightPx() + dp(topExtraDp), dp(16), dp(16))
+            isClickable = true
+            isFocusable = true
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val close = TextView(this).apply {
+            text = "✕"
+            textSize = 22f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            setPadding(dp(4), dp(4), dp(16), dp(4))
+            setOnClickListener { attemptLeaveVideo { dismissToolOverlay() } }
+        }
+        val titleView = TextView(this).apply {
+            text = title
+            textSize = 20f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        header.addView(close)
+        header.addView(titleView)
+        root.addView(header)
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            )
+        }
+        root.addView(content)
+        findViewById<ViewGroup>(android.R.id.content).addView(root)
+        toolOverlay = root
+        return content
+    }
+
     private fun dismissToolOverlay() {
         closeFullScreenPlayer()
         val overlay = toolOverlay ?: return
@@ -1015,25 +1080,43 @@ class VideoToolsActivity : AppCompatActivity() {
     private fun pickVideoThen(action: () -> Unit) {
         singleVideoCallback = { uri ->
             inputUri = uri
-            inputSize = FileUtils.fileSize(contentResolver, uri)
-            inputName = FileUtils.fileName(contentResolver, uri)
-            // Convert default (user 2026-11-24): a new video always
-            // starts on MP4. (Reset here, not in showConvertScreen,
-            // so Back from the result screen keeps the chosen format.)
-            convertFormat = VideoToolsEngine.ConvertFormat.MP4
-            convertRes = VideoCompressor.Resolution.ORIGINAL
-            try {
-                inputFile = FileUtils.copyUriToCache(
-                    this, uri, "input_${System.currentTimeMillis()}.mp4"
-                )
-            } catch (t: Throwable) {
-                toast("Could not read this video: ${t.message ?: "unknown error"}")
-                inputFile = null
-            }
-            probeInfo = inputFile?.let { VideoToolsEngine.probe(it.absolutePath) }
-            if (inputFile != null) {
-                action()
-            }
+            // v0.1.198 Fix 4: show "Loading video…" IMMEDIATELY
+            // when the picker returns, then copy + probe on a
+            // BACKGROUND thread. (Was all synchronous on the main
+            // thread with no feedback — the UI froze until the tool
+            // screen finally appeared.)
+            val loading = showCompressLoadingDialog("Preparing your video…", "Loading video…")
+            Thread {
+                try {
+                    inputSize = FileUtils.fileSize(contentResolver, uri)
+                    inputName = FileUtils.fileName(contentResolver, uri)
+                    // Convert default (user 2026-11-24): a new video always
+                    // starts on MP4. (Reset here, not in showConvertScreen,
+                    // so Back from the result screen keeps the chosen format.)
+                    convertFormat = VideoToolsEngine.ConvertFormat.MP4
+                    convertRes = VideoCompressor.Resolution.ORIGINAL
+                    try {
+                        inputFile = FileUtils.copyUriToCache(
+                            this, uri, "input_${System.currentTimeMillis()}.mp4"
+                        )
+                    } catch (t: Throwable) {
+                        runOnUiThread { toast("Could not read this video: ${t.message ?: "unknown error"}") }
+                        inputFile = null
+                    }
+                    probeInfo = inputFile?.let { VideoToolsEngine.probe(it.absolutePath) }
+                    runOnUiThread {
+                        try { loading.dialog.dismiss() } catch (_: Throwable) { }
+                        if (inputFile != null) {
+                            action()
+                        }
+                    }
+                } catch (t: Throwable) {
+                    runOnUiThread {
+                        try { loading.dialog.dismiss() } catch (_: Throwable) { }
+                        toast("Could not read this video: ${t.message ?: "unknown error"}")
+                    }
+                }
+            }.start()
         }
         pickSingleVideo.launch("video/*")
     }
@@ -1422,13 +1505,19 @@ class VideoToolsActivity : AppCompatActivity() {
     private fun showCompressScreen(tab: Int) {
         compressTab = tab
         smartRunning = false
+        // v0.1.198 Fix 5: Smart is a FIXED screen (no tabs, no
+        // scroll) — built separately in showSmartScreen.
+        if (compressTab == 1) {
+            showSmartScreen()
+            return
+        }
         // Header a little higher (user 2026-11-24): top extra
         // 16dp -> 8dp.
         val content = newToolOverlay("Compress Video", 8)
         // Tabs — Quick has NO tabs (user 2026-11-24: remove the
         // Quick / Smart / Advanced buttons from Quick Compress).
-        // Smart / Advanced keep them for now.
-        if (compressTab != 0) {
+        // Smart lost them in v0.1.198 Fix 5; Advanced keeps them.
+        if (compressTab == 2) {
             val tabs = chipRow(listOf("Quick", "Smart", "Advanced"), compressTab) { i ->
                 compressTab = i
                 showCompressScreen(i)
@@ -1475,9 +1564,78 @@ class VideoToolsActivity : AppCompatActivity() {
         content.addView(resultBox)
         when (compressTab) {
             0 -> buildQuickOptions(optionsBox, actionBox, pv, resultBox)
-            1 -> buildSmartOptions(optionsBox, actionBox, pv, resultBox)
             else -> buildAdvancedOptions(optionsBox, actionBox, pv, resultBox)
         }
+    }
+
+    /** Smart Compress — FIXED screen (v0.1.198 Fix 5). No tabs, no
+     * scroll: file info + preview + Play preview on top, an EMPTY
+     * middle (weight 1) where progress + results appear, and at
+     * the bottom "Save selected" (only once results exist) above
+     * "Analyze & Compress" (always visible, pinned). No explain
+     * text, no "Done" button — the X in the header closes it. */
+    private fun showSmartScreen() {
+        smartRunning = false
+        val content = newFixedToolOverlay("Compress Video", 8)
+        content.addView(fileInfoCard())
+        // Top video preview (input) — as the old buildSmartOptions.
+        val preview = ExoVideoView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(200)
+            ).apply { topMargin = dp(12) }
+        }
+        inputUri?.let { preview.setVideoURI(it) }
+        content.addView(preview)
+        smartPreviewView = preview
+        activeVideoViews.add(preview)
+        val playPreview = popupPillButton("▶  Play preview", false) {
+            inputUri?.let { showFullScreenPlayer(it) }
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(48)
+            ).apply { topMargin = dp(8) }
+        }
+        content.addView(playPreview)
+        // Middle: weight 1 — EMPTY at first; the progress bar +
+        // status + result rows appear here.
+        val middleBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            )
+        }
+        content.addView(middleBox)
+        val pv = addProgressViews(middleBox)
+        // Empty middle at first — hide the status/result lines
+        // until a compress run starts (the Analyze button shows
+        // them again before calling runSmart).
+        pv.status.visibility = View.GONE
+        pv.result.visibility = View.GONE
+        val resultBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        middleBox.addView(resultBox)
+        // Bottom: "Save selected" (hidden until results exist)
+        // directly above "Analyze & Compress".
+        smartSaveBtn = actionButton("Save selected") {
+            val sel = smartResults.getOrNull(smartSelected) ?: return@actionButton
+            pv.status.visibility = View.VISIBLE
+            pv.status.text = "Saving ${sel.label} version…"
+            saveVideoAndShow(sel.file, "Movies/Hakunaa", "MP4", "video/mp4")
+        }.apply { visibility = View.GONE }
+        content.addView(smartSaveBtn)
+        val analyzeBtn = actionButton("Analyze & Compress") {
+            pv.status.visibility = View.VISIBLE
+            pv.result.visibility = View.VISIBLE
+            runSmart(pv, resultBox)
+        }
+        content.addView(analyzeBtn)
+        // If results already exist (re-entering Smart), show them again.
+        if (smartResults.isNotEmpty()) showSmartResults(pv, resultBox)
     }
 
     private fun codecChips(selected: VideoCompressor.Codec, onSelect: (VideoCompressor.Codec) -> Unit): LinearLayout {
@@ -1792,47 +1950,6 @@ class VideoToolsActivity : AppCompatActivity() {
 
     // ---- Smart ----
 
-    private fun buildSmartOptions(
-        optionsBox: LinearLayout,
-        actionBox: LinearLayout,
-        pv: ProgressViews,
-        resultBox: LinearLayout
-    ) {
-        val explain = TextView(this).apply {
-            text = "Smart makes 3 versions of your video — 1080p, 720p and 480p — " +
-                "and shows their real sizes. Pick the best one to save."
-            textSize = 14f
-            setTextColor(getColor(R.color.hakunaa_text_secondary))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(12) }
-        }
-        optionsBox.addView(explain)
-        // Top video preview (input).
-        val preview = ExoVideoView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(200)
-            ).apply { topMargin = dp(12) }
-        }
-        inputUri?.let { preview.setVideoURI(it) }
-        optionsBox.addView(preview)
-        smartPreviewView = preview
-        activeVideoViews.add(preview)
-        val playPreview = popupPillButton("▶  Play preview", false) {
-            inputUri?.let { showFullScreenPlayer(it) }
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(48)
-            ).apply { topMargin = dp(8) }
-        }
-        optionsBox.addView(playPreview)
-        val btn = actionButton("Analyze & Compress") { runSmart(pv, resultBox) }
-        actionBox.addView(btn)
-        // If results already exist (tab switch), show them again.
-        if (smartResults.isNotEmpty()) showSmartResults(pv, resultBox)
-    }
-
     private fun runSmart(pv: ProgressViews, resultBox: LinearLayout) {
         val input = inputFile ?: return
         if (!engineGuard()) return
@@ -2012,20 +2129,10 @@ class VideoToolsActivity : AppCompatActivity() {
             rows.add(row)
             resultBox.addView(row)
         }
-        val saveBtn = actionButton("Save selected") {
-            val sel = smartResults.getOrNull(smartSelected) ?: return@actionButton
-            pv.status.text = "Saving ${sel.label} version…"
-            saveVideoAndShow(sel.file, "Movies/Hakunaa", "MP4", "video/mp4")
-        }
-        resultBox.addView(saveBtn)
-        val doneBtn = popupPillButton("Done", false) {
-            dismissToolOverlay()
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(52)
-            ).apply { topMargin = dp(12) }
-        }
-        resultBox.addView(doneBtn)
+        // v0.1.198 Fix 5: "Save selected" is the BOTTOM button
+        // (created in showSmartScreen) — show it now that results
+        // exist. No "Done" button; the X in the header closes it.
+        smartSaveBtn?.visibility = View.VISIBLE
     }
 
     private fun setSmartRowSelected(row: LinearLayout, selected: Boolean) {
@@ -2671,24 +2778,50 @@ class VideoToolsActivity : AppCompatActivity() {
         val durationMs = probeInfo?.durationMs ?: 0L
         cutStartMs = 0L
         cutEndMs = durationMs
+        // BIG preview (v0.1.198 Fix 6) — tap toggles play/pause
+        // in place.
         val preview = ExoVideoView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(200)
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(280)
             ).apply { topMargin = dp(12) }
         }
         inputUri?.let { preview.setVideoURI(it) }
         content.addView(preview)
         activeVideoViews.add(preview)
-        val seek = SeekBar(this).apply {
-            max = durationMs.toInt().coerceAtLeast(1)
+        preview.setOnClickListener {
+            try {
+                if (preview.isPlaying()) preview.pause() else preview.start()
+            } catch (_: Throwable) {
+            }
+        }
+        // Timeline with drag handles (v0.1.198 Fix 6) — replaces
+        // the thin SeekBar + Set Start / Set End buttons.
+        val trimLabel = TextView(this).apply {
+            text = "TRIM  —  drag the handles"
+            textSize = 12f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(16) }
+        }
+        content.addView(trimLabel)
+        val trimView = VideoTrimView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(96)
+            ).apply { topMargin = dp(8) }
+            this.durationMs = durationMs
+            startMs = 0L
+            endMs = durationMs
+        }
+        content.addView(trimView)
+        val timeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(8) }
-        }
-        content.addView(seek)
-        val timeRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
         }
         val tvStart = TextView(this).apply {
             text = "Start  00:00"
@@ -2697,79 +2830,69 @@ class VideoToolsActivity : AppCompatActivity() {
             setTextColor(getColor(R.color.hakunaa_text))
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
+        val tvClip = TextView(this).apply {
+            text = "Clip  ${formatClock(durationMs)}"
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(pinkDark)
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
         val tvEnd = TextView(this).apply {
             text = "End  ${formatClock(durationMs)}"
             textSize = 14f
             setTypeface(null, android.graphics.Typeface.BOLD)
             setTextColor(getColor(R.color.hakunaa_text))
+            gravity = Gravity.END
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         timeRow.addView(tvStart)
+        timeRow.addView(tvClip)
         timeRow.addView(tvEnd)
         content.addView(timeRow)
-        seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
-                if (fromUser) {
-                    try {
-                        preview.seekTo(p)
-                    } catch (_: Throwable) {
+        fun refreshTimes() {
+            tvStart.text = "Start  ${formatClock(cutStartMs)}"
+            tvClip.text = "Clip  ${formatClock(cutEndMs - cutStartMs)}"
+            tvEnd.text = "End  ${formatClock(cutEndMs)}"
+        }
+        trimView.onRangeChanged = { s, e ->
+            cutStartMs = s
+            cutEndMs = e
+            refreshTimes()
+            try {
+                preview.seekTo(s.toInt())
+            } catch (_: Throwable) {
+            }
+        }
+        // Timeline thumbnails — extracted in the background; the
+        // timeline stays usable (grey strip) until they arrive.
+        Thread {
+            try {
+                val input = inputFile
+                if (input != null && durationMs > 0) {
+                    val thumbDir = File(cacheDir, "hakunaa_trim_${System.currentTimeMillis()}").apply { mkdirs() }
+                    VideoToolsEngine.extractThumbnails(input.absolutePath, thumbDir, 8, durationMs) { files ->
+                        runOnUiThread {
+                            try {
+                                val bmps = files.mapNotNull { f ->
+                                    try {
+                                        BitmapFactory.decodeFile(f.absolutePath)
+                                    } catch (_: Throwable) {
+                                        null
+                                    }
+                                }
+                                if (bmps.isNotEmpty()) {
+                                    overlayBitmaps.addAll(bmps)
+                                    trimView.setThumbnails(bmps)
+                                }
+                            } catch (_: Throwable) {
+                            }
+                        }
                     }
                 }
-            }
-
-            override fun onStartTrackingTouch(s: SeekBar?) {}
-            override fun onStopTrackingTouch(s: SeekBar?) {}
-        })
-        val playBtn = popupPillButton("▶  Play", false) {
-            inputUri?.let { showFullScreenPlayer(it) }
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(48)
-            ).apply { topMargin = dp(8) }
-        }
-        content.addView(playBtn)
-        val setRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(12) }
-        }
-        val btnSetStart = popupPillButton("Set Start", false) {
-            try {
-                cutStartMs = preview.currentPosition.toLong()
-                tvStart.text = "Start  ${formatClock(cutStartMs)}"
             } catch (_: Throwable) {
             }
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f).apply {
-                marginEnd = dp(8)
-            }
-        }
-        val btnSetEnd = popupPillButton("Set End", false) {
-            try {
-                cutEndMs = preview.currentPosition.toLong()
-                tvEnd.text = "End  ${formatClock(cutEndMs)}"
-            } catch (_: Throwable) {
-            }
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f).apply {
-                marginStart = dp(8)
-            }
-        }
-        setRow.addView(btnSetStart)
-        setRow.addView(btnSetEnd)
-        content.addView(setRow)
-        val cutNote = TextView(this).apply {
-            text = "Move the slider (or play) to a moment, then tap Set Start / Set End. " +
-                "The cut is instant — the video is not re-encoded, so cuts land on keyframes."
-            textSize = 13f
-            setTextColor(getColor(R.color.hakunaa_text_secondary))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(12) }
-        }
-        content.addView(cutNote)
+        }.start()
         val pv = addProgressViews(content)
         val cutBtn = actionButton("Cut Clip") {
             if (cutEndMs <= cutStartMs) {
@@ -2956,18 +3079,109 @@ class VideoToolsActivity : AppCompatActivity() {
             override fun onStartTrackingTouch(s: SeekBar?) {}
             override fun onStopTrackingTouch(s: SeekBar?) {}
         })
-        val playBtn = popupPillButton("▶  Play", false) {
-            inputUri?.let { showFullScreenPlayer(it) }
-        }.apply {
+        // CHOOSE THUMBNAIL — two sources (v0.1.198 Fix 7).
+        content.addView(sectionLabel("CHOOSE THUMBNAIL"))
+        var thumbSource = 0 // 0 From Video, 1 From Gallery
+        val sourceCards = mutableListOf<FrameLayout>()
+        fun paintSourceCards() {
+            for (i in sourceCards.indices) {
+                val sel = i == thumbSource
+                sourceCards[i].background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(12).toFloat()
+                    if (sel) {
+                        setColor(pinkCard)
+                        setStroke(dp(2), pinkBorder)
+                    } else {
+                        setColor(Color.WHITE)
+                        setStroke(dp(1), Color.parseColor("#CFD8DC"))
+                    }
+                }
+            }
+        }
+        fun sourceCard(icon: String, title: String, sub: String, isNew: Boolean): FrameLayout {
+            val card = FrameLayout(this).apply {
+                layoutParams = LinearLayout.LayoutParams(0, dp(104), 1f)
+                isClickable = true
+                isFocusable = true
+            }
+            val col = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dp(8), dp(10), dp(8), dp(10))
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            }
+            col.addView(TextView(this).apply {
+                text = icon
+                textSize = 26f
+                gravity = Gravity.CENTER
+                setTextColor(pinkDark)
+            })
+            col.addView(TextView(this).apply {
+                text = title
+                textSize = 15f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setTextColor(getColor(R.color.hakunaa_text))
+                setPadding(0, dp(4), 0, 0)
+            })
+            col.addView(TextView(this).apply {
+                text = sub
+                textSize = 12f
+                gravity = Gravity.CENTER
+                setTextColor(getColor(R.color.hakunaa_text_secondary))
+            })
+            card.addView(col)
+            if (isNew) {
+                val badge = TextView(this).apply {
+                    text = "NEW"
+                    textSize = 10f
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    setTextColor(Color.WHITE)
+                    gravity = Gravity.CENTER
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = dp(9).toFloat()
+                        setColor(getColor(R.color.hakunaa_success))
+                    }
+                    setPadding(dp(7), dp(3), dp(7), dp(3))
+                    layoutParams = FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        FrameLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        gravity = Gravity.TOP or Gravity.END
+                        setMargins(0, dp(6), dp(6), 0)
+                    }
+                }
+                card.addView(badge)
+            }
+            sourceCards.add(card)
+            return card
+        }
+        val cardsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(48)
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(8) }
         }
-        content.addView(playBtn)
+        val cardVideo = sourceCard("▶", "From Video", "Capture a frame", false)
+        val cardGallery = sourceCard("🖼", "From Gallery", "Pick any photo", true)
+        (cardVideo.layoutParams as LinearLayout.LayoutParams).marginEnd = dp(8)
+        (cardGallery.layoutParams as LinearLayout.LayoutParams).marginStart = dp(8)
+        cardsRow.addView(cardVideo)
+        cardsRow.addView(cardGallery)
+        content.addView(cardsRow)
+        // Big chosen-thumbnail preview (grey placeholder until a
+        // thumbnail is chosen).
+        content.addView(sectionLabel("YOUR THUMBNAIL"))
         val framePreview = ImageView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(180)
-            ).apply { topMargin = dp(12) }
+            ).apply { topMargin = dp(8) }
             scaleType = ImageView.ScaleType.CENTER_CROP
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
@@ -2975,7 +3189,6 @@ class VideoToolsActivity : AppCompatActivity() {
                 cornerRadius = dp(12).toFloat()
             }
             clipToOutline = true
-            visibility = View.GONE
         }
         content.addView(framePreview)
         val pv = addProgressViews(content)
@@ -2991,17 +3204,82 @@ class VideoToolsActivity : AppCompatActivity() {
             runAttachCover(pv)
         }
         content.addView(saveBtn)
-        val note = TextView(this).apply {
-            text = "Move the slider to the frame you want, capture it, then set it as the cover. " +
-                "The cover shows in your gallery and video players."
-            textSize = 13f
-            setTextColor(getColor(R.color.hakunaa_text_secondary))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(12) }
+        // Gallery pick (v0.1.198 Fix 7): copy to cache, SCALE to
+        // the video's size (attachCover does no scaling — a raw
+        // 12 MP photo would bloat the MP4), then use it as the cover.
+        fun pickGalleryImage(preview: ImageView, pv: ProgressViews) {
+            singleImageCallback = { uri ->
+                Thread {
+                    try {
+                        val picked = FileUtils.copyUriToCache(
+                            this, uri, "hakunaa_cover_pick_${System.currentTimeMillis()}.jpg"
+                        )
+                        val vw = probeInfo?.width ?: 0
+                        val vh = probeInfo?.height ?: 0
+                        val maxEdge = if (vw > 0 && vh > 0) Math.max(vw, vh) else 1080
+                        var scaled: File? = null
+                        try {
+                            val bmp = BitmapFactory.decodeFile(picked.absolutePath)
+                            if (bmp != null) {
+                                val longEdge = Math.max(bmp.width, bmp.height)
+                                val out = File(cacheDir, "hakunaa_cover_scaled_${System.currentTimeMillis()}.jpg")
+                                if (longEdge <= maxEdge) {
+                                    java.io.FileOutputStream(out).use {
+                                        bmp.compress(Bitmap.CompressFormat.JPEG, 90, it)
+                                    }
+                                } else {
+                                    val scale = maxEdge.toFloat() / longEdge.toFloat()
+                                    val nw = (bmp.width * scale).toInt().coerceAtLeast(2)
+                                    val nh = (bmp.height * scale).toInt().coerceAtLeast(2)
+                                    val small = Bitmap.createScaledBitmap(bmp, nw, nh, true)
+                                    java.io.FileOutputStream(out).use {
+                                        small.compress(Bitmap.CompressFormat.JPEG, 90, it)
+                                    }
+                                    small.recycle()
+                                }
+                                bmp.recycle()
+                                scaled = out
+                            }
+                        } catch (_: Throwable) {
+                            scaled = null
+                        }
+                        val result = scaled
+                        runOnUiThread {
+                            if (result != null && result.exists()) {
+                                thumbFrameFile = result
+                                try {
+                                    val bmp = BitmapFactory.decodeFile(result.absolutePath)
+                                    if (bmp != null) {
+                                        overlayBitmaps.add(bmp)
+                                        preview.setImageBitmap(bmp)
+                                    }
+                                } catch (_: Throwable) {
+                                }
+                                pv.status.text = "Photo picked — tap Set as Cover & Save"
+                            } else {
+                                toast("Could not read that photo")
+                            }
+                        }
+                    } catch (_: Throwable) {
+                        runOnUiThread { toast("Could not read that photo") }
+                    }
+                }.start()
+            }
+            pickSingleImage.launch("image/*")
         }
-        content.addView(note)
+        // Source selection.
+        paintSourceCards()
+        cardVideo.setOnClickListener {
+            thumbSource = 0
+            paintSourceCards()
+            captureBtn.visibility = View.VISIBLE
+        }
+        cardGallery.setOnClickListener {
+            thumbSource = 1
+            paintSourceCards()
+            captureBtn.visibility = View.GONE
+            pickGalleryImage(framePreview, pv)
+        }
     }
 
     private fun runCaptureFrame(pv: ProgressViews, framePreview: ImageView) {
@@ -3036,7 +3314,9 @@ class VideoToolsActivity : AppCompatActivity() {
         val input = inputFile ?: return
         val cover = thumbFrameFile
         if (cover == null || !cover.exists()) {
-            toast("Capture a frame first")
+            // v0.1.198 Fix 7: two sources now (video frame or
+            // gallery photo) — the prompt names neither.
+            toast("Choose a thumbnail first")
             return
         }
         if (!engineGuard()) return
@@ -3064,50 +3344,63 @@ class VideoToolsActivity : AppCompatActivity() {
     }
 
     // ------------------------------------------------------------------
-    // Video Crop — aspect presets, centered crop.
+    // Video Crop — social presets + draggable frame (v0.1.198 Fix 8).
     // ------------------------------------------------------------------
 
-    private var cropAspect = "16:9"
+    private data class CropPreset(
+        val name: String,
+        val ratio: Float, // width / height
+        val resolution: String // standard resolution for that platform
+    )
 
-    private fun cropDimsFor(aspect: String, w: Int, h: Int): IntArray? {
-        if (w <= 0 || h <= 0) return null
-        val parts = aspect.split(":")
-        if (parts.size != 2) return null
-        val aw = parts[0].toDoubleOrNull() ?: return null
-        val ah = parts[1].toDoubleOrNull() ?: return null
-        if (aw <= 0 || ah <= 0) return null
-        val target = aw / ah
-        val src = w.toDouble() / h.toDouble()
-        val (cw, ch) = if (src > target) {
-            // Too wide — trim the sides.
-            val nh = h
-            val nw = (h * target).toInt()
-            nw to nh
-        } else {
-            // Too tall — trim top and bottom.
-            val nw = w
-            val nh = (w / target).toInt()
-            nw to nh
-        }
-        // yuv420p needs even dimensions.
-        val ew = (cw / 2) * 2
-        val eh = (ch / 2) * 2
-        if (ew <= 0 || eh <= 0) return null
-        val x = ((w - ew) / 2 / 2) * 2
-        val y = ((h - eh) / 2 / 2) * 2
-        return intArrayOf(ew, eh, x, y)
-    }
+    private val cropPresets = listOf(
+        CropPreset("YouTube", 16f / 9f, "1920×1080"),
+        CropPreset("IG Post", 1f, "1080×1080"),
+        CropPreset("Portrait", 4f / 5f, "1080×1350"),
+        CropPreset("Reel", 9f / 16f, "1080×1920"),
+        CropPreset("Story", 9f / 16f, "1080×1920"),
+        CropPreset("Shorts", 9f / 16f, "1080×1920"),
+        CropPreset("Status", 9f / 16f, "1080×1920"),
+        CropPreset("Snapchat", 9f / 16f, "1080×1920"),
+        CropPreset("Facebook", 4f / 3f, "1440×1080"),
+        CropPreset("Pinterest", 2f / 3f, "1000×1500"),
+        CropPreset("Cinema", 21f / 9f, "2560×1080"),
+        CropPreset("X Post", 16f / 9f, "1920×1080")
+    )
+    private var cropPresetIdx = 0
+    private var cropRect = intArrayOf(0, 0, 0, 0) // x, y, w, h in video pixels
 
     private fun showCropScreen() {
         val content = newToolOverlay("Video Crop")
         content.addView(fileInfoCard())
-        val p = probeInfo
-        val w = p?.width ?: 0
-        val h = p?.height ?: 0
-        content.addView(sectionLabel("CROP TO"))
-        val aspects = listOf("16:9", "1:1", "9:16", "4:3")
+        // Fresh frame for this video (the rect is rebuilt when the
+        // preview frame arrives — a stale rect from another video
+        // must never be cropped).
+        cropRect = intArrayOf(0, 0, 0, 0)
+        // BIG preview: one extracted frame + draggable crop frame.
+        val previewBox = FrameLayout(this).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(getColor(R.color.hakunaa_outline))
+                cornerRadius = dp(12).toFloat()
+            }
+            clipToOutline = true
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(320)
+            ).apply { topMargin = dp(12) }
+        }
+        val cropView = VideoCropView(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+        previewBox.addView(cropView)
+        content.addView(previewBox)
+        // Result line — updated live as the frame moves/resizes.
         val resultLabel = TextView(this).apply {
             textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
             setTextColor(getColor(R.color.hakunaa_text))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -3115,33 +3408,132 @@ class VideoToolsActivity : AppCompatActivity() {
             ).apply { topMargin = dp(12) }
         }
         fun updateResult() {
-            if (w <= 0 || h <= 0) {
-                resultLabel.text = "Couldn't read this video's size."
-                return
+            val preset = cropPresets[cropPresetIdx]
+            val r = cropRect
+            resultLabel.text = if (r[2] > 0 && r[3] > 0) {
+                "${preset.name}  •  ${preset.resolution}  —  Result: ${r[2]}×${r[3]}"
+            } else {
+                "${preset.name}  •  ${preset.resolution}"
             }
-            val dims = cropDimsFor(cropAspect, w, h)
-            if (dims == null) {
-                resultLabel.text = "This video is already $cropAspect."
-                return
-            }
-            resultLabel.text = "Result: ${dims[0]}×${dims[1]}  (from ${w}×${h}, centered)"
         }
-        content.addView(chipRow(aspects, aspects.indexOf(cropAspect)) { i ->
-            cropAspect = aspects[i]
+        cropView.onFrameChanged = { x, y, cw, ch ->
+            cropRect = intArrayOf(x, y, cw, ch)
             updateResult()
-        })
-        updateResult()
+        }
+        // Social media presets (3 rows x 4).
+        content.addView(sectionLabel("SOCIAL MEDIA"))
+        val presetCards = mutableListOf<LinearLayout>()
+        fun paintPresetCards() {
+            for (i in presetCards.indices) {
+                val sel = i == cropPresetIdx
+                presetCards[i].background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(12).toFloat()
+                    if (sel) {
+                        setColor(pinkCard)
+                        setStroke(dp(2), pinkBorder)
+                    } else {
+                        setColor(Color.WHITE)
+                        setStroke(dp(1), Color.parseColor("#CFD8DC"))
+                    }
+                }
+                // Name turns pink when selected.
+                val nameTv = presetCards[i].getChildAt(0) as TextView
+                nameTv.setTextColor(if (sel) pinkDark else getColor(R.color.hakunaa_text))
+            }
+        }
+        val grid = GridLayout(this).apply {
+            columnCount = 4
+            rowCount = 3
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+        for ((i, preset) in cropPresets.withIndex()) {
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dp(4), dp(10), dp(4), dp(10))
+                isClickable = true
+                isFocusable = true
+                layoutParams = GridLayout.LayoutParams().apply {
+                    width = 0
+                    height = dp(80)
+                    columnSpec = GridLayout.spec(i % 4, 1f)
+                    rowSpec = GridLayout.spec(i / 4)
+                    setMargins(dp(4), dp(4), dp(4), dp(4))
+                }
+            }
+            card.addView(TextView(this).apply {
+                text = preset.name
+                textSize = 14f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setTextColor(getColor(R.color.hakunaa_text))
+            })
+            card.addView(TextView(this).apply {
+                text = preset.resolution
+                textSize = 11f
+                gravity = Gravity.CENTER
+                setTextColor(getColor(R.color.hakunaa_text_secondary))
+                setPadding(0, dp(2), 0, 0)
+            })
+            card.setOnClickListener {
+                cropPresetIdx = i
+                paintPresetCards()
+                cropView.setAspect(preset.ratio)
+                updateResult()
+            }
+            presetCards.add(card)
+            grid.addView(card)
+        }
+        content.addView(grid)
+        paintPresetCards()
         content.addView(resultLabel)
-        val note = TextView(this).apply {
-            text = "The crop is centered. Audio is kept as-is. The video is re-encoded at CRF 28."
+        val hint = TextView(this).apply {
+            text = "Drag the frame to move it. Drag a corner to resize."
             textSize = 13f
             setTextColor(getColor(R.color.hakunaa_text_secondary))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(12) }
+            ).apply { topMargin = dp(8) }
         }
-        content.addView(note)
+        content.addView(hint)
+        // Default preset = YouTube; frame starts at that ratio.
+        cropView.setAspect(cropPresets[cropPresetIdx].ratio)
+        updateResult()
+        // Extract one frame for the preview (background thread;
+        // grey placeholder until it arrives).
+        Thread {
+            try {
+                val input = inputFile
+                val duration = probeInfo?.durationMs ?: 0L
+                if (input != null && duration > 0) {
+                    val frameFile = File(
+                        cacheDir, "hakunaa_crop_frame_${System.currentTimeMillis()}.jpg"
+                    )
+                    VideoToolsEngine.extractFrame(
+                        input.absolutePath, frameFile.absolutePath, duration / 4
+                    ) { ok, _ ->
+                        runOnUiThread {
+                            if (ok && frameFile.exists()) {
+                                try {
+                                    val bmp = BitmapFactory.decodeFile(frameFile.absolutePath)
+                                    if (bmp != null) {
+                                        overlayBitmaps.add(bmp)
+                                        cropView.setImage(bmp)
+                                    }
+                                } catch (_: Throwable) {
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (_: Throwable) {
+            }
+        }.start()
         val pv = addProgressViews(content)
         val btn = actionButton("Crop & Save") { runCrop(pv) }
         content.addView(btn)
@@ -3150,21 +3542,33 @@ class VideoToolsActivity : AppCompatActivity() {
     private fun runCrop(pv: ProgressViews) {
         val input = inputFile ?: return
         if (!engineGuard()) return
+        val preset = cropPresets[cropPresetIdx]
         val p = probeInfo
         val w = p?.width ?: 0
         val h = p?.height ?: 0
-        val dims = cropDimsFor(cropAspect, w, h)
-        if (dims == null) {
-            toast("This video is already $cropAspect")
+        val r = cropRect
+        if (r[2] <= 0 || r[3] <= 0) {
+            // The preview frame has not arrived yet.
+            toast("Loading the video frame — please wait a moment")
+            return
+        }
+        if (w <= 0 || h <= 0 || r[2] > w || r[3] > h ||
+            r[0] + r[2] > w || r[1] + r[3] > h
+        ) {
+            toast("Could not read this video's size")
+            return
+        }
+        if (r[2] == w && r[3] == h && r[0] == 0 && r[1] == 0) {
+            toast("This video is already ${preset.name}")
             return
         }
         pv.progress.visibility = View.VISIBLE
         pv.progress.progress = 0
-        pv.status.text = "Cropping to $cropAspect (${dims[0]}×${dims[1]})…"
+        pv.status.text = "Cropping to ${preset.name} (${r[2]}×${r[3]})…"
         pv.result.text = ""
         val out = File(cacheDir, "hakunaa_crop_${System.currentTimeMillis()}.mp4")
         VideoToolsEngine.crop(
-            input.absolutePath, out.absolutePath, dims[0], dims[1], dims[2], dims[3],
+            input.absolutePath, out.absolutePath, r[2], r[3], r[0], r[1],
             { pr -> runOnUiThread { pv.progress.progress = pr } },
             { ok, msg ->
                 runOnUiThread {

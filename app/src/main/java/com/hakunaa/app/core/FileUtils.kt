@@ -10,7 +10,9 @@ object FileUtils {
     fun copyUriToCache(context: Context, uri: Uri, name: String): File {
         val out = File(context.cacheDir, name)
         context.contentResolver.openInputStream(uri)?.use { input ->
-            out.outputStream().use { input.copyTo(it) }
+            // v0.1.198 Fix 4: 256 KB buffer (was the 8 KB default)
+            // — a whole-file copy of a video is far faster.
+            out.outputStream().use { input.copyTo(it, 256 * 1024) }
         }
         return out
     }
