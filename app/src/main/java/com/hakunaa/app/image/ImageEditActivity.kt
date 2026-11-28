@@ -5,6 +5,8 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -65,6 +67,12 @@ class ImageEditActivity : AppCompatActivity() {
     private var baseFile: File? = null
     private var selectedTool = 1 // Brightness by default (index into tools).
     private var rotation = 0f
+    // v0.1.200 instant preview: debounce + latest-only guard + the
+    // currently displayed preview bitmap (recycled on replace).
+    private val previewHandler = Handler(Looper.getMainLooper())
+    private var previewGen = 0
+    private var pendingPreview: Runnable? = null
+    private var displayedPreview: Bitmap? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -229,6 +237,8 @@ class ImageEditActivity : AppCompatActivity() {
                         if (bmp != null) {
                             baseFile = out
                             bitmap = bmp
+                            displayedPreview?.recycle()
+                            displayedPreview = null
                             for (t in tools) t.value = t.def
                             selectTool(selectedTool)
                             findViewById<ImageView>(R.id.ivPreview).setImageBitmap(bmp)
@@ -246,39 +256,55 @@ class ImageEditActivity : AppCompatActivity() {
         }.start()
     }
 
+    /**
+     * Instant preview (v0.1.200): the old version wrote the preview to
+     * a JPEG file, ran the file-based adjustFull, then decoded it back
+     * — on EVERY slider move, with no debounce, so threads piled up
+     * and the preview lagged ~5s behind the slider. Now the adjust
+     * runs IN-MEMORY on the 800px preview (ImageCompressor.adjustBitmap
+     * — the exact same math as Save, no file I/O), slider moves are
+     * debounced 40ms, and only the NEWEST slider position is ever
+     * shown (stale results are dropped, never displayed).
+     */
     private fun updatePreview() {
-        val bmp = bitmap ?: return
-        val params = buildParams()
-        val rot = rotation
-        Thread {
-            try {
-                var preview = Bitmap.createScaledBitmap(
-                    bmp, 800, (800f * bmp.height / bmp.width).toInt(), true
-                )
-                if (rot != 0f) {
-                    val matrix = Matrix()
-                    matrix.postRotate(rot)
-                    preview = Bitmap.createBitmap(preview, 0, 0, preview.width, preview.height, matrix, true)
-                }
-                val tmpInput = File(cacheDir, "edit_preview_in_${System.currentTimeMillis()}.jpg")
-                tmpInput.outputStream().use { out ->
-                    preview.compress(Bitmap.CompressFormat.JPEG, 90, out)
-                }
-                val tmp = File(cacheDir, "edit_preview_${System.currentTimeMillis()}.jpg")
-                val ok = ImageCompressor.adjustFull(tmpInput, tmp, params)
-                var adjusted: Bitmap? = null
-                if (ok) adjusted = BitmapFactory.decodeFile(tmp.absolutePath)
-                try { tmp.delete() } catch (_: Throwable) { }
-                try { tmpInput.delete() } catch (_: Throwable) { }
-                preview.recycle()
-                runOnUiThread {
-                    if (adjusted != null) {
-                        findViewById<ImageView>(R.id.ivPreview).setImageBitmap(adjusted)
+        pendingPreview?.let { previewHandler.removeCallbacks(it) }
+        val gen = ++previewGen
+        val runnable = Runnable {
+            val bmp = bitmap ?: return@Runnable
+            val params = buildParams()
+            val rot = rotation
+            Thread {
+                try {
+                    var preview = Bitmap.createScaledBitmap(
+                        bmp, 800, (800f * bmp.height / bmp.width).toInt(), true
+                    )
+                    if (rot != 0f) {
+                        val matrix = Matrix()
+                        matrix.postRotate(rot)
+                        val rotated = Bitmap.createBitmap(
+                            preview, 0, 0, preview.width, preview.height, matrix, true
+                        )
+                        preview.recycle()
+                        preview = rotated
                     }
+                    val adjusted = ImageCompressor.adjustBitmap(preview, params)
+                    preview.recycle()
+                    runOnUiThread {
+                        if (gen == previewGen) {
+                            val old = displayedPreview
+                            displayedPreview = adjusted
+                            findViewById<ImageView>(R.id.ivPreview).setImageBitmap(adjusted)
+                            old?.recycle()
+                        } else {
+                            adjusted.recycle()
+                        }
+                    }
+                } catch (_: Throwable) {
                 }
-            } catch (_: Throwable) {
-            }
-        }.start()
+            }.start()
+        }
+        pendingPreview = runnable
+        previewHandler.postDelayed(runnable, 40)
     }
 
     private fun save() {
@@ -318,7 +344,9 @@ class ImageEditActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
+        pendingPreview?.let { previewHandler.removeCallbacks(it) }
+        displayedPreview?.recycle()
         bitmap?.recycle()
+        super.onDestroy()
     }
 }

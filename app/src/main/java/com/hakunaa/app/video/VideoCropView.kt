@@ -61,12 +61,17 @@ class VideoCropView @JvmOverloads constructor(
     }
 
     private val density get() = resources.displayMetrics.density
-    private val handleTouchPx get() = 36f * density
-    private val handleSizePx get() = 14f * density
+    /** Touch target: ±24dp = 48dp total (v0.1.200 rework). */
+    private val handleTouchPx get() = 24f * density
+    /** Visual handle: 28dp white square, pink stroke (v0.1.200). */
+    private val handleSizePx get() = 28f * density
+
+    /** Free-form mode (the "Free" preset): no aspect lock — the
+     * frame resizes freely in both directions (v0.1.200). */
+    private var freeForm = false
 
     // ---- drag state ----
-    // 0 TL, 1 TR, 2 BR, 3 BL (corners); 4 top-mid, 5 right-mid,
-    // 6 bottom-mid, 7 left-mid (edge midpoints, v0.1.199). -1 = none.
+    // 0 TL, 1 TR, 2 BR, 3 BL (corners only, v0.1.200). -1 = none.
     private var dragHandle = -1
     private var draggingInside = false
     private var lastX = 0f
@@ -90,8 +95,18 @@ class VideoCropView @JvmOverloads constructor(
     /** Set the crop aspect (width/height) and reframe to the
      * largest rect of that ratio, keeping the current centre. */
     fun setAspect(ratio: Float) {
+        freeForm = false
         aspectRatio = ratio.coerceAtLeast(0.1f)
         reframeForAspect()
+        invalidate()
+        notifyFrameChanged()
+    }
+
+    /** Free-form crop (the "Free" preset, v0.1.200): no aspect
+     * lock — the frame covers the whole video and resizes freely. */
+    fun setFree() {
+        freeForm = true
+        frameF.set(0f, 0f, 1f, 1f)
         invalidate()
         notifyFrameChanged()
     }
@@ -123,6 +138,10 @@ class VideoCropView @JvmOverloads constructor(
     /** Largest centred rect of the current aspect inside the bitmap. */
     private fun reframeForAspect() {
         val bmp = bitmap ?: return
+        if (freeForm) {
+            frameF.set(0f, 0f, 1f, 1f)
+            return
+        }
         val bw = bmp.width.toFloat()
         val bh = bmp.height.toFloat()
         val wF: Float
@@ -167,8 +186,8 @@ class VideoCropView @JvmOverloads constructor(
         canvas.drawRect(0f, frame.bottom, width.toFloat(), height.toFloat(), dimPaint)
         canvas.drawRect(0f, frame.top, frame.left, frame.bottom, dimPaint)
         canvas.drawRect(frame.right, frame.top, width.toFloat(), frame.bottom, dimPaint)
-        // Pink frame outline + rule-of-thirds grid + 8 handles
-        // (4 corners + 4 edge midpoints, v0.1.199).
+        // Pink frame outline + rule-of-thirds grid + 4 large
+        // corner handles (v0.1.200 rework).
         canvas.drawRect(frame, outlinePaint)
         val thirdW = frame.width() / 3f
         val thirdH = frame.height() / 3f
@@ -180,10 +199,6 @@ class VideoCropView @JvmOverloads constructor(
         drawHandle(canvas, frame.right, frame.top)
         drawHandle(canvas, frame.right, frame.bottom)
         drawHandle(canvas, frame.left, frame.bottom)
-        drawHandle(canvas, frame.centerX(), frame.top)
-        drawHandle(canvas, frame.right, frame.centerY())
-        drawHandle(canvas, frame.centerX(), frame.bottom)
-        drawHandle(canvas, frame.left, frame.centerY())
     }
 
     private fun drawHandle(canvas: Canvas, x: Float, y: Float) {
@@ -205,21 +220,14 @@ class VideoCropView @JvmOverloads constructor(
                 lastY = event.y
                 dragHandle = handleHit(event.x, event.y, frame)
                 if (dragHandle >= 0) {
-                    // Anchor = the OPPOSITE corner (corners) or the
-                    // opposite edge + frame centre (edge midpoints).
+                    // Anchor = the OPPOSITE corner (corners only).
                     anchorX = when (dragHandle) {
                         0, 3 -> frameF.right
-                        1, 2 -> frameF.left
-                        4, 6 -> frameF.centerX()
-                        5 -> frameF.left
-                        else -> frameF.right // 7
+                        else -> frameF.left // 1, 2
                     }
                     anchorY = when (dragHandle) {
                         0, 1 -> frameF.bottom
-                        2, 3 -> frameF.top
-                        4 -> frameF.bottom
-                        6 -> frameF.top
-                        else -> frameF.centerY() // 5, 7
+                        else -> frameF.top // 2, 3
                     }
                 } else {
                     draggingInside = frame.contains(event.x, event.y)
@@ -229,8 +237,6 @@ class VideoCropView @JvmOverloads constructor(
             MotionEvent.ACTION_MOVE -> {
                 if (dragHandle in 0..3) {
                     resizeCorner(event.x, event.y, bmp)
-                } else if (dragHandle in 4..7) {
-                    resizeEdge(event.x, event.y, bmp)
                 } else if (draggingInside) {
                     val dx = (event.x - lastX) / dest.width()
                     val dy = (event.y - lastY) / dest.height()
@@ -257,17 +263,13 @@ class VideoCropView @JvmOverloads constructor(
         return super.onTouchEvent(event)
     }
 
-    /** Hit-test all 8 handles: 0-3 corners, 4-7 edge midpoints. */
+    /** Hit-test the 4 corner handles: 0 TL, 1 TR, 2 BR, 3 BL. */
     private fun handleHit(x: Float, y: Float, frame: RectF): Int {
         val points = arrayOf(
-            frame.left to frame.top,        // 0 TL
-            frame.right to frame.top,       // 1 TR
-            frame.right to frame.bottom,    // 2 BR
-            frame.left to frame.bottom,     // 3 BL
-            frame.centerX() to frame.top,   // 4 top-mid
-            frame.right to frame.centerY(), // 5 right-mid
-            frame.centerX() to frame.bottom, // 6 bottom-mid
-            frame.left to frame.centerY()   // 7 left-mid
+            frame.left to frame.top,     // 0 TL
+            frame.right to frame.top,    // 1 TR
+            frame.right to frame.bottom, // 2 BR
+            frame.left to frame.bottom   // 3 BL
         )
         for (i in points.indices) {
             val (cx, cy) = points[i]
@@ -287,6 +289,24 @@ class VideoCropView @JvmOverloads constructor(
         val sy = when (dragHandle) {
             0, 1 -> -1f
             else -> 1f
+        }
+        if (freeForm) {
+            // Free-form: width and height follow the drag
+            // independently (no aspect lock). Minimum 64px a side.
+            val minPx = 64f
+            var wPx = (Math.abs(fx - anchorX) * bmp.width).coerceAtLeast(minPx)
+            var hPx = (Math.abs(fy - anchorY) * bmp.height).coerceAtLeast(minPx)
+            val maxWF = if (sx < 0) anchorX * bmp.width else (1f - anchorX) * bmp.width
+            val maxHF = if (sy < 0) anchorY * bmp.height else (1f - anchorY) * bmp.height
+            wPx = wPx.coerceAtMost(maxWF)
+            hPx = hPx.coerceAtMost(maxHF)
+            val wF = wPx / bmp.width
+            val hF = hPx / bmp.height
+            val left = if (sx < 0) anchorX - wF else anchorX
+            val top = if (sy < 0) anchorY - hF else anchorY
+            frameF.set(left, top, left + wF, top + hF)
+            notifyFrameChanged()
+            return
         }
         // Size from the drag distance, in bitmap pixels: the frame
         // must reach the pointer in both directions, keeping the ratio.
@@ -313,53 +333,4 @@ class VideoCropView @JvmOverloads constructor(
         notifyFrameChanged()
     }
 
-    /** Aspect-locked resize from an edge-midpoint handle (v0.1.199).
-     * The opposite edge stays fixed; the dragged edge moves; the
-     * other dimension follows the aspect ratio and the frame stays
-     * centred on the fixed axis. Minimum 64px on the short side. */
-    private fun resizeEdge(x: Float, y: Float, bmp: Bitmap) {
-        val fx = ((x - dest.left) / dest.width()).coerceIn(0f, 1f)
-        val fy = ((y - dest.top) / dest.height()).coerceIn(0f, 1f)
-        val minPx = 64f
-        if (dragHandle == 4 || dragHandle == 6) {
-            // Top / bottom edge: height from the drag, width follows.
-            var hPx = Math.abs(fy - anchorY) * bmp.height
-            var wPx = hPx * aspectRatio
-            if (aspectRatio >= 1f) {
-                if (hPx < minPx) { hPx = minPx; wPx = hPx * aspectRatio }
-            } else {
-                if (wPx < minPx) { wPx = minPx; hPx = wPx / aspectRatio }
-            }
-            val maxH = if (dragHandle == 4) anchorY * bmp.height else (1f - anchorY) * bmp.height
-            val maxW = 2f * Math.min(anchorX, 1f - anchorX) * bmp.width
-            val scaleFit = Math.min(1f, Math.min(maxH / hPx, maxW / wPx))
-            hPx *= scaleFit
-            wPx *= scaleFit
-            val wF = wPx / bmp.width
-            val hF = hPx / bmp.height
-            val cx = anchorX.coerceIn(wF / 2f, 1f - wF / 2f)
-            val top = if (dragHandle == 4) anchorY - hF else anchorY
-            frameF.set(cx - wF / 2f, top, cx + wF / 2f, top + hF)
-        } else {
-            // Left / right edge: width from the drag, height follows.
-            var wPx = Math.abs(fx - anchorX) * bmp.width
-            var hPx = wPx / aspectRatio
-            if (aspectRatio >= 1f) {
-                if (hPx < minPx) { hPx = minPx; wPx = hPx * aspectRatio }
-            } else {
-                if (wPx < minPx) { wPx = minPx; hPx = wPx / aspectRatio }
-            }
-            val maxW = if (dragHandle == 7) anchorX * bmp.width else (1f - anchorX) * bmp.width
-            val maxH = 2f * Math.min(anchorY, 1f - anchorY) * bmp.height
-            val scaleFit = Math.min(1f, Math.min(maxW / wPx, maxH / hPx))
-            wPx *= scaleFit
-            hPx *= scaleFit
-            val wF = wPx / bmp.width
-            val hF = hPx / bmp.height
-            val cy = anchorY.coerceIn(hF / 2f, 1f - hF / 2f)
-            val left = if (dragHandle == 7) anchorX - wF else anchorX
-            frameF.set(left, cy - hF / 2f, left + wF, cy + hF / 2f)
-        }
-        notifyFrameChanged()
-    }
 }

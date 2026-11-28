@@ -1,10 +1,15 @@
 package com.hakunaa.app.video
 
 import android.app.Dialog
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RectF
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
@@ -14,8 +19,6 @@ import android.os.Looper
 import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
-import android.view.MotionEvent
-import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
@@ -137,12 +140,14 @@ class VideoToolsActivity : AppCompatActivity() {
 
     // Rotate v2 state (v0.1.199): free angle 0-360, flips, zoom
     // 1-2, pan in preview px. Default angle 90 = old CW90.
-    private var rotateAngle = 90
+    // v0.1.200 rework: base = accumulated 90-degree steps (0-359),
+    // fine = -45..45 slider. Total angle = base + fine. Zoom/pan
+    // removed (were the confusing part) — rotateFree now runs at
+    // default zoom 1.0 with no pan.
+    private var rotateBase90 = 0
+    private var rotateFine = 0f
     private var rotateFlipH = false
     private var rotateFlipV = false
-    private var rotateZoom = 1f
-    private var rotatePanX = 0f
-    private var rotatePanY = 0f
     private var rotatePreviewView: ExoVideoView? = null
 
     private data class SmartResult(
@@ -1153,6 +1158,15 @@ class VideoToolsActivity : AppCompatActivity() {
                     runOnUiThread {
                         try { loading.dialog.dismiss() } catch (_: Throwable) { }
                         if (inputFile != null) {
+                            // v0.1.200: a new video invalidates the old
+                            // Smart results. Without this, showSmartScreen
+                            // re-displays the previous video's results
+                            // under the new file card (stale sizes,
+                            // stale saved%, 1080p shown for a 480p video).
+                            // Tab-switch restore is unaffected — this
+                            // only runs on a new pick.
+                            smartResults.clear()
+                            smartSelected = -1
                             action()
                         }
                     }
@@ -2738,6 +2752,122 @@ class VideoToolsActivity : AppCompatActivity() {
      * Reset) → Zoom slider 100-200% + pinch-to-zoom and drag-to-
      * move on the preview → "Rotate" pinned bottom. Fixed screen,
      * no scroll. */
+    /** Canvas-drawn icon for the Rotate buttons (v0.1.200 rework):
+     * Left 90 / Right 90 circular arrows, Flip H / Flip V double
+     * arrows. Drawn, not a font glyph, so it renders identically
+     * on every phone. kind: 0 = Left 90, 1 = Right 90, 2 = Flip H,
+     * 3 = Flip V. */
+    private inner class RotateGlyphView(context: Context, val kind: Int) : View(context) {
+        private var selected = false
+
+        fun setSelectedState(sel: Boolean) {
+            if (sel != selected) {
+                selected = sel
+                invalidate()
+            }
+        }
+
+        private fun arrowhead(
+            canvas: Canvas, tipX: Float, tipY: Float,
+            dirX: Float, dirY: Float, len: Float, halfW: Float, paint: Paint
+        ) {
+            val baseX = tipX - dirX * len
+            val baseY = tipY - dirY * len
+            val px = -dirY
+            val py = dirX
+            val path = Path().apply {
+                moveTo(tipX, tipY)
+                lineTo(baseX + px * halfW, baseY + py * halfW)
+                lineTo(baseX - px * halfW, baseY - py * halfW)
+                close()
+            }
+            canvas.drawPath(path, paint)
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val d = resources.displayMetrics.density
+            val col = if (selected) pinkDark else getColor(R.color.hakunaa_text)
+            val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = col
+                style = Paint.Style.STROKE
+                strokeWidth = 5f * d
+                strokeCap = Paint.Cap.ROUND
+            }
+            val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = col
+                style = Paint.Style.FILL
+            }
+            val cx = width / 2f
+            val cy = height / 2f
+            val r = Math.min(width, height) * 0.32f
+            when (kind) {
+                0, 1 -> {
+                    // Circular arrow, head at the top: Right 90 turns
+                    // clockwise (head points right), Left 90 turns
+                    // counter-clockwise (head points left).
+                    val start = if (kind == 1) 0f else 180f
+                    val sweep = if (kind == 1) 270f else -270f
+                    val oval = RectF(cx - r, cy - r, cx + r, cy + r)
+                    canvas.drawArc(oval, start, sweep, false, stroke)
+                    val endDeg = start + sweep // 270 (top) for both
+                    val er = Math.toRadians(endDeg.toDouble())
+                    val ex = cx + r * Math.cos(er).toFloat()
+                    val ey = cy + r * Math.sin(er).toFloat()
+                    val tanDeg = if (kind == 1) endDeg + 90f else endDeg - 90f
+                    val tr = Math.toRadians(tanDeg.toDouble())
+                    val tx = Math.cos(tr).toFloat()
+                    val ty = Math.sin(tr).toFloat()
+                    val tipL = r * 0.45f
+                    val tipX = ex + tx * tipL
+                    val tipY = ey + ty * tipL
+                    val baseX = ex - tx * tipL * 0.2f
+                    val baseY = ey - ty * tipL * 0.2f
+                    val hw = r * 0.32f
+                    val px = -ty
+                    val py = tx
+                    val path = Path().apply {
+                        moveTo(tipX, tipY)
+                        lineTo(baseX + px * hw, baseY + py * hw)
+                        lineTo(baseX - px * hw, baseY - py * hw)
+                        close()
+                    }
+                    canvas.drawPath(path, fill)
+                }
+                2 -> {
+                    // Flip H: horizontal double arrow + vertical mirror line.
+                    val y = cy
+                    val x0 = cx - r
+                    val x1 = cx + r
+                    canvas.drawLine(x0, y, x1, y, stroke)
+                    arrowhead(canvas, x0, y, -1f, 0f, r * 0.45f, r * 0.32f, fill)
+                    arrowhead(canvas, x1, y, 1f, 0f, r * 0.45f, r * 0.32f, fill)
+                    val div = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = 0xFFBDBDBD.toInt()
+                        style = Paint.Style.STROKE
+                        strokeWidth = 3f * d
+                    }
+                    canvas.drawLine(cx, cy - r * 0.95f, cx, cy + r * 0.95f, div)
+                }
+                else -> {
+                    // Flip V: vertical double arrow + horizontal mirror line.
+                    val x = cx
+                    val y0 = cy - r
+                    val y1 = cy + r
+                    canvas.drawLine(x, y0, x, y1, stroke)
+                    arrowhead(canvas, x, y0, 0f, -1f, r * 0.45f, r * 0.32f, fill)
+                    arrowhead(canvas, x, y1, 0f, 1f, r * 0.45f, r * 0.32f, fill)
+                    val div = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = 0xFFBDBDBD.toInt()
+                        style = Paint.Style.STROKE
+                        strokeWidth = 3f * d
+                    }
+                    canvas.drawLine(cx - r * 0.95f, cy, cx + r * 0.95f, cy, div)
+                }
+            }
+        }
+    }
+
     private fun showRotateScreen() {
         val content = newFixedToolOverlay("Rotate Video")
         val card = fileInfoCard()
@@ -2746,10 +2876,12 @@ class VideoToolsActivity : AppCompatActivity() {
             it.ellipsize = android.text.TextUtils.TruncateAt.END
         }
         content.addView(card)
-        // LIVE preview (220dp) — the video WITH the rotation
-        // applied live (View.rotation / scaleX / scaleY), angle
-        // badge on top, tap = play/pause, pinch = zoom, drag = move.
-        val previewWrap = FrameLayout(this).apply {
+        // LIVE preview — LARGE black box. The video view inside is
+        // sized to the ROTATED bounding box (see layoutRotatePreview)
+        // so the true rotated output shows, never cropped (v0.1.200
+        // rework — the v0.1.199 fixed 220dp box cropped 90-degree
+        // turns top and bottom).
+        val previewBox = FrameLayout(this).apply {
             isClickable = true
             isFocusable = true
             background = GradientDrawable().apply {
@@ -2759,7 +2891,7 @@ class VideoToolsActivity : AppCompatActivity() {
             }
             clipToOutline = true
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(220)
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(tallPreviewHeightDp())
             ).apply { topMargin = dp(12) }
         }
         val preview = ExoVideoView(this).apply {
@@ -2769,7 +2901,7 @@ class VideoToolsActivity : AppCompatActivity() {
             )
         }
         inputUri?.let { preview.setVideoURI(it) }
-        previewWrap.addView(preview)
+        previewBox.addView(preview)
         rotatePreviewView = preview
         activeVideoViews.add(preview)
         val badge = TextView(this).apply {
@@ -2780,160 +2912,208 @@ class VideoToolsActivity : AppCompatActivity() {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(14).toFloat()
-                setColor(Color.parseColor("#CC000000"))
+                setColor(pinkDark)
             }
             setPadding(dp(12), dp(6), dp(12), dp(6))
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                gravity = Gravity.TOP or Gravity.START
-                setMargins(dp(10), dp(10), 0, 0)
+                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                topMargin = dp(10)
             }
         }
-        previewWrap.addView(badge)
-        content.addView(previewWrap)
-        // Applies the current state (angle / flips / zoom / pan) to
-        // the live preview + badge.
-        fun badgeText(): String {
-            val parts = mutableListOf<String>()
-            val a = rotateAngle % 360
-            parts.add("${if (a > 180) a - 360 else a}°")
-            if (rotateFlipH) parts.add("Flip H")
-            if (rotateFlipV) parts.add("Flip V")
-            return parts.joinToString(" • ")
-        }
-        fun applyRotatePreview() {
-            preview.rotation = rotateAngle.toFloat()
-            preview.scaleX = rotateZoom * if (rotateFlipH) -1f else 1f
-            preview.scaleY = rotateZoom * if (rotateFlipV) -1f else 1f
-            preview.translationX = rotatePanX
-            preview.translationY = rotatePanY
-            badge.text = badgeText()
-        }
-        fun clampRotatePan() {
-            val vw = preview.width.toFloat()
-            val vh = preview.height.toFloat()
-            if (vw <= 0f || vh <= 0f) return
-            val maxX = (vw * rotateZoom - vw) / 2f
-            val maxY = (vh * rotateZoom - vh) / 2f
-            rotatePanX = rotatePanX.coerceIn(-maxX, maxX)
-            rotatePanY = rotatePanY.coerceIn(-maxY, maxY)
-        }
-        // Angle chips (painted by selection) — declared before the
-        // sliders, whose listeners call these painters.
-        val angleChips = mutableListOf<Pair<TextView, Int>>() // chip, angle value (0-360)
-        fun paintAngleChips() {
-            for ((chipView, angle) in angleChips) {
-                setChipSelected(chipView, rotateAngle == angle)
-            }
-        }
-        var flipHChip: TextView? = null
-        var flipVChip: TextView? = null
-        fun paintFlipChips() {
-            flipHChip?.let { setChipSelected(it, rotateFlipH) }
-            flipVChip?.let { setChipSelected(it, rotateFlipV) }
-        }
-        // FREE rotation slider (0-360) with the live angle value.
-        // The value reads -180..180 so 270 shows as -90 (the chip).
-        val angleRow = sliderRow("ROTATION", 360, rotateAngle, { p ->
-            val a = p % 360
-            "${if (a > 180) a - 360 else a}°"
-        }) { p ->
-            rotateAngle = p
-            applyRotatePreview()
-            paintAngleChips()
-        }
-        content.addView(angleRow)
-        val angleSeek = angleRow.getChildAt(1) as SeekBar
-        // Zoom slider (100-200%) — created here (before the chips,
-        // so the Reset chip can reference zoomSeek) but added to
-        // the layout below the chips toolbar.
-        val zoomRow = sliderRow("ZOOM", 100, ((rotateZoom - 1f) * 100f).toInt(), { p ->
-            "${100 + p}%"
-        }) { p ->
-            rotateZoom = 1f + p / 100f
-            clampRotatePan()
-            applyRotatePreview()
-        }
-        val zoomSeek = zoomRow.getChildAt(1) as SeekBar
-        // Preset chips toolbar (horizontal scroll): 90 / -90 / 180 /
-        // Flip H / Flip V / Reset.
-        val chipsScroll = HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
+        previewBox.addView(badge)
+        content.addView(previewBox)
+        // Readout under the preview: "90 deg - Rotated right".
+        val readout = TextView(this).apply {
+            textSize = 18f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setTextColor(getColor(R.color.hakunaa_text))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(12) }
         }
-        val chipsRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+        content.addView(readout)
+        // Total angle, normalised to -180..180 for display/encode.
+        fun totalAngle(): Float {
+            var a = (rotateBase90 + rotateFine) % 360f
+            if (a > 180f) a -= 360f
+            if (a < -180f) a += 360f
+            return a
         }
-        chipsScroll.addView(chipsRow)
-        content.addView(chipsScroll)
-        fun addAngleChip(label: String, angle: Int) {
-            val c = chip(label, rotateAngle == angle) {
-                rotateAngle = angle
-                angleSeek.progress = angle
-                applyRotatePreview()
-                paintAngleChips()
-            }.apply {
+        fun readoutText(): String {
+            val deg = Math.round(totalAngle())
+            val parts = mutableListOf<String>()
+            parts.add("$deg deg")
+            if (deg > 0) parts.add("Rotated right")
+            if (deg < 0) parts.add("Rotated left")
+            if (rotateFlipH) parts.add("Flip H")
+            if (rotateFlipV) parts.add("Flip V")
+            return parts.joinToString(" - ")
+        }
+        // Size the inner video view to the rotated bounding box and
+        // apply the transform (rotation + flips). The container is
+        // fixed; the inner view is centred and rotated about its own
+        // centre, so the whole rotated frame stays visible.
+        fun layoutRotatePreview() {
+            val p = probeInfo ?: return
+            val w = p.width.toFloat()
+            val h = p.height.toFloat()
+            if (w <= 0f || h <= 0f) return
+            val ow = previewBox.width.toFloat()
+            val oh = previewBox.height.toFloat()
+            if (ow <= 0f || oh <= 0f) return
+            val total = rotateBase90 + rotateFine
+            val rad = Math.toRadians(total.toDouble())
+            val cos = Math.abs(Math.cos(rad))
+            val sin = Math.abs(Math.sin(rad))
+            val bw = w * cos + h * sin
+            val bh = w * sin + h * cos
+            val k = minOf(ow / bw, oh / bh)
+            val vw = (k * w).toInt().coerceAtLeast(2)
+            val vh = (k * h).toInt().coerceAtLeast(2)
+            preview.layoutParams = FrameLayout.LayoutParams(vw, vh, Gravity.CENTER)
+            preview.rotation = total
+            preview.scaleX = if (rotateFlipH) -1f else 1f
+            preview.scaleY = if (rotateFlipV) -1f else 1f
+            preview.requestLayout()
+            // Badge straddles the top edge of the rotated frame.
+            val bboxH = (k * bh).toInt()
+            val innerTop = ((oh - bboxH) / 2).toInt()
+            val badgeLp = badge.layoutParams as FrameLayout.LayoutParams
+            badgeLp.topMargin = (innerTop - dp(14)).coerceAtLeast(0)
+            badge.requestLayout()
+        }
+        // The four buttons (declared before refresh so it can paint them).
+        val rotateBtns = mutableListOf<Triple<LinearLayout, RotateGlyphView, TextView>>()
+        fun paintRotateButtons() {
+            for ((btn, glyph, lab) in rotateBtns) {
+                val sel = when (glyph.kind) {
+                    0 -> rotateBase90 == 270
+                    1 -> rotateBase90 == 90
+                    2 -> rotateFlipH
+                    else -> rotateFlipV
+                }
+                btn.background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(16).toFloat()
+                    if (sel) {
+                        setColor(pinkCard)
+                        setStroke(dp(2), pinkBorder)
+                    } else {
+                        setColor(Color.WHITE)
+                        setStroke(dp(1), Color.parseColor("#CFD8DC"))
+                    }
+                }
+                glyph.setSelectedState(sel)
+                lab.setTextColor(if (sel) pinkDark else getColor(R.color.hakunaa_text))
+            }
+        }
+        fun refreshRotateUI() {
+            badge.text = "${Math.round(totalAngle())} deg"
+            readout.text = readoutText()
+            paintRotateButtons()
+            layoutRotatePreview()
+        }
+        fun rotateButton(kind: Int, label: String): LinearLayout {
+            val btn = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                isClickable = true
+                isFocusable = true
+                setPadding(dp(6), dp(10), dp(6), dp(10))
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    if (kind < 3) marginEnd = dp(8)
+                }
+            }
+            val glyph = RotateGlyphView(this, kind).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
+            }
+            val lab = TextView(this).apply {
+                text = label
+                textSize = 13f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                gravity = Gravity.CENTER
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { marginEnd = dp(8) }
+                ).apply { topMargin = dp(4) }
             }
-            angleChips.add(c to angle)
-            chipsRow.addView(c)
+            btn.addView(glyph)
+            btn.addView(lab)
+            rotateBtns.add(Triple(btn, glyph, lab))
+            return btn
         }
-        addAngleChip("90°", 90)
-        addAngleChip("−90°", 270)
-        addAngleChip("180°", 180)
-        flipHChip = chip("Flip H", rotateFlipH) {
-            rotateFlipH = !rotateFlipH
-            applyRotatePreview()
-            paintFlipChips()
-        }.apply {
+        val btnsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { marginEnd = dp(8) }
+            ).apply { topMargin = dp(12) }
         }
-        chipsRow.addView(flipHChip)
-        flipVChip = chip("Flip V", rotateFlipV) {
-            rotateFlipV = !rotateFlipV
-            applyRotatePreview()
-            paintFlipChips()
-        }.apply {
+        val btnLeft = rotateButton(0, "Left 90").apply {
+            setOnClickListener {
+                rotateBase90 = ((rotateBase90 - 90) % 360 + 360) % 360
+                refreshRotateUI()
+            }
+        }
+        val btnRight = rotateButton(1, "Right 90").apply {
+            setOnClickListener {
+                rotateBase90 = (rotateBase90 + 90) % 360
+                refreshRotateUI()
+            }
+        }
+        val btnFlipH = rotateButton(2, "Flip H").apply {
+            setOnClickListener {
+                rotateFlipH = !rotateFlipH
+                refreshRotateUI()
+            }
+        }
+        val btnFlipV = rotateButton(3, "Flip V").apply {
+            setOnClickListener {
+                rotateFlipV = !rotateFlipV
+                refreshRotateUI()
+            }
+        }
+        btnsRow.addView(btnLeft)
+        btnsRow.addView(btnRight)
+        btnsRow.addView(btnFlipH)
+        btnsRow.addView(btnFlipV)
+        content.addView(btnsRow)
+        // Fine-tune slider (-45..+45, default 0) + end labels.
+        // Initial position follows the persisted fine-tune value
+        // (Back from the result screen keeps the settings).
+        val fineRow = sliderRow("FINE TUNE", 90, (rotateFine + 45).toInt(), { p -> "${p - 45}°" }) { p ->
+            rotateFine = (p - 45).toFloat()
+            refreshRotateUI()
+        }
+        content.addView(fineRow)
+        val fineEnds = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { marginEnd = dp(8) }
+            ).apply { topMargin = dp(2) }
         }
-        chipsRow.addView(flipVChip)
-        val resetChip = chip("Reset", false) {
-            rotateAngle = 0
-            rotateFlipH = false
-            rotateFlipV = false
-            rotateZoom = 1f
-            rotatePanX = 0f
-            rotatePanY = 0f
-            angleSeek.progress = 0
-            zoomSeek.progress = 0
-            applyRotatePreview()
-            paintAngleChips()
-            paintFlipChips()
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        }
-        chipsRow.addView(resetChip)
-        content.addView(zoomRow)
+        fineEnds.addView(TextView(this).apply {
+            text = "-45 deg"
+            textSize = 12f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        fineEnds.addView(TextView(this).apply {
+            text = "+45 deg"
+            textSize = 12f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+        })
+        content.addView(fineEnds)
         val hint = TextView(this).apply {
-            text = "Pinch to zoom  •  Drag to move the video"
+            text = "Tap a button to rotate  |  Slide to fine-tune"
             textSize = 13f
+            gravity = Gravity.CENTER
             setTextColor(getColor(R.color.hakunaa_text_secondary))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -2941,128 +3121,74 @@ class VideoToolsActivity : AppCompatActivity() {
             ).apply { topMargin = dp(8) }
         }
         content.addView(hint)
-        // Pinch to zoom + drag to move on the preview. Tap (short,
-        // no move) toggles play/pause.
-        var downX = 0f
-        var downY = 0f
-        var downTime = 0L
-        var lastX = 0f
-        var lastY = 0f
-        var panning = false
-        var pinched = false
-        val scaleDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-            override fun onScale(detector: ScaleGestureDetector): Boolean {
-                pinched = true
-                val nz = (rotateZoom * detector.scaleFactor).coerceIn(1f, 2f)
-                if (nz != rotateZoom) {
-                    rotateZoom = nz
-                    zoomSeek.progress = ((rotateZoom - 1f) * 100f).toInt()
-                    clampRotatePan()
-                    applyRotatePreview()
-                }
-                return true
+        // Tap the preview to play / pause.
+        previewBox.setOnClickListener {
+            try {
+                if (preview.isPlaying()) preview.pause() else preview.start()
+            } catch (_: Throwable) {
             }
-        })
-        previewWrap.setOnTouchListener { _, event ->
-            scaleDetector.onTouchEvent(event)
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    downX = event.x
-                    downY = event.y
-                    lastX = event.x
-                    lastY = event.y
-                    downTime = System.currentTimeMillis()
-                    panning = false
-                    pinched = false
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    if (!scaleDetector.isInProgress && event.pointerCount == 1 && rotateZoom > 1.001f) {
-                        val dx = event.x - lastX
-                        val dy = event.y - lastY
-                        if (Math.abs(dx) > 1f || Math.abs(dy) > 1f) panning = true
-                        rotatePanX += dx
-                        rotatePanY += dy
-                        clampRotatePan()
-                        applyRotatePreview()
-                    }
-                    lastX = event.x
-                    lastY = event.y
-                }
-                MotionEvent.ACTION_UP -> {
-                    val dt = System.currentTimeMillis() - downTime
-                    val dist = Math.hypot((event.x - downX).toDouble(), (event.y - downY).toDouble())
-                    if (!panning && !pinched && dt < 400 && dist < 24.0) {
-                        try {
-                            if (preview.isPlaying()) preview.pause() else preview.start()
-                        } catch (_: Throwable) {
-                        }
-                    }
-                }
-            }
-            true
         }
-        applyRotatePreview()
+        refreshRotateUI()
+        previewBox.post { layoutRotatePreview() }
         // Spacer pins "Rotate" to the bottom.
-        content.addView(View(this).apply {
+        val spacer = View(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
             )
-        })
+        }
+        content.addView(spacer)
         val btn = actionButton("Rotate") { runRotate() }
         content.addView(btn)
+        // Fit pass: after layout, give the preview box ALL remaining
+        // vertical space so the fixed screen fits exactly on any phone.
+        content.post {
+            val avail = content.height
+            if (avail <= 0) return@post
+            var used = 0
+            for (i in 0 until content.childCount) {
+                val ch = content.getChildAt(i)
+                if (ch === previewBox || ch === spacer) continue
+                val lp = ch.layoutParams as? LinearLayout.LayoutParams
+                used += ch.height + (lp?.topMargin ?: 0) + (lp?.bottomMargin ?: 0)
+            }
+            val boxLp = previewBox.layoutParams as LinearLayout.LayoutParams
+            val targetH = (avail - used - boxLp.topMargin - boxLp.bottomMargin)
+                .coerceIn(dp(200), dp(520))
+            if (targetH != previewBox.height) {
+                previewBox.layoutParams = (previewBox.layoutParams as LinearLayout.LayoutParams).apply {
+                    height = targetH
+                }
+                previewBox.requestLayout()
+                previewBox.post { layoutRotatePreview() }
+            } else {
+                layoutRotatePreview()
+            }
+        }
     }
 
-    /** Label for the current Rotate settings, e.g. "90° • Zoom 150%"
+    /** Label for the current Rotate settings, e.g. "90° • Flip H"
      * — shown on the result screen and in the loading dialog. */
     private fun rotateTransformLabel(): String {
         val parts = mutableListOf<String>()
-        val a = rotateAngle % 360
-        val disp = if (a > 180) a - 360 else a
-        if (disp != 0) parts.add("$disp°")
+        val total = rotateBase90 + rotateFine
+        var a = total % 360f
+        if (a > 180f) a -= 360f
+        if (a < -180f) a += 360f
+        val deg = Math.round(a)
+        if (deg != 0) parts.add("$deg°")
         if (rotateFlipH) parts.add("Flip H")
         if (rotateFlipV) parts.add("Flip V")
-        if (rotateZoom > 1.001f) parts.add("Zoom ${((rotateZoom) * 100).toInt()}%")
         return if (parts.isEmpty()) "No change" else parts.joinToString(" • ")
-    }
-
-    /** Pan fractions for VideoCompressor.rotateFree: the preview
-     * pan (rotatePanX/Y, in preview px) is converted to fractions
-     * of the crop size, undone through the inverse rotation so the
-     * FFmpeg crop region lands where the user dragged it on
-     * screen. Clamped to ±0.5 (half the crop size). */
-    private fun computeRotatePanFracs(): Pair<Float, Float> {
-        val probe = probeInfo ?: return 0f to 0f
-        val w = probe.width.toFloat()
-        val h = probe.height.toFloat()
-        if (w <= 0f || h <= 0f) return 0f to 0f
-        val preview = rotatePreviewView ?: return 0f to 0f
-        val boxW = preview.width.toFloat()
-        val boxH = preview.height.toFloat()
-        if (boxW <= 0f || boxH <= 0f) return 0f to 0f
-        // FIT scale of the video inside the 220dp preview box.
-        val s = minOf(boxW / w, boxH / h)
-        // Pan in video px (divide out the FIT scale and the zoom).
-        val px = rotatePanX / (s * rotateZoom)
-        val py = rotatePanY / (s * rotateZoom)
-        // Undo the rotation: the crop is applied BEFORE the rotate
-        // filter, so the pan must be rotated by -angle.
-        val theta = Math.toRadians(rotateAngle.toDouble())
-        val cos = Math.cos(theta)
-        val sin = Math.sin(theta)
-        val vx = px * cos + py * sin
-        val vy = -px * sin + py * cos
-        val cw = w / rotateZoom
-        val ch = h / rotateZoom
-        val fx = (-vx / cw).toFloat().coerceIn(-0.5f, 0.5f)
-        val fy = (-vy / ch).toFloat().coerceIn(-0.5f, 0.5f)
-        return fx to fy
     }
 
     private fun runRotate() {
         val input = inputFile ?: return
         if (!engineGuard()) return
+        // Total angle: base 90-steps + fine-tune (-45..45).
+        val total = rotateBase90 + rotateFine
+        val angle = Math.round(total)
         // Nothing to do?
-        if (rotateAngle % 360 == 0 && !rotateFlipH && !rotateFlipV && rotateZoom <= 1.001f) {
+        if (angle % 360 == 0 && rotateFine == 0f && !rotateFlipH && !rotateFlipV) {
             toast("Choose a rotation first")
             return
         }
@@ -3074,10 +3200,6 @@ class VideoToolsActivity : AppCompatActivity() {
         val out = File(cacheDir, "hakunaa_rotate_${System.currentTimeMillis()}.mp4")
         val label = rotateTransformLabel()
         val loading = showCompressLoadingDialog(label, "Rotating…")
-        val angle = rotateAngle % 360
-        val useFree = angle != 0 && angle != 90 && angle != 180 && angle != 270 ||
-            rotateZoom > 1.001f ||
-            (angle != 0 && (rotateFlipH || rotateFlipV))
         val onDone: (Boolean, String) -> Unit = { ok, msg ->
             runOnUiThread {
                 try {
@@ -3092,32 +3214,35 @@ class VideoToolsActivity : AppCompatActivity() {
                 }
             }
         }
-        if (!useFree) {
-            // Exact fixed modes use the PROVEN transpose/flip path.
-            val mode = when {
-                angle == 90 && !rotateFlipH && !rotateFlipV -> VideoCompressor.RotateMode.CW90
-                angle == 270 && !rotateFlipH && !rotateFlipV -> VideoCompressor.RotateMode.CCW90
-                angle == 180 && !rotateFlipH && !rotateFlipV -> VideoCompressor.RotateMode.ROT180
-                angle == 0 && rotateFlipH && !rotateFlipV -> VideoCompressor.RotateMode.FLIP_H
-                angle == 0 && !rotateFlipH && rotateFlipV -> VideoCompressor.RotateMode.FLIP_V
-                else -> VideoCompressor.RotateMode.CW90 // unreachable by the useFree guard
-            }
+        // Exact fixed modes use the PROVEN transpose/flip path;
+        // anything else (fine-tune angle, or angle + flip) uses the
+        // free-angle engine at default zoom 1.0 with no pan.
+        val a360 = ((angle % 360) + 360) % 360
+        val fixedMode: VideoCompressor.RotateMode? = when {
+            rotateFine != 0f -> null
+            a360 == 90 && !rotateFlipH && !rotateFlipV -> VideoCompressor.RotateMode.CW90
+            a360 == 270 && !rotateFlipH && !rotateFlipV -> VideoCompressor.RotateMode.CCW90
+            a360 == 180 && !rotateFlipH && !rotateFlipV -> VideoCompressor.RotateMode.ROT180
+            a360 == 0 && rotateFlipH && !rotateFlipV -> VideoCompressor.RotateMode.FLIP_H
+            a360 == 0 && !rotateFlipH && rotateFlipV -> VideoCompressor.RotateMode.FLIP_V
+            a360 == 0 && rotateFlipH && rotateFlipV -> VideoCompressor.RotateMode.ROT180
+            else -> null
+        }
+        if (fixedMode != null) {
             VideoCompressor.rotate(
-                input.absolutePath, out.absolutePath, mode,
+                input.absolutePath, out.absolutePath, fixedMode,
                 { p -> runOnUiThread { loading.progress.progress = p; loading.percent.text = "$p%" } },
                 onDone
             )
         } else {
-            // Free angle and/or zoom+pan: the free-angle engine.
-            val (panXFrac, panYFrac) = computeRotatePanFracs()
             VideoCompressor.rotateFree(
                 input.absolutePath, out.absolutePath,
-                angleDeg = rotateAngle.toFloat(),
+                angleDeg = total,
                 flipH = rotateFlipH,
                 flipV = rotateFlipV,
-                zoom = rotateZoom,
-                panXFrac = panXFrac,
-                panYFrac = panYFrac,
+                zoom = 1f,
+                panXFrac = 0f,
+                panYFrac = 0f,
                 inputW = probe.width,
                 inputH = probe.height,
                 onProgress = { p -> runOnUiThread { loading.progress.progress = p; loading.percent.text = "$p%" } },
@@ -3498,11 +3623,11 @@ class VideoToolsActivity : AppCompatActivity() {
     private var cutEndMs = 0L
 
     private fun showCutterScreen() {
-        // v0.1.199: FIXED screen (no ScrollView) — everything on
-        // ONE screen: compact file card, 220dp preview, 96dp
-        // timeline, Start/Clip/End row, Cut Clip, Split as one
-        // compact row. The old "TRIM" label, "SPLIT INTO PARTS"
-        // label and split note are dropped to make it fit.
+        // v0.1.200: FIXED screen (no ScrollView) — everything on
+        // ONE screen: compact file card, 300dp preview, 96dp
+        // timeline, Start/Clip/End row, Cut Clip pinned to the
+        // bottom. The Split row was REMOVED (user 2026-11-28) —
+        // its space went to the taller preview (220dp -> 300dp).
         val content = newFixedToolOverlay("Video Cutter")
         val card = fileInfoCard()
         (card.getChildAt(0) as? TextView)?.let {
@@ -3513,10 +3638,10 @@ class VideoToolsActivity : AppCompatActivity() {
         val durationMs = probeInfo?.durationMs ?: 0L
         cutStartMs = 0L
         cutEndMs = durationMs
-        // Preview 220dp — tap toggles play/pause in place.
+        // Preview 300dp — tap toggles play/pause in place.
         val preview = ExoVideoView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(220)
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(300)
             ).apply { topMargin = dp(12) }
         }
         inputUri?.let { preview.setVideoURI(it) }
@@ -3616,6 +3741,14 @@ class VideoToolsActivity : AppCompatActivity() {
             }
         }.start()
         val pv = addProgressViews(content)
+        // v0.1.200: spacer pins "Cut Clip" to the bottom (the Split
+        // row was removed — its space went to the taller preview).
+        val spacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            )
+        }
+        content.addView(spacer)
         val cutBtn = actionButton("Cut Clip") {
             if (cutEndMs <= cutStartMs) {
                 toast("End must be after Start")
@@ -3624,69 +3757,6 @@ class VideoToolsActivity : AppCompatActivity() {
             runCut(pv)
         }
         content.addView(cutBtn)
-        // Splitter (inside Cutter) — ONE compact row (v0.1.199):
-        // "Split every [30] sec" + "Split Video" pill on the right.
-        val splitRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(12).toFloat()
-                setColor(Color.WHITE)
-                setStroke(dp(1), Color.parseColor("#CFD8DC"))
-            }
-            setPadding(dp(14), dp(10), dp(14), dp(10))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(12) }
-        }
-        val splitLabel0 = TextView(this).apply {
-            text = "Split every"
-            textSize = 14f
-            setTextColor(getColor(R.color.hakunaa_text))
-        }
-        val splitInput = EditText(this).apply {
-            setText("30")
-            inputType = InputType.TYPE_CLASS_NUMBER
-            textSize = 15f
-            setTextColor(getColor(R.color.hakunaa_text))
-            gravity = Gravity.CENTER
-            background = inputBoxBackground()
-            setPadding(dp(8), dp(8), dp(8), dp(8))
-            layoutParams = LinearLayout.LayoutParams(dp(72), LinearLayout.LayoutParams.WRAP_CONTENT)
-                .apply { marginStart = dp(8) }
-        }
-        val splitLabel1 = TextView(this).apply {
-            text = "sec"
-            textSize = 14f
-            setTextColor(getColor(R.color.hakunaa_text_secondary))
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { marginStart = dp(8) }
-        }
-        val splitSpacer = View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
-        }
-        val splitBtn = popupPillButton("Split Video", false) {
-            val secs = splitInput.text.toString().toIntOrNull() ?: 30
-            if (secs < 5) {
-                toast("Each part must be at least 5 seconds")
-                return@popupPillButton
-            }
-            runSplit(pv, secs)
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, dp(48)
-            )
-        }
-        splitRow.addView(splitLabel0)
-        splitRow.addView(splitInput)
-        splitRow.addView(splitLabel1)
-        splitRow.addView(splitSpacer)
-        splitRow.addView(splitBtn)
-        content.addView(splitRow)
     }
 
     private fun runCut(pv: ProgressViews) {
@@ -3715,43 +3785,7 @@ class VideoToolsActivity : AppCompatActivity() {
         )
     }
 
-    private fun runSplit(pv: ProgressViews, partSeconds: Int) {
-        val input = inputFile ?: return
-        if (!engineGuard()) return
-        pv.progress.visibility = View.VISIBLE
-        pv.status.text = "Splitting into ${partSeconds}s parts…"
-        pv.result.text = ""
-        val stamp = System.currentTimeMillis()
-        val pattern = File(cacheDir, "hakunaa_split_${stamp}_%03d.mp4").absolutePath
-        val durationMs = probeInfo?.durationMs ?: 0L
-        VideoToolsEngine.split(
-            input.absolutePath, pattern, partSeconds, durationMs,
-            { p -> runOnUiThread { pv.progress.progress = p } },
-            { ok, msg ->
-                runOnUiThread {
-                    pv.progress.visibility = View.GONE
-                    if (!ok) {
-                        pv.status.text = "Failed: $msg"
-                        return@runOnUiThread
-                    }
-                    val parts = cacheDir.listFiles { f ->
-                        f.name.startsWith("hakunaa_split_${stamp}_") && f.name.endsWith(".mp4")
-                    }?.sortedBy { it.name } ?: emptyList()
-                    if (parts.isEmpty()) {
-                        pv.status.text = "Failed — no parts were made"
-                        return@runOnUiThread
-                    }
-                    var savedCount = 0
-                    for (part in parts) {
-                        val saved = MediaStoreSaver.save(this, part, MediaStoreSaver.Kind.VIDEO, part.name)
-                        if (saved != null) savedCount++
-                    }
-                    pv.status.text = "Done — split into $savedCount parts, saved to Movies/Hakunaa"
-                    pv.result.text = parts.joinToString("\n") { it.name + "  •  " + FileUtils.formatSize(it.length()) }
-                }
-            }
-        )
-    }
+
 
     // ------------------------------------------------------------------
     // Custom Thumbnail — pick a frame, set it as the video cover.
@@ -4120,48 +4154,55 @@ class VideoToolsActivity : AppCompatActivity() {
     }
 
     // ------------------------------------------------------------------
-    // Video Crop — social presets + draggable frame (v0.1.198 Fix 8).
+    // Video Crop — aspect presets + draggable frame (v0.1.200 rework:
+    // the 12 social presets are gone; 8 aspect ratios in a
+    // horizontal chip row, Free = full frame, no aspect lock).
     // ------------------------------------------------------------------
 
     private data class CropPreset(
         val name: String,
-        val ratio: Float, // width / height
-        val resolution: String // standard resolution for that platform
+        val ratio: Float // width / height; 0 = Free (no aspect lock)
     )
 
     private val cropPresets = listOf(
-        CropPreset("YouTube", 16f / 9f, "1920×1080"),
-        CropPreset("IG Post", 1f, "1080×1080"),
-        CropPreset("Portrait", 4f / 5f, "1080×1350"),
-        CropPreset("Reel", 9f / 16f, "1080×1920"),
-        CropPreset("Story", 9f / 16f, "1080×1920"),
-        CropPreset("Shorts", 9f / 16f, "1080×1920"),
-        CropPreset("Status", 9f / 16f, "1080×1920"),
-        CropPreset("Snapchat", 9f / 16f, "1080×1920"),
-        CropPreset("Facebook", 4f / 3f, "1440×1080"),
-        CropPreset("Pinterest", 2f / 3f, "1000×1500"),
-        CropPreset("Cinema", 21f / 9f, "2560×1080"),
-        CropPreset("X Post", 16f / 9f, "1920×1080")
+        CropPreset("Free", 0f),
+        CropPreset("1:1", 1f),
+        CropPreset("16:9", 16f / 9f),
+        CropPreset("9:16", 9f / 16f),
+        CropPreset("4:5", 4f / 5f),
+        CropPreset("4:3", 4f / 3f),
+        CropPreset("3:2", 3f / 2f),
+        CropPreset("21:9", 21f / 9f)
     )
-    private var cropPresetIdx = 0
+    private var cropPresetIdx = 0 // default = Free (full frame)
     private var cropRect = intArrayOf(0, 0, 0, 0) // x, y, w, h in video pixels
 
+    /** Tall preview height for the Crop/Rotate rework (v0.1.200):
+     * the preview takes the available vertical space (screen height
+     * minus the fixed chrome of a tool screen), capped at 520dp.
+     * A post-layout fit pass grows/shrinks it to the exact fit. */
+    private fun tallPreviewHeightDp(): Int {
+        val dm = resources.displayMetrics
+        val screenHdp = dm.heightPixels / dm.density
+        return (screenHdp - 500f).toInt().coerceIn(280, 520)
+    }
+
     private fun showCropScreen() {
-        val content = newToolOverlay("Video Crop")
+        val content = newFixedToolOverlay("Video Crop")
         content.addView(fileInfoCard())
         // Fresh frame for this video (the rect is rebuilt when the
         // preview frame arrives — a stale rect from another video
         // must never be cropped).
         cropRect = intArrayOf(0, 0, 0, 0)
-        // v0.1.199: the preview box SIZES TO THE VIDEO's aspect
-        // (portrait video = tall narrow box, centred, NO black
-        // bars) instead of a fixed 320dp full-width box. Capped at
-        // 340dp tall and the content width; falls back to the old
-        // full-width box when the size is unknown.
+        // v0.1.200 rework: LARGE preview — the box sizes to the
+        // video's aspect (no black bars) and takes the available
+        // vertical space (tallPreviewHeightDp, refined by the fit
+        // pass below). Falls back to a 320dp box when the size is
+        // unknown.
         val vw = probeInfo?.width ?: 0
         val vh = probeInfo?.height ?: 0
         val maxBoxW = resources.displayMetrics.widthPixels - dp(32) // overlay side padding
-        val maxBoxH = dp(340)
+        val maxBoxH = dp(tallPreviewHeightDp())
         val (boxW, boxH) = if (vw > 0 && vh > 0) {
             val ratio = vw.toFloat() / vh.toFloat()
             if (ratio >= maxBoxW.toFloat() / maxBoxH.toFloat()) {
@@ -4192,103 +4233,105 @@ class VideoToolsActivity : AppCompatActivity() {
         }
         previewBox.addView(cropView)
         content.addView(previewBox)
-        // Result line — updated live as the frame moves/resizes.
-        val resultLabel = TextView(this).apply {
-            textSize = 14f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(getColor(R.color.hakunaa_text))
+        // Output row — live crop size + the selected aspect chip.
+        val outputRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(12) }
         }
+        val outputLeft = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        outputLeft.addView(TextView(this).apply {
+            text = "Output"
+            textSize = 12f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+        })
+        val outputValue = TextView(this).apply {
+            text = if (vw > 0 && vh > 0) "$vw × $vh" else "—"
+            textSize = 20f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+        }
+        outputLeft.addView(outputValue)
+        outputRow.addView(outputLeft)
+        val aspectChip = TextView(this).apply {
+            text = cropPresets[cropPresetIdx].name
+            textSize = 15f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setTextColor(pinkDark)
+            setPadding(dp(16), dp(8), dp(16), dp(8))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(18).toFloat()
+                setColor(Color.WHITE)
+                setStroke(dp(2), pinkBorder)
+            }
+        }
+        outputRow.addView(aspectChip)
+        content.addView(outputRow)
         fun updateResult() {
             val preset = cropPresets[cropPresetIdx]
             val r = cropRect
-            resultLabel.text = if (r[2] > 0 && r[3] > 0) {
-                "${preset.name}  •  ${preset.resolution}  —  Result: ${r[2]}×${r[3]}"
+            outputValue.text = if (r[2] > 0 && r[3] > 0) {
+                "${r[2]} × ${r[3]}"
+            } else if (vw > 0 && vh > 0) {
+                "$vw × $vh"
             } else {
-                "${preset.name}  •  ${preset.resolution}"
+                "—"
             }
+            aspectChip.text = preset.name
         }
         cropView.onFrameChanged = { x, y, cw, ch ->
             cropRect = intArrayOf(x, y, cw, ch)
             updateResult()
         }
-        // Social media presets (3 rows x 4).
-        content.addView(sectionLabel("SOCIAL MEDIA"))
-        val presetCards = mutableListOf<LinearLayout>()
-        fun paintPresetCards() {
-            for (i in presetCards.indices) {
-                val sel = i == cropPresetIdx
-                presetCards[i].background = GradientDrawable().apply {
-                    shape = GradientDrawable.RECTANGLE
-                    cornerRadius = dp(12).toFloat()
-                    if (sel) {
-                        setColor(pinkCard)
-                        setStroke(dp(2), pinkBorder)
-                    } else {
-                        setColor(Color.WHITE)
-                        setStroke(dp(1), Color.parseColor("#CFD8DC"))
-                    }
-                }
-                // Name turns pink when selected.
-                val nameTv = presetCards[i].getChildAt(0) as TextView
-                nameTv.setTextColor(if (sel) pinkDark else getColor(R.color.hakunaa_text))
-            }
-        }
-        val grid = GridLayout(this).apply {
-            columnCount = 4
-            rowCount = 3
+        // Aspect presets — horizontal scrollable chip row.
+        content.addView(sectionLabel("ASPECT RATIO"))
+        val chipsScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(8) }
         }
-        for ((i, preset) in cropPresets.withIndex()) {
-            val card = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER
-                setPadding(dp(4), dp(10), dp(4), dp(10))
-                isClickable = true
-                isFocusable = true
-                layoutParams = GridLayout.LayoutParams().apply {
-                    width = 0
-                    height = dp(80)
-                    columnSpec = GridLayout.spec(i % 4, 1f)
-                    rowSpec = GridLayout.spec(i / 4)
-                    setMargins(dp(4), dp(4), dp(4), dp(4))
-                }
-            }
-            card.addView(TextView(this).apply {
-                text = preset.name
-                textSize = 14f
-                setTypeface(null, android.graphics.Typeface.BOLD)
-                gravity = Gravity.CENTER
-                setTextColor(getColor(R.color.hakunaa_text))
-            })
-            card.addView(TextView(this).apply {
-                text = preset.resolution
-                textSize = 11f
-                gravity = Gravity.CENTER
-                setTextColor(getColor(R.color.hakunaa_text_secondary))
-                setPadding(0, dp(2), 0, 0)
-            })
-            card.setOnClickListener {
-                cropPresetIdx = i
-                paintPresetCards()
-                cropView.setAspect(preset.ratio)
-                updateResult()
-            }
-            presetCards.add(card)
-            grid.addView(card)
+        val chipsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
         }
-        content.addView(grid)
-        paintPresetCards()
-        content.addView(resultLabel)
+        chipsScroll.addView(chipsRow)
+        content.addView(chipsScroll)
+        val presetChips = mutableListOf<TextView>()
+        fun paintPresetChips() {
+            for ((i, c) in presetChips.withIndex()) setChipSelected(c, i == cropPresetIdx)
+        }
+        fun applyCropPreset() {
+            val preset = cropPresets[cropPresetIdx]
+            if (preset.ratio <= 0f) cropView.setFree() else cropView.setAspect(preset.ratio)
+            updateResult()
+        }
+        for ((i, preset) in cropPresets.withIndex()) {
+            val c = chip(preset.name, i == cropPresetIdx) {
+                cropPresetIdx = i
+                paintPresetChips()
+                applyCropPreset()
+            }.apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginEnd = dp(8) }
+            }
+            presetChips.add(c)
+            chipsRow.addView(c)
+        }
         val hint = TextView(this).apply {
-            text = "Drag the frame to move it. Drag a handle to resize."
+            text = "Drag the frame to move  |  Drag a corner to resize"
             textSize = 13f
+            gravity = Gravity.CENTER
             setTextColor(getColor(R.color.hakunaa_text_secondary))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -4296,9 +4339,8 @@ class VideoToolsActivity : AppCompatActivity() {
             ).apply { topMargin = dp(8) }
         }
         content.addView(hint)
-        // Default preset = YouTube; frame starts at that ratio.
-        cropView.setAspect(cropPresets[cropPresetIdx].ratio)
-        updateResult()
+        // Default preset = Free (full frame).
+        applyCropPreset()
         // Extract one frame for the preview (background thread;
         // grey placeholder until it arrives).
         Thread {
@@ -4330,8 +4372,47 @@ class VideoToolsActivity : AppCompatActivity() {
             }
         }.start()
         val pv = addProgressViews(content)
+        // Spacer pins "Crop & Save" to the bottom.
+        val spacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            )
+        }
+        content.addView(spacer)
         val btn = actionButton("Crop & Save") { runCrop(pv) }
         content.addView(btn)
+        // Fit pass: after layout, give the preview box ALL remaining
+        // vertical space so the fixed screen fits exactly on any
+        // phone (the initial tallPreviewHeightDp is only an estimate).
+        content.post {
+            val avail = content.height
+            if (avail <= 0) return@post
+            var used = 0
+            for (i in 0 until content.childCount) {
+                val ch = content.getChildAt(i)
+                if (ch === previewBox || ch === spacer) continue
+                val lp = ch.layoutParams as? LinearLayout.LayoutParams
+                used += ch.height + (lp?.topMargin ?: 0) + (lp?.bottomMargin ?: 0)
+            }
+            val boxLp = previewBox.layoutParams as LinearLayout.LayoutParams
+            var targetH = avail - used - boxLp.topMargin - boxLp.bottomMargin
+            targetH = targetH.coerceIn(dp(200), dp(520))
+            // Keep the video's aspect (no black bars); cap the width.
+            val ratio = if (vw > 0 && vh > 0) vw.toFloat() / vh.toFloat() else 16f / 9f
+            var newBoxW = (targetH * ratio).toInt()
+            var newBoxH = targetH
+            if (newBoxW > maxBoxW) {
+                newBoxW = maxBoxW
+                newBoxH = (newBoxW / ratio).toInt()
+            }
+            if (newBoxW != previewBox.width || newBoxH != previewBox.height) {
+                previewBox.layoutParams = LinearLayout.LayoutParams(newBoxW, newBoxH).apply {
+                    topMargin = dp(12)
+                    gravity = Gravity.CENTER_HORIZONTAL
+                }
+                previewBox.requestLayout()
+            }
+        }
     }
 
     private fun runCrop(pv: ProgressViews) {
@@ -4354,12 +4435,16 @@ class VideoToolsActivity : AppCompatActivity() {
             return
         }
         if (r[2] == w && r[3] == h && r[0] == 0 && r[1] == 0) {
-            toast("This video is already ${preset.name}")
+            toast("The frame already covers the whole video")
             return
         }
         pv.progress.visibility = View.VISIBLE
         pv.progress.progress = 0
-        pv.status.text = "Cropping to ${preset.name} (${r[2]}×${r[3]})…"
+        pv.status.text = if (preset.ratio <= 0f) {
+            "Cropping ${r[2]}×${r[3]}…"
+        } else {
+            "Cropping to ${preset.name} (${r[2]}×${r[3]})…"
+        }
         pv.result.text = ""
         val out = File(cacheDir, "hakunaa_crop_${System.currentTimeMillis()}.mp4")
         VideoToolsEngine.crop(
