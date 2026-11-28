@@ -126,6 +126,10 @@ class VideoToolsActivity : AppCompatActivity() {
     private var smartResults = mutableListOf<SmartResult>()
     private var smartSelected = -1
     private var smartRunning = false
+    // Smart priority (v0.1.201): what matters most to the user —
+    // 0 = Best Quality, 1 = Balanced (default), 2 = Smallest Size.
+    // Sets which of the 3 Smart results is selected by default.
+    private var smartPriority = 1
     // v0.1.198 Fix 5: the bottom "Save selected" button of the
     // fixed Smart screen (created in showSmartScreen, shown by
     // showSmartResults once results exist).
@@ -1652,7 +1656,108 @@ class VideoToolsActivity : AppCompatActivity() {
             )
         }
         content.addView(middleBox)
+        // Smart instructions card (v0.1.201): fills the empty
+        // middle with what Smart does. It STAYS visible while
+        // compressing and after results (user 2026-11-28) — the
+        // progress bar runs in the space BELOW it, and the
+        // results appear there too, on this same screen.
+        val infoCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(16) }
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(16).toFloat()
+                setColor(pinkCard)
+                setStroke(dp(1), pinkBorder)
+            }
+        }
+        infoCard.addView(TextView(this).apply {
+            text = "How Smart works"
+            textSize = 16f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+        })
+        val howSteps = listOf(
+            "Smart tries different settings on your video",
+            "3 best results at one time - pick the best",
+            "Takes a little extra time, but worth it"
+        )
+        for ((i, step) in howSteps.withIndex()) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(8) }
+            }
+            row.addView(TextView(this).apply {
+                text = "${i + 1}"
+                textSize = 13f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setTextColor(Color.WHITE)
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(pinkDark)
+                }
+                layoutParams = LinearLayout.LayoutParams(dp(26), dp(26)).apply {
+                    marginEnd = dp(10)
+                }
+            })
+            row.addView(TextView(this).apply {
+                text = step
+                textSize = 14f
+                setTextColor(getColor(R.color.hakunaa_text))
+                layoutParams = LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+                )
+            })
+            infoCard.addView(row)
+        }
+        middleBox.addView(infoCard)
+        // Priority options (v0.1.201): what matters most — sets
+        // which of the 3 Smart results is selected by default.
+        // These + the info card are ONE "info section": visible
+        // while picking / compressing, HIDDEN when the results
+        // come (user 2026-11-28 — results get the whole screen,
+        // clear like the 37044.mp4 screenshot).
+        val priorityLabel = sectionLabel("What matters most to you?")
+        middleBox.addView(priorityLabel)
+        val priorityChips = chipRow(
+            listOf("Best Quality", "Balanced", "Smallest Size"),
+            smartPriority
+        ) { idx -> smartPriority = idx }
+        middleBox.addView(priorityChips)
+        val priorityHint = TextView(this).apply {
+            text = "Smart will select the best result for you."
+            textSize = 13f
+            setTextColor(getColor(R.color.hakunaa_text_secondary))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(6) }
+        }
+        middleBox.addView(priorityHint)
+        // Show/hide the whole info section (instructions card +
+        // priority options). Progress time = visible; results
+        // time = hidden so the 3 results get the full screen.
+        fun setInfoVisible(v: Boolean) {
+            val vis = if (v) View.VISIBLE else View.GONE
+            infoCard.visibility = vis
+            priorityLabel.visibility = vis
+            priorityChips.visibility = vis
+            priorityHint.visibility = vis
+        }
         val pv = addProgressViews(middleBox)
+        // Make the progress bar thick and clear (user 2026-11-28:
+        // the progress must run CLEARLY in the empty space while
+        // Smart compresses). Smart-only — other tools keep the
+        // default thin bar.
+        pv.progress.trackThickness = dp(10)
         // Empty middle at first — hide the status/result lines
         // until a compress run starts (the Analyze button shows
         // them again before calling runSmart).
@@ -1665,7 +1770,17 @@ class VideoToolsActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
         }
-        middleBox.addView(resultBox)
+        // Results scroll if the screen is short (user 2026-11-28:
+        // space management must be perfect — the 3 result rows
+        // get the remaining space and scroll instead of clipping).
+        val resultScroll = android.widget.ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            )
+            isVerticalScrollBarEnabled = false
+        }
+        resultScroll.addView(resultBox)
+        middleBox.addView(resultScroll)
         // Bottom: "Save selected" (hidden until results exist)
         // directly above "Analyze & Compress".
         smartSaveBtn = actionButton("Save selected") {
@@ -1676,13 +1791,22 @@ class VideoToolsActivity : AppCompatActivity() {
         }.apply { visibility = View.GONE }
         content.addView(smartSaveBtn)
         val analyzeBtn = actionButton("Analyze & Compress") {
+            // Progress time: the info section (instructions +
+            // options) stays visible and the progress bar runs
+            // below it. When the results are ready, the info
+            // section hides so the results get the full screen.
+            setInfoVisible(true)
             pv.status.visibility = View.VISIBLE
             pv.result.visibility = View.VISIBLE
-            runSmart(pv, resultBox)
+            runSmart(pv, resultBox) { setInfoVisible(false) }
         }
         content.addView(analyzeBtn)
-        // If results already exist (re-entering Smart), show them again.
-        if (smartResults.isNotEmpty()) showSmartResults(pv, resultBox)
+        // If results already exist (re-entering Smart), show them
+        // again — info section hidden, results get the full screen.
+        if (smartResults.isNotEmpty()) {
+            setInfoVisible(false)
+            showSmartResults(pv, resultBox)
+        }
     }
 
     private fun codecChips(selected: VideoCompressor.Codec, onSelect: (VideoCompressor.Codec) -> Unit): LinearLayout {
@@ -2021,7 +2145,7 @@ class VideoToolsActivity : AppCompatActivity() {
 
     // ---- Smart ----
 
-    private fun runSmart(pv: ProgressViews, resultBox: LinearLayout) {
+    private fun runSmart(pv: ProgressViews, resultBox: LinearLayout, onResults: (() -> Unit)? = null) {
         val input = inputFile ?: return
         if (!engineGuard()) return
         if (smartRunning) return
@@ -2034,51 +2158,76 @@ class VideoToolsActivity : AppCompatActivity() {
         pv.result.text = ""
         val durationMs = probeInfo?.durationMs ?: 0L
         val hasAudio = probeInfo?.hasAudio ?: true
-        // v0.1.199 Fix 9: NEVER upscale. A 480p input must not be
-        // re-encoded at 1080p/720p (bigger file, no quality gain,
-        // wasted time). Keep only targets at or below the input's
-        // own height. Input below 480p (e.g. 360p): compress ONCE
-        // at the original resolution instead of upscaling.
+        // DYNAMIC Smart (user 2026-11-28): 3 results, NO upscale
+        // (Fix 9 restored — upscaling is not good), CRF adapts to
+        // the input video (bitrate-based). The 3 results are the 3
+        // resolutions at/below the input (1080/720/480 for a 1080p
+        // input; 720/480 for 720p; 480 for 480p). Each resolution
+        // is tried at a standard CRF and a "Max" CRF; the best one
+        // per resolution is shown (see finalizeResults).
+        val durationSec = (durationMs / 1000.0).coerceAtLeast(1.0)
+        val inputBitrateKbps = (inputSize * 8.0 / 1000.0) / durationSec
+        val crfShift = if (inputBitrateKbps < 1000) 3 else 0
         val inputH = probeInfo?.height ?: 0
-        val specs = run {
-            val all = listOf(
-                Triple("1080p", 23, VideoCompressor.Resolution.P1080),
-                Triple("720p", 26, VideoCompressor.Resolution.P720),
-                Triple("480p", 28, VideoCompressor.Resolution.P480)
-            )
-            val heights = mapOf(
-                VideoCompressor.Resolution.P1080 to 1080,
-                VideoCompressor.Resolution.P720 to 720,
-                VideoCompressor.Resolution.P480 to 480
-            )
-            val kept = if (inputH <= 0) all
-            else all.filter { (_, _, res) -> (heights[res] ?: 0) <= inputH }
-            if (kept.isEmpty()) listOf(Triple("${inputH}p", 28, VideoCompressor.Resolution.ORIGINAL))
-            else kept
+        val specs = mutableListOf<Triple<String, Int, VideoCompressor.Resolution>>()
+        fun addRes(label: String, height: Int, baseCrf: Int, res: VideoCompressor.Resolution) {
+            if (inputH <= 0 || height <= inputH) {
+                specs.add(Triple(label, baseCrf, res))
+                specs.add(Triple("$label Max", minOf(baseCrf + 5, 34), res))
+            }
+        }
+        addRes("1080p", 1080, 23 + crfShift, VideoCompressor.Resolution.P1080)
+        addRes("720p", 720, 26 + crfShift, VideoCompressor.Resolution.P720)
+        addRes("480p", 480, 28 + crfShift, VideoCompressor.Resolution.P480)
+        if (specs.isEmpty()) {
+            // Input below 480p: compress at the original resolution.
+            specs.add(Triple("${inputH}p", 28 + crfShift, VideoCompressor.Resolution.ORIGINAL))
+            specs.add(Triple("${inputH}p Max", minOf(28 + crfShift + 5, 34), VideoCompressor.Resolution.ORIGINAL))
         }
         val made = mutableListOf<Triple<String, File, Long>>()
-        fun runOne(index: Int) {
-            if (index >= specs.size) {
-                smartRunning = false
-                pv.progress.visibility = View.GONE
-                for ((label, file, size) in made) {
-                    val savedPct = if (inputSize > 0) ((1.0 - size.toDouble() / inputSize.toDouble()) * 100.0).toInt() else 0
-                    smartResults.add(SmartResult(label, file, size, savedPct, false))
-                }
-                if (smartResults.isEmpty()) {
-                    pv.status.text = "Failed — couldn't make any version"
-                    return
-                }
-                // Best = highest resolution that saves at least 40%;
-                // otherwise the smallest file.
-                var bestIdx = -1
-                for (i in smartResults.indices) {
-                    if (smartResults[i].savedPct >= 40) {
-                        bestIdx = i
-                        break
-                    }
-                }
-                if (bestIdx < 0) {
+        // A version that comes out BIGGER than the original is not
+        // a compression — it is filtered out, never shown (user
+        // 2026-11-28: a "2% larger" Smart result is poor).
+        var anyTooBig = false
+        fun finalizeResults() {
+            smartRunning = false
+            pv.progress.visibility = View.GONE
+            for ((label, file, size) in made) {
+                val savedPct = if (inputSize > 0) ((1.0 - size.toDouble() / inputSize.toDouble()) * 100.0).toInt() else 0
+                smartResults.add(SmartResult(label, file, size, savedPct, false))
+            }
+            // One result per resolution (3 results total, the number
+            // the user asked for): prefer the standard CRF when it
+            // already saves >= 15% (good quality + decent saving);
+            // else take the smallest (Max) for that resolution.
+            // Sorted by resolution, highest first.
+            val byRes = smartResults.groupBy { it.label.removeSuffix(" Max") }
+            val picked = mutableListOf<SmartResult>()
+            for ((_, versions) in byRes) {
+                val std = versions.firstOrNull { !it.label.endsWith(" Max") }
+                val best = if (std != null && std.savedPct >= 15) std
+                else versions.minByOrNull { it.size }
+                if (best != null) picked.add(best)
+            }
+            fun resHeight(label: String): Int {
+                return label.removeSuffix(" Max").removeSuffix("p").toIntOrNull() ?: 0
+            }
+            smartResults = picked.sortedByDescending { resHeight(it.label) }.take(3).toMutableList()
+            if (smartResults.isEmpty()) {
+                pv.status.text = if (anyTooBig) "Already optimized — this video is already as small as it gets"
+                else "Failed — couldn't make any version"
+                return
+            }
+            // Default selection follows the user's priority
+            // (v0.1.201): Best Quality = highest resolution (the
+            // results are sorted by resolution, highest first);
+            // Balanced = highest resolution that saves at least
+            // 40%, else the smallest file; Smallest Size = the
+            // smallest file. The user can still tap any result.
+            var bestIdx = -1
+            when (smartPriority) {
+                0 -> bestIdx = 0
+                2 -> {
                     var smallest = Long.MAX_VALUE
                     for (i in smartResults.indices) {
                         if (smartResults[i].size < smallest) {
@@ -2087,12 +2236,38 @@ class VideoToolsActivity : AppCompatActivity() {
                         }
                     }
                 }
-                smartResults = smartResults.mapIndexed { i, r ->
-                    r.copy(isBest = i == bestIdx)
-                }.toMutableList()
-                smartSelected = bestIdx
-                pv.status.text = "Done — ${smartResults.size} versions ready"
-                showSmartResults(pv, resultBox)
+                else -> {
+                    for (i in smartResults.indices) {
+                        if (smartResults[i].savedPct >= 40) {
+                            bestIdx = i
+                            break
+                        }
+                    }
+                    if (bestIdx < 0) {
+                        var smallest = Long.MAX_VALUE
+                        for (i in smartResults.indices) {
+                            if (smartResults[i].size < smallest) {
+                                smallest = smartResults[i].size
+                                bestIdx = i
+                            }
+                        }
+                    }
+                }
+            }
+            smartResults = smartResults.mapIndexed { i, r ->
+                r.copy(isBest = i == bestIdx)
+            }.toMutableList()
+            smartSelected = bestIdx
+            pv.status.text = "Done — ${smartResults.size} versions ready"
+            showSmartResults(pv, resultBox)
+            // Results are on screen — hide the info section so
+            // the 3 results get the full screen, clear like the
+            // 37044.mp4 screenshot (user 2026-11-28).
+            onResults?.invoke()
+        }
+        fun runOne(index: Int) {
+            if (index >= specs.size) {
+                finalizeResults()
                 return
             }
             val spec = specs[index]
@@ -2111,7 +2286,17 @@ class VideoToolsActivity : AppCompatActivity() {
                 { ok, _ ->
                     runOnUiThread {
                         if (ok && out.exists() && out.length() > 0) {
-                            made.add(Triple(label, out, out.length()))
+                            if (inputSize <= 0 || out.length() < inputSize) {
+                                made.add(Triple(label, out, out.length()))
+                            } else {
+                                // Bigger than the original — not a
+                                // compression, drop it (v0.1.201).
+                                anyTooBig = true
+                                try {
+                                    out.delete()
+                                } catch (_: Throwable) {
+                                }
+                            }
                         } else {
                             try {
                                 out.delete()
@@ -2134,7 +2319,7 @@ class VideoToolsActivity : AppCompatActivity() {
                 orientation = LinearLayout.VERTICAL
                 isClickable = true
                 isFocusable = true
-                setPadding(dp(14), dp(12), dp(14), dp(12))
+                setPadding(dp(14), dp(10), dp(14), dp(10))
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
@@ -2176,7 +2361,7 @@ class VideoToolsActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = dp(6) }
+                ).apply { topMargin = dp(4) }
             }
             val saved = TextView(this).apply {
                 text = if (r.savedPct >= 0) "${r.savedPct}% smaller" else "${-r.savedPct}% larger"
@@ -2190,7 +2375,7 @@ class VideoToolsActivity : AppCompatActivity() {
             val play = popupPillButton("▶ Play", false) {
                 showFullScreenPlayer(Uri.fromFile(r.file))
             }.apply {
-                layoutParams = LinearLayout.LayoutParams(dp(96), dp(40))
+                layoutParams = LinearLayout.LayoutParams(dp(96), dp(36))
             }
             bottom.addView(saved)
             bottom.addView(play)
@@ -2955,23 +3140,35 @@ class VideoToolsActivity : AppCompatActivity() {
             return parts.joinToString(" - ")
         }
         // Size the inner video view to the rotated bounding box and
-        // apply the transform (rotation + flips). The container is
-        // fixed; the inner view is centred and rotated about its own
-        // centre, so the whole rotated frame stays visible.
+        // apply the transform (rotation + flips). The preview BOX
+        // height ADAPTS to the rotated video's aspect (v0.1.201):
+        // a 90-degree turn makes a portrait video landscape, so the
+        // box becomes a landscape rectangle and the video fills it
+        // edge to edge — no big black bars, the preview looks exactly
+        // like the output. Clamped so the box never gets too short
+        // or too tall. (User 2026-11-28: "preview it's not good..
+        // Need Perfect exact preview.")
         fun layoutRotatePreview() {
             val p = probeInfo ?: return
             val w = p.width.toFloat()
             val h = p.height.toFloat()
             if (w <= 0f || h <= 0f) return
             val ow = previewBox.width.toFloat()
-            val oh = previewBox.height.toFloat()
-            if (ow <= 0f || oh <= 0f) return
+            if (ow <= 0f) return
             val total = rotateBase90 + rotateFine
             val rad = Math.toRadians(total.toDouble())
             val cos = Math.abs(Math.cos(rad))
             val sin = Math.abs(Math.sin(rad))
             val bw = w * cos + h * sin
             val bh = w * sin + h * cos
+            val idealBoxH = (ow * bh / bw).toInt()
+            val newBoxH = idealBoxH.coerceIn(dp(200), dp(tallPreviewHeightDp()))
+            val boxLp = previewBox.layoutParams as LinearLayout.LayoutParams
+            if (boxLp.height != newBoxH) {
+                boxLp.height = newBoxH
+                previewBox.layoutParams = boxLp
+            }
+            val oh = newBoxH.toFloat()
             val k = minOf(ow / bw, oh / bh)
             val vw = (k * w).toInt().coerceAtLeast(2)
             val vh = (k * h).toInt().coerceAtLeast(2)
@@ -3647,9 +3844,123 @@ class VideoToolsActivity : AppCompatActivity() {
         inputUri?.let { preview.setVideoURI(it) }
         content.addView(preview)
         activeVideoViews.add(preview)
+        // Professional controls (v0.1.201, user 2026-11-28): a
+        // control row between the preview and the timeline — the
+        // gap above it is the space the user asked for. Play/Pause,
+        // live current time, frame step (1 frame = 33ms at 30fps)
+        // and Reset. Frame step pauses first, then steps one frame.
+        val timeTv = TextView(this).apply {
+            text = "00:00 / ${formatClock(durationMs)}"
+            textSize = 14f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(getColor(R.color.hakunaa_text))
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        fun refreshTime() {
+            try {
+                timeTv.text = "${formatClock(preview.currentPosition.toLong())} / ${formatClock(durationMs)}"
+            } catch (_: Throwable) {
+            }
+        }
+        val playBtn = TextView(this).apply {
+            text = "▶"
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(pinkDark)
+            }
+            layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
+        }
+        val tickerHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        val ticker = object : Runnable {
+            override fun run() {
+                try {
+                    if (!preview.isPlaying()) return
+                    refreshTime()
+                    tickerHandler.postDelayed(this, 250)
+                } catch (_: Throwable) {
+                }
+            }
+        }
+        fun refreshPlayState() {
+            try {
+                val playing = preview.isPlaying()
+                playBtn.text = if (playing) "❚❚" else "▶"
+                if (playing) {
+                    tickerHandler.removeCallbacks(ticker)
+                    tickerHandler.postDelayed(ticker, 250)
+                } else {
+                    tickerHandler.removeCallbacks(ticker)
+                    refreshTime()
+                }
+            } catch (_: Throwable) {
+            }
+        }
+        fun stepFrame(deltaMs: Int) {
+            try {
+                if (preview.isPlaying()) preview.pause()
+                val cur = preview.currentPosition.toLong()
+                val next = (cur + deltaMs).coerceIn(0L, durationMs)
+                preview.seekTo(next.toInt())
+                refreshTime()
+                refreshPlayState()
+            } catch (_: Throwable) {
+            }
+        }
+        fun cutterPill(label: String, onClick: () -> Unit): TextView {
+            return TextView(this).apply {
+                text = label
+                textSize = 13f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setTextColor(getColor(R.color.hakunaa_text))
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(18).toFloat()
+                    setColor(Color.WHITE)
+                    setStroke(dp(1), Color.parseColor("#CFD8DC"))
+                }
+                setPadding(dp(14), dp(8), dp(14), dp(8))
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { onClick() }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginStart = dp(8) }
+            }
+        }
+        // Reset gets its real listener below (after trimView and
+        // refreshTimes exist); the empty lambda is replaced there.
+        val resetBtn = cutterPill("Reset") {}
+        val controlsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) }
+        }
+        playBtn.setOnClickListener {
+            try {
+                if (preview.isPlaying()) preview.pause() else preview.start()
+                refreshPlayState()
+            } catch (_: Throwable) {
+            }
+        }
+        controlsRow.addView(playBtn)
+        controlsRow.addView(timeTv)
+        controlsRow.addView(cutterPill("< Frame") { stepFrame(-33) })
+        controlsRow.addView(cutterPill("Frame >") { stepFrame(33) })
+        controlsRow.addView(resetBtn)
+        content.addView(controlsRow)
         preview.setOnClickListener {
             try {
                 if (preview.isPlaying()) preview.pause() else preview.start()
+                refreshPlayState()
             } catch (_: Throwable) {
             }
         }
@@ -3701,6 +4012,22 @@ class VideoToolsActivity : AppCompatActivity() {
             tvStart.text = "Start  ${formatClock(cutStartMs)}"
             tvClip.text = "Clip  ${formatClock(cutEndMs - cutStartMs)}"
             tvEnd.text = "End  ${formatClock(cutEndMs)}"
+        }
+        // Reset (control row): full video again — handles back to
+        // the ends, preview back to 0, times refreshed.
+        resetBtn.setOnClickListener {
+            try {
+                if (preview.isPlaying()) preview.pause()
+                trimView.startMs = 0L
+                trimView.endMs = durationMs
+                cutStartMs = 0L
+                cutEndMs = durationMs
+                refreshTimes()
+                preview.seekTo(0)
+                refreshTime()
+                refreshPlayState()
+            } catch (_: Throwable) {
+            }
         }
         trimView.onRangeChanged = { s, e ->
             cutStartMs = s

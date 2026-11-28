@@ -63,8 +63,10 @@ class VideoCropView @JvmOverloads constructor(
     private val density get() = resources.displayMetrics.density
     /** Touch target: ±24dp = 48dp total (v0.1.200 rework). */
     private val handleTouchPx get() = 24f * density
-    /** Visual handle: 28dp white square, pink stroke (v0.1.200). */
-    private val handleSizePx get() = 28f * density
+    /** Visual handle: 18dp white square, pink stroke (v0.1.201 —
+     *  user 2026-11-28: the 28dp handles were too big). The touch
+     *  target stays 48dp so the handles are still easy to grab. */
+    private val handleSizePx get() = 18f * density
 
     /** Free-form mode (the "Free" preset): no aspect lock — the
      * frame resizes freely in both directions (v0.1.200). */
