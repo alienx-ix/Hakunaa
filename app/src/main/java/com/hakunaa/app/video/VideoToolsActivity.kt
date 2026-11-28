@@ -472,7 +472,7 @@ class VideoToolsActivity : AppCompatActivity() {
                 pickVideoThen { showCompressScreen(0) }
             },
             Tool("Smart Compress", "Auto best size", VideoIconView.Kind.SMART,
-                "• Automatic — best size for your video\n• 3 results: 1080p, 720p, 480p\n• Real sizes, pick the best one") {
+                "• Automatic — best size for your video\n• Up to 4 results at one time\n• Real sizes, pick the best one") {
                 pickVideoThen { showCompressScreen(1) }
             },
             // v0.1.195: Multi Compress (UI only — functions come
@@ -1683,7 +1683,7 @@ class VideoToolsActivity : AppCompatActivity() {
         })
         val howSteps = listOf(
             "Smart tries different settings on your video",
-            "3 best results at one time - pick the best",
+            "4 best results at one time - pick the best",
             "Takes a little extra time, but worth it"
         )
         for ((i, step) in howSteps.withIndex()) {
@@ -1744,7 +1744,7 @@ class VideoToolsActivity : AppCompatActivity() {
         middleBox.addView(priorityHint)
         // Show/hide the whole info section (instructions card +
         // priority options). Progress time = visible; results
-        // time = hidden so the 3 results get the full screen.
+        // time = hidden so the 4 results get the full screen.
         fun setInfoVisible(v: Boolean) {
             val vis = if (v) View.VISIBLE else View.GONE
             infoCard.visibility = vis
@@ -2158,13 +2158,14 @@ class VideoToolsActivity : AppCompatActivity() {
         pv.result.text = ""
         val durationMs = probeInfo?.durationMs ?: 0L
         val hasAudio = probeInfo?.hasAudio ?: true
-        // DYNAMIC Smart (user 2026-11-28): 3 results, NO upscale
-        // (Fix 9 restored — upscaling is not good), CRF adapts to
-        // the input video (bitrate-based). The 3 results are the 3
-        // resolutions at/below the input (1080/720/480 for a 1080p
-        // input; 720/480 for 720p; 480 for 480p). Each resolution
-        // is tried at a standard CRF and a "Max" CRF; the best one
-        // per resolution is shown (see finalizeResults).
+        // DYNAMIC Smart (user 2026-11-28): up to 4 results, NO
+        // upscale (Fix 9 restored — upscaling is not good), CRF
+        // adapts to the input video (bitrate-based). The results
+        // are the resolutions at/below the input (1080/720/480 for
+        // a 1080p input; 720/480 for 720p; 480 for 480p; plus the
+        // original resolution for odd heights like 640p). Each
+        // resolution is tried at a standard CRF and a "Max" CRF;
+        // up to 4 versions are shown (see finalizeResults).
         val durationSec = (durationMs / 1000.0).coerceAtLeast(1.0)
         val inputBitrateKbps = (inputSize * 8.0 / 1000.0) / durationSec
         val crfShift = if (inputBitrateKbps < 1000) 3 else 0
@@ -2179,6 +2180,14 @@ class VideoToolsActivity : AppCompatActivity() {
         addRes("1080p", 1080, 23 + crfShift, VideoCompressor.Resolution.P1080)
         addRes("720p", 720, 26 + crfShift, VideoCompressor.Resolution.P720)
         addRes("480p", 480, 28 + crfShift, VideoCompressor.Resolution.P480)
+        if (inputH > 480 && inputH != 720 && inputH != 1080) {
+            // Odd height (e.g. 640p portrait video): also try the
+            // ORIGINAL resolution, so Smart has more than one
+            // resolution to offer (user 2026-11-28: only 1 result
+            // showed for a 360x640 video — Smart must give options).
+            specs.add(Triple("${inputH}p", 26 + crfShift, VideoCompressor.Resolution.ORIGINAL))
+            specs.add(Triple("${inputH}p Max", minOf(26 + crfShift + 5, 34), VideoCompressor.Resolution.ORIGINAL))
+        }
         if (specs.isEmpty()) {
             // Input below 480p: compress at the original resolution.
             specs.add(Triple("${inputH}p", 28 + crfShift, VideoCompressor.Resolution.ORIGINAL))
@@ -2196,10 +2205,13 @@ class VideoToolsActivity : AppCompatActivity() {
                 val savedPct = if (inputSize > 0) ((1.0 - size.toDouble() / inputSize.toDouble()) * 100.0).toInt() else 0
                 smartResults.add(SmartResult(label, file, size, savedPct, false))
             }
-            // One result per resolution (3 results total, the number
-            // the user asked for): prefer the standard CRF when it
-            // already saves >= 15% (good quality + decent saving);
-            // else take the smallest (Max) for that resolution.
+            // Results: one per resolution first (the best per
+            // resolution — std if it saves >= 15%, else smallest),
+            // then the Max variants (smallest first) to fill up to
+            // 4 total. The user (2026-11-28) saw Smart run several
+            // versions but only 1 displayed for a low-res video —
+            // Smart must show the options it actually made, not
+            // hide them behind a one-per-resolution dedup.
             // Sorted by resolution, highest first.
             val byRes = smartResults.groupBy { it.label.removeSuffix(" Max") }
             val picked = mutableListOf<SmartResult>()
@@ -2212,7 +2224,12 @@ class VideoToolsActivity : AppCompatActivity() {
             fun resHeight(label: String): Int {
                 return label.removeSuffix(" Max").removeSuffix("p").toIntOrNull() ?: 0
             }
-            smartResults = picked.sortedByDescending { resHeight(it.label) }.take(3).toMutableList()
+            val remaining = smartResults.filter { it !in picked }.sortedBy { it.size }
+            val all = (picked + remaining).sortedWith(
+                compareByDescending<SmartResult> { resHeight(it.label) }
+                    .thenByDescending { it.size }
+            )
+            smartResults = all.take(4).toMutableList()
             if (smartResults.isEmpty()) {
                 pv.status.text = if (anyTooBig) "Already optimized — this video is already as small as it gets"
                 else "Failed — couldn't make any version"
@@ -2261,7 +2278,7 @@ class VideoToolsActivity : AppCompatActivity() {
             pv.status.text = "Done — ${smartResults.size} versions ready"
             showSmartResults(pv, resultBox)
             // Results are on screen — hide the info section so
-            // the 3 results get the full screen, clear like the
+            // the 4 results get the full screen, clear like the
             // 37044.mp4 screenshot (user 2026-11-28).
             onResults?.invoke()
         }
@@ -3053,6 +3070,71 @@ class VideoToolsActivity : AppCompatActivity() {
         }
     }
 
+    // Professional Play/Pause button for the Video Cutter (user
+    // 2026-11-28): a 56dp LITE circle — white fill, thin pink
+    // border, pink icon — with a crisp Canvas-drawn glyph: play
+    // triangle when paused, two rounded pause bars when playing.
+    // No text glyphs, so it renders the same on every phone.
+    // (User 2026-11-28 19:03 IST: "Play button professional
+    // lite" — the solid pink circle was too heavy.)
+    private inner class PlayPauseButton(context: Context) : View(context) {
+        var playing = false
+            set(value) {
+                if (field != value) {
+                    field = value
+                    invalidate()
+                }
+            }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val d = resources.displayMetrics.density
+            val cx = width / 2f
+            val cy = height / 2f
+            val r = Math.min(width, height) / 2f
+            val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                style = Paint.Style.FILL
+            }
+            canvas.drawCircle(cx, cy, r, bg)
+            val border = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = pinkDark
+                style = Paint.Style.STROKE
+                strokeWidth = 2f * d
+            }
+            canvas.drawCircle(cx, cy, r - d, border)
+            val icon = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = pinkDark
+                style = Paint.Style.FILL
+            }
+            if (!playing) {
+                // Play triangle, pointing right.
+                val s = r * 0.52f
+                val path = Path().apply {
+                    moveTo(cx - s * 0.55f, cy - s)
+                    lineTo(cx - s * 0.55f, cy + s)
+                    lineTo(cx + s * 0.85f, cy)
+                    close()
+                }
+                canvas.drawPath(path, icon)
+            } else {
+                // Pause: two rounded vertical bars.
+                val barW = r * 0.28f
+                val barH = r * 0.95f
+                val gap = r * 0.22f
+                val round = barW * 0.5f
+                canvas.drawRoundRect(
+                    cx - gap - barW, cy - barH / 2f,
+                    cx - gap, cy + barH / 2f, round, round, icon
+                )
+                canvas.drawRoundRect(
+                    cx + gap, cy - barH / 2f,
+                    cx + gap + barW, cy + barH / 2f, round, round, icon
+                )
+            }
+        }
+    }
+
     private fun showRotateScreen() {
         val content = newFixedToolOverlay("Rotate Video")
         val card = fileInfoCard()
@@ -3079,7 +3161,7 @@ class VideoToolsActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(tallPreviewHeightDp())
             ).apply { topMargin = dp(12) }
         }
-        val preview = ExoVideoView(this).apply {
+        val preview = ExoVideoView(this, useTextureView = true).apply {
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
@@ -3846,67 +3928,18 @@ class VideoToolsActivity : AppCompatActivity() {
         activeVideoViews.add(preview)
         // Professional controls (v0.1.201, user 2026-11-28): a
         // control row between the preview and the timeline — the
-        // gap above it is the space the user asked for. Play/Pause,
-        // live current time, frame step (1 frame = 33ms at 30fps)
-        // and Reset. Frame step pauses first, then steps one frame.
-        val timeTv = TextView(this).apply {
-            text = "00:00 / ${formatClock(durationMs)}"
-            textSize = 14f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(getColor(R.color.hakunaa_text))
-            gravity = Gravity.CENTER_VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        fun refreshTime() {
-            try {
-                timeTv.text = "${formatClock(preview.currentPosition.toLong())} / ${formatClock(durationMs)}"
-            } catch (_: Throwable) {
-            }
-        }
-        val playBtn = TextView(this).apply {
-            text = "▶"
-            textSize = 18f
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(pinkDark)
-            }
-            layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
-        }
-        val tickerHandler = android.os.Handler(android.os.Looper.getMainLooper())
-        val ticker = object : Runnable {
-            override fun run() {
-                try {
-                    if (!preview.isPlaying()) return
-                    refreshTime()
-                    tickerHandler.postDelayed(this, 250)
-                } catch (_: Throwable) {
-                }
-            }
+        // gap above it is the space the user asked for. Play/Pause
+        // + Reset only (user 2026-11-28 19:03 IST: the live time
+        // next to Play is removed — the Start/Clip/End row below
+        // the timeline already shows the times).
+        val playBtn = PlayPauseButton(this).apply {
+            isClickable = true
+            isFocusable = true
+            layoutParams = LinearLayout.LayoutParams(dp(56), dp(56))
         }
         fun refreshPlayState() {
             try {
-                val playing = preview.isPlaying()
-                playBtn.text = if (playing) "❚❚" else "▶"
-                if (playing) {
-                    tickerHandler.removeCallbacks(ticker)
-                    tickerHandler.postDelayed(ticker, 250)
-                } else {
-                    tickerHandler.removeCallbacks(ticker)
-                    refreshTime()
-                }
-            } catch (_: Throwable) {
-            }
-        }
-        fun stepFrame(deltaMs: Int) {
-            try {
-                if (preview.isPlaying()) preview.pause()
-                val cur = preview.currentPosition.toLong()
-                val next = (cur + deltaMs).coerceIn(0L, durationMs)
-                preview.seekTo(next.toInt())
-                refreshTime()
-                refreshPlayState()
+                playBtn.playing = preview.isPlaying()
             } catch (_: Throwable) {
             }
         }
@@ -3952,9 +3985,6 @@ class VideoToolsActivity : AppCompatActivity() {
             }
         }
         controlsRow.addView(playBtn)
-        controlsRow.addView(timeTv)
-        controlsRow.addView(cutterPill("< Frame") { stepFrame(-33) })
-        controlsRow.addView(cutterPill("Frame >") { stepFrame(33) })
         controlsRow.addView(resetBtn)
         content.addView(controlsRow)
         preview.setOnClickListener {
@@ -4024,7 +4054,6 @@ class VideoToolsActivity : AppCompatActivity() {
                 cutEndMs = durationMs
                 refreshTimes()
                 preview.seekTo(0)
-                refreshTime()
                 refreshPlayState()
             } catch (_: Throwable) {
             }

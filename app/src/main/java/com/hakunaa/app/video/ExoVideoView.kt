@@ -10,6 +10,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.hakunaa.app.R
 
 /**
  * In-app video player (ExoPlayer / Media3) — drop-in replacement
@@ -27,10 +28,29 @@ import androidx.media3.ui.PlayerView
  * to fill (the square Quick header preview). No stretching.
  */
 class ExoVideoView @JvmOverloads constructor(
-    context: Context
+    context: Context,
+    // Rotate preview (user 2026-11-28): the Rotate tool rotates
+    // the preview view (preview.rotation). A SurfaceView does NOT
+    // follow View rotation — the video renders unrotated / wrong
+    // aspect, so the preview never matches the output. A
+    // TextureView IS a normal View, so it rotates with the view
+    // and the preview shows exactly what the output will be.
+    // Only the Rotate preview uses TextureView; every other
+    // preview keeps the default SurfaceView (unchanged).
+    useTextureView: Boolean = false
 ) : FrameLayout(context) {
 
-    private val playerView = PlayerView(context).apply {
+    private val playerView: PlayerView = if (useTextureView) {
+        // Media3 1.4.1 PlayerView has NO public setVideoSurfaceType
+        // (and SURFACE_TYPE_TEXTURE_VIEW is private) — the surface
+        // type can only be set via the app:surface_type XML
+        // attribute, so inflate the TextureView layout. aapt2
+        // validates the attribute at link time.
+        android.view.LayoutInflater.from(context)
+            .inflate(R.layout.exo_video_texture_view, this, false) as PlayerView
+    } else {
+        PlayerView(context)
+    }.apply {
         useController = false
         resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
         layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
